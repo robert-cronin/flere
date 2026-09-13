@@ -1,0 +1,149 @@
+[Documentation](../README.md) · [Quick start](../getting-started.md) · [Keyboard](../reference/keyboard.md)
+
+# Coordinate work across projects
+
+## Coordination and diagnostics
+
+New supported Codex launches register a task-scoped Flere stdio MCP server through ordinary native configuration. It exposes context, inbox, message, checkpoint, decision request, result submission, workflow status, bounded own-terminal reads and explicitly user-requested focus. Existing chats do not acquire a new MCP catalog just by refreshing the UI. Native repository and MCP trust remain yours to review.
+
+Messages have separate saved, surfaced and acknowledged timestamps. Opening a human message reader or reading the native inbox surfaces returned messages; handling requires explicit acknowledgement. Pending messages/decisions come before old retired records. Agents cannot answer human decisions or set Done; result submission requests review. Codex delivery now uses optional native hooks and an idle queue, with separate transport receipts. Human previews do not count as delivery to an agent. See the [agent-message activation guide](agents.md#activate-agent-message-delivery). MCP registration and automatic delivery for Claude/Copilot remain pending.
+
+The private Unix socket supports bounded live inspection while attached or detached:
+
+```sh
+flere --state ~/.local/state/flere list
+flere --state ~/.local/state/flere capture --session ID --run TOKEN --lines 60
+flere --state ~/.local/state/flere focus WORKSPACE_ID TAB_ID
+```
+
+`list` reports exact workspace/session/run/process identities. Capture emits passive JSON and at most 200 recent lines. Explicit diagnostic input separates text from keys, rejects stale/mismatched targets and records target/run/byte count without recording typed text:
+
+```sh
+flere --state ~/.local/state/flere send --session ID --run TOKEN --text 'literal text'
+flere --state ~/.local/state/flere send --session ID --run TOKEN --key Enter
+```
+
+Literal text rejects embedded control keys. Multiline diagnostic text is allowed only for a child advertising bracketed paste. Nothing automatically submits native approvals. The same-user socket is an ownership boundary, not a sandbox against other programs running as your OS user.
+
+`coordinate WORKSPACE_ID OPERATION JSON` provides the human CLI path for local coordination. `close --session ID --run TOKEN --terminate` and `stop --terminate` explicitly hang up the targeted terminal or this instance; detach to preserve sessions. Programs deliberately ignoring hangup can outlive termination.
+
+State defaults to `$XDG_STATE_HOME/flere` or `~/.local/state/flere` in a private directory. Metadata and coordination share an atomic versioned store; UI preferences, run specifications, socket, lock, action receipts and supervisor log are also local. Child temporary files use the Flere home/XDG cache, not system `/tmp`. No Switchyard data is imported or modified, and Flere has no GitHub publication feature.
+
+## Assignments and agent startup
+
+A shell card is preparation. Issue or saved-chat cards with no hosted native tab say
+**no agent**; a hosted agent and observed working animation remain distinct.
+For authorized implementation work, any agent uses this sequence through Flere MCP:
+
+1. `list_workspaces` obtains exact current workspace IDs, directories and epoch.
+2. Use `add_project` with `cwd` and optional `name` to create/reuse the main checkout card without launching a shell or moving human focus. For a **new agent card**, use `prepare_workspace` with `name` and `cwd`, or
+   `name`, `repository`, `branch`, `base` for a Git worktree. Either accepts an
+   optional `project`, saved with the new card.
+   Within Git, the directory form reuses project topology: an unregistered main checkout becomes its primary card; subsequent cards get linked worktrees. Non-Git directories retain the low-level loose-card behavior. Preparation preserves human focus and creates a stopped card without an extra shell.
+   Retain the returned workspace ID and wait for Git preparation to finish.
+   Existing cards keep their tabs.
+3. `prepare_worker` saves a bounded assignment and the actual user request, with
+   `request_id`, `workspace`, `expected_epoch` and `expected_cwd`. It starts nothing.
+4. `start_worker` launches that exact `dispatch_id` when authorized. Repeating the
+   ID returns its existing attempt. It preserves the current selected tab/draft.
+5. `worker_status` distinguishes host/native startup, assignment surfaced and
+   assignment acknowledged. The requesting agent checks these before reporting dispatch ready;
+   actual progress still requires a worker checkpoint/result.
+
+Human `new` and `worktree` commands still open the default shell. For agent
+preparation from the CLI, add `--no-shell`; then use the normal worker dispatch
+steps. The sole agent tab returns to the configured default shell on native exit.
+Creating a workspace is not retry-idempotent: if a creation reply is lost, inspect
+`list_workspaces` before repeating it. No existing shells are closed automatically.
+Older supervisors reject these new preparation commands; refresh first.
+
+Fresh Codex workers get a short instruction to call `get_context`, read their
+assignment/inbox and call `ack_assignment`. The brief stays in the private state
+store. Existing conversations continue through explicit exact-UUID resume with no
+appended context dump. Dispatch refuses workspaces with existing native work or
+saved conversations, so it cannot silently replace a chat already underway.
+
+A native approval refusal must be recorded with `report_worker_block` and reported
+to the user. The blocked ID never launches. Do not retry through terminal input,
+raw sockets, another tool or changed permission settings. A later explicit human
+clarification may support a newly reviewed attempt; stored request text does not
+grant authority. `cancel_worker` cancels only unlaunched preparation, retaining
+its record. An uncertain attempt must be inspected rather than automatically retried.
+
+After **Ctrl+Space → Space → Shift+R**, an existing agent with an older MCP catalog
+can use the supported CLI without restarting its chat:
+
+```sh
+flere --state "$FLERE_STATE" agent-call get_context
+flere --state "$FLERE_STATE" agent-call list_workspaces
+```
+
+`agent-call OP JSON` uses the caller's existing `FLERE_SESSION` and
+`FLERE_RUN`; never copy another run's identity or substitute human `coordinate`
+for a refused agent operation. New native sessions receive the expanded MCP
+catalog. Actual Codex assignment handling still needs native acceptance with
+ordinary repository/MCP trust; process fixtures do not prove that acceptance.
+Once dispatch records exist, older binaries reject refresh/store loading rather
+than discarding them. Existing cards can use this flow; recreation is unnecessary.
+
+## Card administration
+
+Any live agent can use `update_workspace` to edit an existing card's `name`, `project`,
+`pinned`, `status`, `notes`, `issue` and `pr`. Read `list_workspaces` first and
+supply its `epoch` as `expected_epoch` and the exact target workspace ID.
+
+Updates containing `status`, `notes`, `issue` or `pr` also require
+`expected: {"name": CARD_NAME, "meta": COMPLETE_CARD_META}` copied from that
+listing. The supervisor compares the full name/metadata before saving. A worker
+status change, human note edit, rename or any other metadata difference rejects
+the update even within the same epoch. Re-read and reconcile on a conflict;
+never automatically replace the expectation and repeat an old decision. This
+compares values, so an identical restored value still matches. Terminal output
+and focus do not invalidate an otherwise current expectation.
+
+At least one editable field is required. Omitted fields stay unchanged; explicit
+empty strings clear `project`, `notes`, `issue` or `pr`. Only `todo`, `in-progress`,
+`needs-me` and `waiting` are writable statuses. A user-deferred card can use
+`waiting` with a note explaining the settled decision and when to revisit it.
+No new workflow state is needed. Legacy name/project/pin-only calls may omit
+`expected`; when supplied, it is always checked, including on those calls.
+
+The combined edit validates and saves atomically with rollback on save failure.
+Unknown fields, nulls and wrong types are rejected. Name is 1–256 bytes without
+controls; project/issue/pr are at most 2048 bytes without controls; notes support
+multiline text up to the existing 64 KiB metadata limit. The existing transport
+also bounds the entire JSON argument (including `expected`) to 64 KiB; large
+combined requests can hit that bound before a field's own limit. Links remain
+inert text and are not fetched or used as publication authority.
+
+Any card can be pinned or unpinned. This operation cannot mark Done/accept work, archive, change
+role, cwd, branch, base or conversations, operate terminals or alter focus.
+Native session/run checks remain mandatory. Existing agents can use their own
+scoped CLI after the supervisor is refreshed, without restarting their chat to
+acquire a newer MCP catalog. For example, from the live agent's own terminal:
+
+```sh
+flere --state "$FLERE_STATE" agent-call list_workspaces
+flere --state "$FLERE_STATE" agent-call update_workspace '{"workspace":43,"expected_epoch":"EPOCH_FROM_LIST","name":"Builder","project":"flere","pinned":true}'
+```
+
+For a guarded reconciliation, this example selects card 43 from a fresh listing,
+builds the exact expectation, then submits a waiting status and next-action note.
+Change the target ID and note to the intended, authorized decision:
+
+```sh
+update=$(flere --state "$FLERE_STATE" agent-call list_workspaces |
+  python3 -c 'import json,sys
+listing = json.load(sys.stdin)
+card = next(w for w in listing["workspaces"] if w["id"] == int(sys.argv[1]))
+print(json.dumps({"workspace":card["id"], "expected_epoch":listing["epoch"],
+  "expected":{"name":card["name"], "meta":card["meta"]},
+  "status":"waiting", "notes":"Deferred by user; retain candidate until revisited."}))' 43)
+flere --state "$FLERE_STATE" agent-call update_workspace "$update"
+```
+
+The response includes `epoch` and the updated `workspace` (`id`, `name`, `cwd`,
+complete `meta`) for readback. The same operation is available to a human through
+`coordinate WORKSPACE_ID update_workspace JSON`; an agent must keep using its
+own `agent-call` identity. `coordinate` is not a fallback for a rejected native
+request. Supervisors before 0.2.13 reject the new fields explicitly.

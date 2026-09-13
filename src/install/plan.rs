@@ -1,0 +1,256 @@
+//! A reviewed, immutable candidate shared by local and companion update flows.
+//! Preparation never replaces an installed command or starts a supervisor.
+use super::*;
+use serde::{Deserialize, Serialize};
+use std::{
+    os::unix::fs::OpenOptionsExt,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+const LIFETIME: u64 = 15 * 60;
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Plan {
+    schema_version: u64,
+    token: String,
+    expires: u64,
+    runtime: RuntimeIdentity,
+    candidate: InstalledPackage,
+    source: PackageSource,
+    status: String,
+    receipt: Option<InstallReceipt>,
+}
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn location(store: &Store, token: &str) -> io::Result<PathBuf> {
+    if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(invalid("invalid prepared update token"));
+    }
+    Ok(store.root.join("plans").join(format!("{token}.json")))
+}
+fn source_package(
+    store: &Store,
+    state: &Path,
+    source: &str,
+) -> io::Result<(StagedPackage, PackageSource)> {
+    if source == "--rollback" {
+        let receipt = store
+            .status()?
+            .ok_or_else(|| invalid("installation is not managed"))?;
+        let previous = receipt
+            .previous
+            .ok_or_else(|| invalid("no previous package retained"))?;
+        let staged = store.stage(
+            previous
+                .executable
+                .parent()
+                .ok_or_else(|| invalid("invalid retained package"))?,
+        )?;
+        return Ok((staged, receipt.source));
+    }
+    let source = if source.is_empty() {
+        if let Some(checkout) = store.local_source()? {
+            let bytes = run(
+                Command::new(checkout.join("scripts/dev"))
+                    .args(["package", "--state"])
+                    .arg(state)
+                    .stdin(Stdio::null()),
+                MAX_RECEIPT as usize,
+                Duration::from_secs(1800),
+            )?;
+            let result: serde_json::Value =
+                serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+            let artifact = result["artifact"]
+                .as_str()
+                .ok_or_else(|| invalid("development packaging did not return its artifact"))?;
+            return Ok((
+                store.stage(&Path::new(artifact).join("flere"))?,
+                PackageSource::Local,
+            ));
+        }
+        match store.status()?.map(|r| r.source) {
+            Some(PackageSource::Public { manifest_url }) => manifest_url,
+            _ => {
+                return Err(invalid(
+                    "choose a package or HTTPS manifest, or register a development checkout",
+                ));
+            }
+        }
+    } else {
+        source.into()
+    };
+    if source.starts_with("https://") {
+        private_dir(&store.root)?;
+        let path = store
+            .root
+            .join(format!(".download-{}", crate::os::nonce()?));
+        download(&source, &path)?;
+        let staged = store.stage(&path);
+        let _ = fs::remove_dir_all(&path);
+        Ok((
+            staged?,
+            PackageSource::Public {
+                manifest_url: source,
+            },
+        ))
+    } else {
+        let path = PathBuf::from(source);
+        let path = if path.is_absolute() {
+            path
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        Ok((store.stage(&path)?, PackageSource::Local))
+    }
+}
+pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
+    let store = Store::for_user("flere")?;
+    let action = args.first().map(String::as_str).unwrap_or("");
+    if args.len() != 2 {
+        return Err(invalid(
+            "usage: update-prepare SOURCE | update-apply TOKEN | update-plan TOKEN",
+        ));
+    }
+    if action == "update-prepare" {
+        ensure_update_endpoint(state)?;
+        let before = runtime_identity(state)?;
+        let (staged, source) = source_package(&store, state, &args[1])?;
+        if !staged.package.manifest.build.accepts_runtime(&before.build) {
+            return Err(invalid(
+                "candidate cannot read the selected runtime handoff/state",
+            ));
+        }
+        let actual = runtime_identity(state)?;
+        if actual.epoch != before.epoch || actual.pid != before.pid || actual.build != before.build
+        {
+            return Err(invalid(
+                "supervisor changed while preparing update; installation retained",
+            ));
+        }
+        let token = crate::os::nonce()?;
+        let plan = Plan {
+            schema_version: 1,
+            token: token.clone(),
+            expires: now() + LIFETIME,
+            runtime: actual,
+            candidate: staged.package,
+            source,
+            status: "prepared".into(),
+            receipt: None,
+        };
+        private_dir(&store.root.join("plans"))?;
+        atomic_json(&location(&store, &token)?, &plan)?;
+        return serde_json::to_vec_pretty(&plan).map_err(io::Error::other);
+    }
+    if !matches!(action, "update-apply" | "update-plan") {
+        return Err(invalid("unknown prepared update command"));
+    }
+    let path = location(&store, &args[1])?;
+    if action == "update-plan" {
+        let plan: Plan = read_bounded_json(&path, MAX_RECEIPT)?;
+        if plan.schema_version != 1 || plan.token != args[1] || plan.runtime.state != state {
+            return Err(invalid(
+                "prepared update does not belong to the selected state",
+            ));
+        }
+        let readiness = (|| -> io::Result<()> {
+            if plan.status != "prepared" || now() > plan.expires {
+                return Err(invalid("plan is expired or no longer awaiting apply"));
+            }
+            let actual = runtime_identity(state)?;
+            if actual.epoch != plan.runtime.epoch
+                || actual.pid != plan.runtime.pid
+                || actual.build != plan.runtime.build
+            {
+                return Err(invalid("supervisor changed since preparation"));
+            }
+            plan.candidate.manifest.verify(
+                plan.candidate
+                    .executable
+                    .parent()
+                    .ok_or_else(|| invalid("invalid prepared package path"))?,
+            )
+        })();
+        let mut value = serde_json::to_value(&plan).map_err(io::Error::other)?;
+        value["ready"] = readiness.is_ok().into();
+        value["readiness_detail"] = readiness
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default()
+            .into();
+        return serde_json::to_vec_pretty(&value).map_err(io::Error::other);
+    }
+    // One plan cannot be applied twice by concurrent SSH helpers. No filesystem
+    // lock is held by the supervisor; installation's own lock is separate.
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path.with_extension("lock"))?;
+    if !lock.metadata()?.is_file() {
+        return Err(invalid("invalid update plan lock"));
+    }
+    lock.try_lock()
+        .map_err(|_| invalid("prepared update is being applied by another process"))?;
+    let mut plan: Plan = read_bounded_json(&path, MAX_RECEIPT)?;
+    if plan.schema_version != 1 || plan.token != args[1] || plan.runtime.state != state {
+        return Err(invalid(
+            "prepared update does not belong to the selected state",
+        ));
+    }
+    if let Some(receipt) = &plan.receipt {
+        return serde_json::to_vec_pretty(receipt).map_err(io::Error::other);
+    }
+    if plan.status != "prepared" {
+        return Err(invalid(
+            "prepared update has an uncertain prior attempt; inspect install-status before retrying",
+        ));
+    }
+    if now() > plan.expires {
+        return Err(invalid(
+            "prepared update expired; prepare a fresh candidate",
+        ));
+    }
+    ensure_update_endpoint(state)?;
+    let before = runtime_identity(state)?;
+    if before.epoch != plan.runtime.epoch
+        || before.pid != plan.runtime.pid
+        || before.build != plan.runtime.build
+    {
+        return Err(invalid(
+            "prepared update targets a different supervisor generation; installation retained",
+        ));
+    }
+    // Capture the current session set immediately before activation. Work opened
+    // during review is preserved too; the plan never restores an old tab layout.
+    let staged = store.stage(
+        plan.candidate
+            .executable
+            .parent()
+            .ok_or_else(|| invalid("invalid candidate directory"))?,
+    )?;
+    if staged.package != plan.candidate {
+        return Err(invalid("prepared candidate changed before apply"));
+    }
+    plan.status = "applying".into();
+    atomic_json(&path, &plan)?;
+    let receipt = store.install(&staged, plan.source.clone(), true)?;
+    let activation = activate(state, &receipt.current, &before);
+    let receipt = if activation.can_restore_installation && receipt.previous.is_some() {
+        store.restore_rejected(&receipt.attempt, activation)?
+    } else {
+        store.record_activation(&receipt.attempt, activation)?
+    };
+    plan.status = receipt.status.clone();
+    plan.receipt = Some(receipt.clone());
+    atomic_json(&path, &plan)?;
+    serde_json::to_vec_pretty(&receipt).map_err(io::Error::other)
+}

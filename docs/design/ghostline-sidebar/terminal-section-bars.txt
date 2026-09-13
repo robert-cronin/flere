@@ -1,0 +1,42 @@
+
+  GHOSTLINE / A · SECTION BARS
+  Design illustration · fixed terminal cells · exactly four cards
+
+  46 columns · window width ≥134                    28 columns · window ≥62
+
+   WORKSPACES                                4 │     WORKSPACES              4 │
+   6 open tabs                                 │     6 open tabs               │
+                                               │                               │
+  ▌   Pinned                               [1] │    ▌   Pinned             [1] │
+   ┃▾ [R] Flere                              3 │     ┃▾ [R] Flere            3 │
+   ┃      flere / main                         │     ┃      flere / main       │
+   ┃  ├─  › zsh                       current  │     ┃  ├─  › zsh            ● │
+   ┃  ├─  › zsh                       running  │     ┃  ├─  › zsh            ● │
+   ┃  └─  ≡ TODO-ACTIVE.md            editor   │     ┃  └─  ≡ TODO-ACTIVE.md ● │
+   ┃                                           │     ┃                         │
+  └────────────────────────────────────────────┘    └──────────────────────────┘
+                                               │                               │
+  ▌   Needs me                             [1] │    ▌   Needs me           [1] │
+    ▾ [S] Workspace 1                        2 │      ▾ [S] Workspace 1      2 │
+          sample-project-fixture               │            sample-project-fi… │
+      ├─  › zsh                       running  │        ├─  › zsh            ● │
+      └─  › zsh                       running  │        └─  › zsh            ● │
+                                               │                               │
+  └────────────────────────────────────────────┘    └──────────────────────────┘
+                                               │                               │
+  ▌   Todo                                 [2] │    ▌   Todo               [2] │
+    ▾ [S] Session restore                    1 │      ▾ [S] Session restore  1 │
+          sample-project-fixture               │            sample-project-fi… │
+      └─  › codex                     running  │        └─  › codex          ● │
+                                               │                               │
+    ▸ [E] ExampleCo                          0 │      ▸ [E] ExampleCo        0 │
+          stopped · no open tabs               │            stopped · no open… │
+                                               │                               │
+  └────────────────────────────────────────────┘    └──────────────────────────┘
+                                               │                               │
+
+
+  FIXED GUTTERS / ZERO-BASED COLUMNS
+  Disclosure 2 · icon 4–6 · title 8 · child name 10 · count W−3
+  Narrow metadata truncates; selected parent and children share one surface.
+  Portable Frame renderer / no live app state or role semantics

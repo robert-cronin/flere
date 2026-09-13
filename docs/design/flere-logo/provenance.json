@@ -1,0 +1,67 @@
+{
+  "tool": "built-in image_gen",
+  "generated_concepts": [
+    {
+      "id": "01-still-companion",
+      "name": "Still Companion",
+      "file": "01-still-companion.png",
+      "sha256": "2f40b5df123b41acb6b54c228ae4338010e63582fc0a4c7e440d84e3e89b6991"
+    },
+    {
+      "id": "02-peer-bloom",
+      "name": "Peer Bloom",
+      "file": "02-peer-bloom.png",
+      "sha256": "c310fc25a15baa7e39bc53426406f964cf22d209fd18b3492738754230067918"
+    },
+    {
+      "id": "03-soft-wayfinder",
+      "name": "Soft Wayfinder",
+      "file": "03-soft-wayfinder.png",
+      "sha256": "92b964de483ce6c347b28d07a44eeea3e28dc31b959540a8d31fb6316a5621c1"
+    },
+    {
+      "id": "04-open-orbital",
+      "name": "Open Orbital",
+      "file": "04-open-orbital.png",
+      "sha256": "3c2adb0da2426ce339fcc80a971f37c5dbf6c456d29d6564783495ea2eb1dad3"
+    },
+    {
+      "id": "05-prompt-cradle",
+      "name": "Prompt Cradle",
+      "file": "05-prompt-cradle.png",
+      "sha256": "3f4ab1e395ac6685d31b981e2c0ad97ef0e42e50d42c2ee84225101329ac574f"
+    },
+    {
+      "id": "06-little-company",
+      "name": "Little Company",
+      "file": "06-little-company.png",
+      "sha256": "5b77c2c0cd9e5931d7c30bd7930a079ddf13debcb25167016f40f5fa729a53fb"
+    },
+    {
+      "id": "07-folded-courier",
+      "name": "Folded Courier",
+      "file": "07-folded-courier.png",
+      "sha256": "ab709c4a97452780d7deebb1858c678e16242c709ac46a3b1391ada512498360"
+    },
+    {
+      "id": "08-comet-puck",
+      "name": "Comet Puck",
+      "file": "08-comet-puck.png",
+      "sha256": "e884353ee36816734344e04b42a5c79210c4134c370e655f7f59aaddc647b99b"
+    },
+    {
+      "id": "09-pocket-mind",
+      "name": "Pocket Mind",
+      "file": "09-pocket-mind.png",
+      "sha256": "cceea758367efa5aa6c33c969065bc569b0aeb2ad4493fbdcec3fbb77aa62715"
+    },
+    {
+      "id": "10-pixel-drifter",
+      "name": "Pixel Drifter",
+      "file": "10-pixel-drifter.png",
+      "sha256": "e068dbd59dc98335b4e80b8cdcaeeaac8844c3e7490eb4602e42713478467f52"
+    }
+  ],
+  "derivation": "Byte-for-byte copies of original outputs; no alpha keying, raster retouching or production resizing.",
+  "provenance_scope": "Retained original output filenames and SHA-256 hashes; private generator filesystem locations are omitted."
+}

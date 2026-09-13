@@ -1,0 +1,25 @@
+[package]
+name = "flere-connect"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.98"
+description = "Optional local OpenSSH and clipboard companion for Flere"
+build = "../build-support/build.rs"
+
+[dependencies]
+clipboard-rs = { version = "0.3.5", features = ["wayland"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+png = "0.18"
+jpeg-decoder = { version = "0.3", default-features = false }
+
+[build-dependencies]
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Offline developer validation, packaging, and explicit session-preserving update.
+
+Ordinary cargo build remains build-only. All artifacts live in private home cache.
+An update registers this exact checkout for the UI; it never infers a workspace cwd.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("package", "update"))
+    parser.add_argument("--state")
+    parser.add_argument("--frontend", action="store_true")
+    parser.add_argument("--adopt", action="store_true")
+    parser.add_argument("--with-companion", action="store_true",
+                        help="also validate/package and install the Unix companion first")
+    args = parser.parse_args()
+    if args.action != "update" and (args.frontend or args.adopt):
+        parser.error("--frontend/--adopt apply only to update")
+    checkout = Path(__file__).resolve().parent.parent
+    cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    if not cache.is_absolute():
+        parser.error("XDG_CACHE_HOME must be absolute")
+    work = cache / "flere" / "dev-updates"
+    work.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if work.is_symlink() or work.stat().st_uid != os.getuid() or work.stat().st_mode & 0o077:
+        parser.error("development update cache must be private and user-owned")
+    artifact = Path(tempfile.mkdtemp(prefix="candidate-", dir=work))
+    binary = checkout / "target" / "debug" / "flere"
+    release = checkout / "target" / "release" / "flere"
+
+    def run(command, capture=False):
+        print("+ " + " ".join(map(str, command)), file=sys.stderr, flush=True)
+        with (artifact / "validation.log").open("a") as log:
+            return subprocess.run(list(map(str, command)), cwd=checkout, check=True,
+                                  stdout=subprocess.PIPE if capture else log,
+                                  stderr=sys.stderr if capture else subprocess.STDOUT,
+                                  text=True).stdout
+
+    def cli(arguments, capture=True):
+        prefix = [binary]
+        if args.state:
+            prefix += ["--state", args.state]
+        return json.loads(run(prefix + arguments, capture=capture))
+
+    # Build the inspection helper first, then bind all verification to one source
+    # fingerprint. The receipt states actual commands, not release-runtime proof.
+    run(["cargo", "build", "--offline"])
+    before = cli(["source-digest", checkout, artifact / "scratch"])
+    checks = [
+        ["cargo", "fmt", "--check"],
+        ["cargo", "clippy", "--offline", "--all-targets", "--", "-D", "warnings"],
+        ["cargo", "test", "--offline"],
+        ["cargo", "build", "--offline", "--release"],
+    ]
+    if args.with_companion:
+        manifest = "companion/Cargo.toml"
+        checks += [
+            ["cargo", "fmt", "--manifest-path", manifest, "--check"],
+            ["cargo", "clippy", "--offline", "--manifest-path", manifest, "--all-targets", "--", "-D", "warnings"],
+            ["cargo", "test", "--offline", "--manifest-path", manifest],
+            ["cargo", "build", "--offline", "--release", "--manifest-path", manifest],
+        ]
+    for check in checks:
+        run(check)
+    after = cli(["source-digest", checkout, artifact / "scratch"])
+    if before != after:
+        raise RuntimeError("source changed during verification; no installation was attempted")
+    after["checks"] = [" ".join(check) for check in checks]
+    receipt = artifact / "source-receipt.json"
+    receipt.write_text(json.dumps(after, indent=2) + "\n")
+    core = artifact / "flere"
+    core_manifest = cli(["package", release, core, receipt])
+    companion = artifact / "flere-connect"
+    if args.with_companion:
+        companion_manifest = cli(["package", checkout / "companion/target/release/flere-connect",
+                                  companion, receipt])
+        accepts = companion_manifest["build"]["compatibility"]["remote_protocol"]["accepts"]
+        if core_manifest["build"]["compatibility"]["remote_protocol"]["current"] not in accepts:
+            raise RuntimeError("candidate companion cannot read candidate core; no installation attempted")
+    final = cli(["source-digest", checkout, artifact / "scratch"])
+    if final != before:
+        raise RuntimeError("source changed while packaging; no installation was attempted")
+    result = {"schema_version": 1, "status": "packaged", "artifact": str(artifact),
+              "source": after, "core_manifest": core_manifest}
+    (artifact / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    if args.action == "update":
+        cli(["update-check"])
+        if args.with_companion:
+            # The new companion must read the old core throughout a non-atomic
+            # two-component installation. No supervisor is launched for discovery.
+            observed = cli(["build-status"])
+            running = observed["supervisor"]
+            if running["status"] == "known":
+                old_protocol = running["build"]["compatibility"]["remote_protocol"]["current"]
+                if old_protocol not in accepts:
+                    raise RuntimeError("candidate companion cannot read running core; no installation attempted")
+            elif running["status"] != "unreachable":
+                raise RuntimeError("running core compatibility is unknown; no installation attempted")
+            # Both packages were verified before this first component changes.
+            result["companion"] = cli(["install", companion, "--component", "flere-connect"]
+                                      + (["--adopt"] if args.adopt else []))
+            (artifact / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        result["core"] = cli(["update", core] + (["--frontend"] if args.frontend else [])
+                             + (["--adopt"] if args.adopt else []))
+        result["status"] = result["core"]["status"]
+        cli(["dev-source", checkout])
+        (artifact / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        # UI helper expects the core InstallReceipt, while the complete component
+        # transaction remains available in the artifact reported on stderr.
+        print(json.dumps(result["core"], indent=2))
+    else:
+        print(json.dumps(result, indent=2))
+    print(f"Developer update receipt: {artifact / 'result.json'}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        print(f"Developer update stopped: {error}. Inspect the retained validation log and installation receipt for any partial activation.", file=sys.stderr)
+        sys.exit(1)

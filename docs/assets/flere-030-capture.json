@@ -1,0 +1,53 @@
+{
+  "version": "0.3.0",
+  "build": {
+    "build_id": "0bb94b638543a54c-18d4e28e43a88ad0-375e",
+    "compatibility": {
+      "control_identity": "flere-v4",
+      "refresh_handoff": {
+        "current": 6,
+        "read_max": 6,
+        "read_min": 1
+      },
+      "remote_protocol": {
+        "accepts": [
+          "flere-remote-v6"
+        ],
+        "current": "flere-remote-v6"
+      },
+      "saved_state": {
+        "current": 7,
+        "read_max": 7,
+        "read_min": 2
+      },
+      "snapshot": {
+        "current": 5,
+        "read_max": 5,
+        "read_min": 1
+      }
+    },
+    "component": "flere",
+    "identity_kind": "cargo_generation_stamp",
+    "package_version": "0.3.0",
+    "profile": "release",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: aarch64-apple-darwin\nrelease: 1.98.0\nLLVM version: 22.1.8",
+    "schema_version": 1,
+    "target": "aarch64-apple-darwin"
+  },
+  "binary_sha256": "81a6d4c2de974925063217ffd9dd23f3ca637b192eac63086d67d874a0c7b233",
+  "source": "examples/docs_demo.rs and examples/capture_intro.rs",
+  "scope": "Actual release UI PTY captures in generated private fixtures; no native agent or user session",
+  "workbench_cells": [
+    140,
+    30
+  ],
+  "intro_cells": [
+    140,
+    38
+  ],
+  "rasterizer": "docs/tools/render_demo.py with local Menlo 16px; terminal glyph appearance may differ",
+  "capture_sha256": {
+    "workbench": "ce0d1a7fa448e823edf4ac38ad5a8fd7464d2f5b64b9ed056930a39d839c3f03",
+    "intro": "6afe61210e1cd3b7941435f935c0f508e1078c75034d629d0862a40abee11d3c"
+  }
+}
