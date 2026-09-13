@@ -1,5 +1,5 @@
 //! Offline encoder diagnostic: encode a bounded raw RGB fixture (not a product decoder).
-#[path = "../src/sixel.rs"]
+#[path = "../../src/sixel.rs"]
 mod sixel;
 use std::io::{self, Read, Write};
 fn main() -> io::Result<()> {

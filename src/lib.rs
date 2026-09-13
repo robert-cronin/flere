@@ -37,5 +37,4 @@ pub mod avatar;
 
 pub mod pet;
 // Shared bounded encoder for Flere-owned graphics.
-#[path = "../companion/src/sixel.rs"]
 pub mod sixel;

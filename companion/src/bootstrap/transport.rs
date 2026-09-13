@@ -9,6 +9,9 @@ use std::{
 /// Only the embedded script is executable shell text. Every variable is one
 /// quoted positional argument, including aliases, paths and package identities.
 pub(super) fn script(script: &str, arguments: &[&str]) -> io::Result<String> {
+    // include_str! preserves Windows checkout line endings. Remote POSIX shells
+    // treat CR as part of tokens (including `set -eu`), so normalize script text.
+    let script = script.replace("\r\n", "\n");
     let mut command = format!("exec sh -c '{}' sh", script.replace('\'', "'\\''"));
     for argument in arguments {
         command.push(' ');

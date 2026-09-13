@@ -55,6 +55,7 @@ use protocol as remote_protocol;
     dead_code,
     reason = "Shared Sixel helpers include test/reference encoding utilities"
 )]
+#[path = "../../src/sixel.rs"]
 mod sixel;
 use protocol::Packet;
 use std::{

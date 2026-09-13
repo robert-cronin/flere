@@ -25,7 +25,8 @@ fn main() {
         _ => panic!("unexpected Flere component"),
     };
     // These directory watches include embedded fonts, pet art and shell/editor hooks.
-    // Both crates import source from the other, outside their own manifest directory.
+    // The companion imports core source outside its own manifest directory. The
+    // registry core package intentionally has no sibling companion package.
     for relative in [
         "src",
         "companion/src",
@@ -35,7 +36,12 @@ fn main() {
         "companion/Cargo.toml",
         "companion/Cargo.lock",
     ] {
-        watch(&root.join(relative));
+        let path = root.join(relative);
+        // Cargo treats a missing watched path as changed on every invocation.
+        // Optional sibling source must not rotate a packaged core's cached stamp.
+        if path.exists() {
+            watch(&path);
+        }
     }
     // Cargo itself tracks configuration and toolchain selection. Existing local files
     // are also explicit inputs; absent paths would force every no-op build to rerun.

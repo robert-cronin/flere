@@ -3,7 +3,21 @@ name = "flere"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.98"
-description = "A small Linux and macOS terminal workbench with a custom UI"
+description = "A terminal workbench for persistent shells, peer agents, editors, and Git"
+license = "MIT AND OFL-1.1"
+repository = "https://github.com/robert-cronin/flere"
+readme = "packaging/cargo/README.md"
+keywords = ["terminal", "workspace", "agents", "git", "editor"]
+categories = ["command-line-utilities", "development-tools"]
+include = [
+    "/src/**",
+    "/build-support/**",
+    "/tests/fixtures/local-image.png",
+    "/tests/fixtures/local-image.jpg",
+    "/packaging/cargo/README.md",
+    "/LICENSE",
+    "/Cargo.lock",
+]
 build = "build-support/build.rs"
 
 [dependencies]

@@ -151,6 +151,24 @@ fn live_compatibility_is_decided_from_runtime_and_bridge_not_version_text() {
 }
 
 #[test]
+fn embedded_shell_scripts_accept_windows_checkout_line_endings() {
+    for source in [
+        include_str!("probe.sh"),
+        include_str!("receive.sh"),
+        include_str!("cleanup.sh"),
+    ] {
+        let unix = source.replace("\r\n", "\n");
+        let windows = unix.replace('\n', "\r\n");
+        let arguments = ["/home/a b/%!&^/it's literal", ""];
+        let command = transport::script(&windows, &arguments).unwrap();
+        assert!(!command.contains('\r'));
+        assert_eq!(command, transport::script(&unix, &arguments).unwrap());
+    }
+    // Normalization is only for the embedded script, never caller arguments.
+    assert!(transport::script("set -eu\r\n", &["bad\r\nargument"]).is_err());
+}
+
+#[test]
 fn shell_arguments_are_literal_and_remote_paths_are_platform_independent() {
     let command = transport::command(
         "/home/a b/flere",
