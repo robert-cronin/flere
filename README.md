@@ -35,7 +35,19 @@ Git, your editor, shells, and agent CLIs run as external programs.
 
 ## Start in a project directory
 
-On macOS Apple Silicon or Linux x86_64, install from the
+On macOS Apple Silicon or Linux x86_64 GNU (glibc 2.39+), install prebuilt
+packages with **Python 3.9+** and Wget:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh
+"$HOME/.local/bin/flere" --version
+```
+
+No Rust or source checkout is required. The bootstrap verifies the published
+installer before running it. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
+for curl, `--core-only`, PATH setup and existing-installation rules.
+
+Or install from the
 [published Homebrew source tap](https://github.com/robert-cronin/homebrew-flere):
 
 ```sh

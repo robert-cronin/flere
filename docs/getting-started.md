@@ -5,9 +5,47 @@
 Flere 0.3.0 is a clean rename. Commands, package IDs, hooks, environment markers
 and new private folders use `flere`; old Railhand installations are separate.
 
-Choose Homebrew below or see [installation channels](distribution.md) for
-prebuilt downloads and other package-manager status. The development workflow
-uses a source checkout.
+Choose the prebuilt terminal installer or Homebrew below. See
+[installation channels](distribution.md) for other package-manager status.
+The development workflow uses a source checkout.
+
+## Install from your terminal
+
+On **macOS Apple Silicon** or **Linux x86_64 GNU (glibc 2.39+)**, with
+**Python 3.9 or newer** and either Wget or curl:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh
+```
+
+Or with curl:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh
+```
+
+Both commands install the core and optional SSH/clipboard companion into
+`~/.local/bin`. On a remote server that needs only the core, forward
+`--core-only` to the installer:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh -s -- --core-only
+"$HOME/.local/bin/flere" --version
+```
+
+The [shell bootstrap](../scripts/install.sh) downloads the published v0.3.0
+Python installer over HTTPS and checks its pinned size and SHA-256 before running
+it. That installer verifies packages from the current public release channel;
+currently v0.3.0. It requires no Rust, source checkout, GitHub login or sudo,
+and does not install system tools, edit PATH or start chats. Add `~/.local/bin`
+to PATH to use `flere` directly. Git and Vim/Neovim are needed for their respective
+workbench features.
+
+Existing installations are not automatically adopted. Keep package-manager
+installs under their manager; pass `--adopt` only when intentionally adopting an
+existing manual user installation. Other installer arguments are forwarded
+unchanged. Intel macOS prebuilt packages and Windows publication remain pending;
+see [platform limits](reference/compatibility.md) and the source build below.
 
 ## Install with Homebrew
 
