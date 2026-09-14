@@ -18,7 +18,7 @@ import zipfile
 
 sys.dont_write_bytecode = True
 PROJECT = Path(__file__).resolve().parents[2]
-COMMIT = "3401a77193821b2c33127d2001239fb983a3712b"
+COMMIT = "422058c0fa4dda3cff7693a32953fea1b2c5404e"
 VERSION = "0.3.4"
 TARGET = "x86_64-pc-windows-msvc"
 TOOLCHAIN = "1.98.0"

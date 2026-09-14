@@ -11,7 +11,7 @@ is tracked in [the handoff](../../docs/windows-acceptance-handoff.md).
 
 The manual **Windows companion candidate** workflow prepares the unpublished
 v0.3.4 companion from exact public source
-`3401a77193821b2c33127d2001239fb983a3712b` on a disposable Windows Server 2025
+`422058c0fa4dda3cff7693a32953fea1b2c5404e` on a disposable Windows Server 2025
 AMD64 runner. It compares actual checkout bytes with Git blobs, installs Rust
 1.98.0 MSVC, fetches locked dependencies, then runs offline formatting, strict
 Clippy, companion tests and the release build. It packages those same bytes with
