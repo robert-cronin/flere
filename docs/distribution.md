@@ -190,8 +190,14 @@ A Linux release cannot supply an absent Windows payload, and Windows recipes do
 not package the core. The unnotarized Homebrew binary casks remain separate from
 the source tap. These generators do not update Nix pins or publish a channel.
 
-The packaging tools prepare local output only. Review the exact allowlisted files,
-test installation/upgrade/removal on their real platform, and publish downloads
+The Release workflow now [prepares a Linux/Homebrew recipe artifact](releasing.md#prepared-recipe-artifacts)
+after public verification, using these generators and an exact source/descriptor
+receipt. Offline fixtures and generation from verified v0.3.3 assets passed;
+its first hosted execution remains pending. Preparation does not publish recipes,
+change channel pins or supply the absent Windows payload.
+
+Review the exact allowlisted files, test installation/upgrade/removal on their
+real platform, and publish downloads
 before any manifest that references them. Verify each anonymous download after
 publication. A checksum detects changed bytes; it is not an independent publisher
 signature or proof of platform acceptance.

@@ -9,7 +9,7 @@ the package builder does not compile a changed checkout or execute either binary
 | Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; v0.3.3 is published through the automated release. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
-| Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Profile ownership and interactive NixOS acceptance remain pending; not a supported installation method. |
+| Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Separately, native Nix-on-Ubuntu core/companion ownership, UI refusal and normal profile removal passed for unpublished v0.3.4 source `2d52985`. NixOS, actual version upgrades, physical clipboard and external SSH remain unverified. |
 
 Preparation is separate from publishing `.deb`/RPM assets or submitting the
 AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`
@@ -106,6 +106,11 @@ recorded Linux acceptance before creating output. It reads the three license
 files from that archive and takes the package timestamp from the normalized
 source archive. It does not download files, install packages or execute the
 release payloads.
+
+The Release workflow also [prepares an allowlisted recipe artifact](../../docs/releasing.md#prepared-recipe-artifacts)
+after anonymous public verification. It uses this generator without package-build
+flags, adds the source Homebrew formulas and records exact source/descriptor/file
+hashes. This preparation does not publish a catalogue or change checked-in pins.
 
 The derived lock includes only the five base source inputs; a schema 2 Debian
 wrapper is an output, never an input to another wrapper. Ordered input pins keep

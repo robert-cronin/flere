@@ -196,6 +196,27 @@ the eight schema 2 assets, all 333 source files/modes and all 124 Cargo source
 files. The earlier successful v0.3.2 retry exercised registry reconciliation. Offline fixtures cover missing, delayed,
 conflicting and matching registry data. No owner API token is needed for future releases.
 
+## Prepared recipe artifacts
+
+After `verify-public`, the read-only `prepare-recipes` job consumes the same numeric
+candidate artifact and pinned descriptor as the publisher. It runs separately from
+Cargo publication, using the existing Linux and Homebrew generators. Candidate
+payloads are validated as data, never executed, built or installed by this job.
+
+The uploaded artifact contains exactly ten files: the Linux release lock, AUR's
+`PKGBUILD` and `.SRCINFO`, the RPM spec, Linux provenance and checksums, two source
+Homebrew formulas, `recipe-receipt.json` and an enclosing `SHA256SUMS`. The receipt
+records `prepared_not_published`, the selected version/commit, run/workflow identity,
+descriptor/source hashes and every recipe's bytes and digest. Generation uses a
+fresh private home-cache directory; upload names are explicit, and unexpected files
+or links stop preparation.
+
+Seven offline checks and actual generation from the verified v0.3.3 assets passed,
+with the sealed input bytes unchanged. The first hosted execution is still pending.
+This artifact is for channel review and lifecycle testing: it does not append
+immutable release assets, publish a catalogue, write the tap, update Nix/Windows
+recipes or advance any checked-in channel pin.
+
 ## Blocked targets and channels
 
 | Target/channel | Required work before automation can publish it |

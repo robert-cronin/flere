@@ -163,6 +163,55 @@ jobs:
             --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA" \
             --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA" >> "$GITHUB_STEP_SUMMARY"
 
+  prepare-recipes:
+    needs: [select, linux, verify-public]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - id: recipes
+        name: Prepare recipes from the verified release without building or publishing
+        run: |
+          python3 automation/scripts/release-recipes.py --directory candidate \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA" \
+            --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA" \
+            --output "$HOME/.cache/flere/tmp/release-recipes-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain only prepared recipes and their provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prepared-recipes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.recipes.outputs.directory }}/linux/aur/flere-bin/PKGBUILD
+            ${{ steps.recipes.outputs.directory }}/linux/aur/flere-bin/.SRCINFO
+            ${{ steps.recipes.outputs.directory }}/linux/rpm/flere.spec
+            ${{ steps.recipes.outputs.directory }}/linux/release-lock.json
+            ${{ steps.recipes.outputs.directory }}/linux/package-provenance.json
+            ${{ steps.recipes.outputs.directory }}/linux/SHA256SUMS
+            ${{ steps.recipes.outputs.directory }}/homebrew/Formula/flere.rb
+            ${{ steps.recipes.outputs.directory }}/homebrew/Formula/flere-connect.rb
+            ${{ steps.recipes.outputs.directory }}/recipe-receipt.json
+            ${{ steps.recipes.outputs.directory }}/SHA256SUMS
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+
   publish-core:
     needs: [select, verify-public]
     if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'

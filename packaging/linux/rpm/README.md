@@ -65,9 +65,15 @@ queries and package digest checks passed. The 3,708,223-byte package SHA-256 is:
 An unprivileged build, `rpm --install --test`, installation, installed ownership
 queries and `rpm -V` all passed. Both executables passed `--build-info`, `--help`
 and `--version`; build metadata matched the v0.3.0 manifests. After removal,
-all payload paths were absent. Synthetic user state and all 220 unrelated package
-headers were unchanged. No Flere process remained, and the container was removed.
-The host installation and real user state were never mounted.
+all payload paths were absent and synthetic user state was unchanged. No Flere
+process remained, and the container was removed. The host installation and real
+user state were never mounted.
+
+The earlier claim that all 220 unrelated package headers were unchanged is
+unproven. A later native check found that the inherited `%{HDRID}` query was
+unsupported by RPM 6.0.2: it printed diagnostics while returning exit zero. Those
+lines were not valid package identities. A corrected query with strict output
+validation is being checked separately; the original receipts are retained.
 
 The focused Fedora tests passed nine checks with two Debian-tool skips. They
 also proved that a changed input fails the spec's checksum check and leaves no
