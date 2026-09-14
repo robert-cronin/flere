@@ -5,6 +5,9 @@ use super::{ManagerUpgrade, receipt};
 use std::path::Path;
 #[path = "nix.rs"]
 mod nix;
+#[cfg(any(target_os = "linux", all(test, unix)))]
+#[path = "pacman.rs"]
+mod pacman;
 pub(super) fn nix(executable: &Path) -> Option<ManagerUpgrade> {
     nix::detect(executable)
 }
@@ -171,7 +174,7 @@ pub(super) fn system_package(executable: &Path) -> Option<ManagerUpgrade> {
     {
         return Some(rpm_upgrade(&package, |path| Path::new(path).is_file()));
     }
-    None
+    pacman::detect(executable)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -251,7 +254,7 @@ pub(super) fn system_unclaimed(executable: &Path) -> bool {
             return false;
         }
     }
-    true
+    pacman::detect(executable).is_none()
 }
 #[cfg(not(target_os = "linux"))]
 pub(super) fn system_unclaimed(_: &Path) -> bool {
