@@ -32,6 +32,12 @@ fn ui_update_applies_the_verified_package_and_acknowledges_the_new_frontend() {
     drain_pty(&mut master, &mut screen, "FLERE");
     master.write_all(b"\0K").unwrap();
     drain_pty(&mut master, &mut screen, "Update Flere");
+    // The title appears while the asynchronous ownership probe still disables
+    // input. Wait for the source field to become available before typing.
+    wait_current_ui_for(&mut master, &mut screen, Duration::from_secs(10), |s| {
+        s.capture(100)
+            .contains("Enter applies immediately and preserves sessions")
+    });
     master
         .write_all(directory.to_str().unwrap().as_bytes())
         .unwrap();
