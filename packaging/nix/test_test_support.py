@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline regressions; accepts an untouched extracted v0.3.3 source directory."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -45,9 +46,52 @@ class SupportTests(unittest.TestCase):
             nested = (root / 'tests/remote/mod.rs').read_text()
             self.assertIn('.arg("--target-dir").arg(root.join("target"))', nested.replace('\n            ', ''))
             self.assertIn('args(["build", "--offline", "--manifest-path"])', nested)
+            self.assertIn('.env_remove("RUSTFLAGS")\n            .env_remove("CARGO_BUILD_TARGET")', nested)
+            self.assertIn('root.join("target/debug/flere-connect")', nested)
+            # The literal-control regression remains exact; declared Dash
+            # supplies its original non-bracketed Linux /bin/sh semantics.
+            live = (root / 'tests/live.rs').read_text()
+            begin = 'fn literal_cli_text_rejects_embedded_enter_or_escape() {'
+            old_test = original['tests/live.rs'].decode().split(begin, 1)[1].split('\n#[test]', 1)[0]
+            self.assertEqual(live.split(begin, 1)[1].split('\n#[test]', 1)[0], old_test)
+            self.assertEqual(live.count(json.dumps(support.shell_return_marker(mapping['/bin/sh']))), 2)
             adapted = (root / 'companion/src/bootstrap/tests.rs').read_text()
             self.assertIn('.arg(script.replace("/usr/bin/stat", ', adapted)
             self.assertNotIn('"/usr/bin:/bin"', adapted)
+
+    def test_shell_return_keeps_full_path_and_only_exact_wrap_boundaries(self):
+        # Actual Nix failure: an 80-column capture split this immutable path.
+        shell = '/nix/store/2ndah67h0z5m31v2wkdmg2md4380ggr5-bash-interactive-5.3p15/bin/sh'
+        marker = support.shell_return_marker(shell)
+        for status in (0, 1):
+            text = (f'codex exited (exit status: {status}). Returning to /nix/store/'
+                    '2ndah67h0z5m31v2wkdmg2md4\n380ggr5-bash-interactive-5.3p15/bin/sh.')
+            capture = json.dumps({'text': text})
+            self.assertIn(marker, capture)
+            self.assertNotIn(marker, json.dumps({'text': text.replace('380ggr5', 'WRONG')}))
+            self.assertNotIn(marker, json.dumps({'text': text.replace('md4\n3', 'md\n43')}))
+        self.assertEqual(marker.replace('\\n', ''), 'Returning to ' + shell)
+        self.assertEqual(support.shell_return_marker('/bin/sh'), 'Returning to /bin/sh')
+
+    def test_declared_production_patch_applies_exactly_to_published_source(self):
+        patch = HERE / 'patches/wrapped-path-delimiter.patch'
+        self.assertRegex((HERE / 'default.nix').read_text(),
+                         r'(?m)^\s*patches = \[ ./patches/wrapped-path-delimiter\.patch \];$')
+        self.assertEqual(hashlib.sha256(patch.read_bytes()).hexdigest(),
+                         '3e1bcd7b259d047974a85f2ff0cd8aae965e90207ceba1253e9637e8ef701275')
+        name = 'src/ui/selection/paths.rs'
+        with tempfile.TemporaryDirectory(dir=os.environ['TEST_TMPDIR']) as tmp:
+            root = Path(tmp)
+            target = root / name
+            target.parent.mkdir(parents=True)
+            target.write_bytes((SOURCE / name).read_bytes())
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(),
+                             '5369d60d5d10db75a541a5861ec545bc72ce9e7d1cddf398d9c557808a691a6b')
+            result = subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(patch)],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(),
+                             '9d23e7f80cae847f2ef0fd93d85856613d80bbd98aa45a64d736866e1e6bf9c4')
 
     def test_rejects_missing_or_unsafe_fixture_tool(self):
         with self.assertRaises(ValueError):

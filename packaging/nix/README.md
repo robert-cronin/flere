@@ -1,13 +1,18 @@
 # Nix packaging draft
 
-This draft now pins the published **v0.3.3** full source archive. It is not a
+This draft pins the published **v0.3.3** full source archive with the explicit
+production correction below. It is not a
 Nixpkgs submission or a supported installation method. The manual
 [Nix sandbox workflow](../../.github/workflows/nix-acceptance.yml) is prepared for
 a disposable native x86_64 Ubuntu 24.04 GitHub VM. The first run
 [34863649615](https://github.com/robert-cronin/flere/actions/runs/34863649615)
 verified the installer download but rejected an unsupported CLI flag before
-installation. The invocation is corrected using the pinned installer's supported
-extra configuration; sandbox and suite results remain pending.
+installation. After the installer correction, run
+[34864791262](https://github.com/robert-cronin/flere/actions/runs/34864791262)
+passed the strict sandbox probe, core release build and 182 core library tests,
+then failed 16 of 213 live tests. The installer and companion suites were not
+reached. The fixture corrections and production fix below await a full hosted
+rerun; this is not complete Nix acceptance.
 
 The earlier v0.3.0 recipe passed all 15 native Linux Docker parsing, evaluation,
 build, build-info and inventory checks. That evidence used the official
@@ -34,6 +39,15 @@ the compressed-file SHA-256:
 461bbe1e3fa88027c2ea7191c34adbd7eceaadbf6f091a270769b1cdc0ad6a9e
 ```
 
+The derivations also apply the reviewed
+[wrapped-path delimiter patch](patches/wrapped-path-delimiter.patch), SHA-256
+`3e1bcd7b259d047974a85f2ff0cd8aae965e90207ceba1253e9637e8ef701275`.
+It fixes a production parser bug where a clicked path fills a terminal row and
+its closing delimiter wraps to the next row, and adds a focused regression.
+The existing failing remote image assertion remains unchanged. This is v0.3.3
+plus that explicit patch and the three existing hash-helper substitutions,
+not an unmodified v0.3.3 runtime. The published source archive is unchanged.
+
 | Archive member | Copied lockfile SHA-256 |
 | --- | --- |
 | `Cargo.lock` | `7a6a0ec936b4cd0a7fd82b85b08c5b2dbd52356fb6e8b8b8f0b8b9eebaa7c789` |
@@ -51,16 +65,21 @@ uses the crates.io checksum of each external dependency. The vendor merge keeps
 both sets, rejects conflicting crate identities and retains the selected
 package's exact lock. No vendor/NAR hash is invented. This is necessary because
 the core suite performs a real offline sibling Cargo build and then executes
-`companion/target/debug/flere-connect`.
+`companion/target/debug/flere-connect`. The fixture clears the inherited Nix
+`CARGO_BUILD_TARGET` for that native nested build to preserve this output path.
 
 Both derivations run their full `--locked --offline --all-targets` suites with
 one test thread, two compilation jobs and unchanged assertions and deadlines.
-Git, Python, Bash, Zsh, Vim, Neovim, coreutils and ncurses are declared fixture
+Git, Python, Dash, Bash, Zsh, Vim, Neovim, coreutils and ncurses are declared fixture
 inputs. Writable HOME/XDG state is beneath the short owned sandbox build-home
 cache. `test-support.py` substitutes fixture tool paths only inside integration
 tests or identified unit-test modules; the simulated remote receiver uses the
 declared stat/hash tools while the embedded production SSH scripts remain
 unchanged. A fixture-change record is included in the build log.
+The Linux `/bin/sh` fixtures use Dash, retaining their non-bracketed shell input
+semantics; explicit Bash fixtures still use Bash. The two full shell-return
+path expectations include their exact 80-column capture wrap, with their
+existing assertions and deadlines retained.
 
 The three existing production hash-helper replacements retain absolute trusted
 Nix coreutils paths. No runtime PATH wrapper is added. The core declares zlib.
@@ -81,9 +100,10 @@ substitute a previous result for this acceptance run. No user profile, Flere
 session, native model or release is installed or launched. Fixtures exercise the
 product using owned stand-ins. A failed check remains failed.
 
-Local preparation only: three Python fixture/vendor regressions, shell syntax
-checks and workflow lint passed. Nix evaluation, compilation, full-suite and
-namespace acceptance of this new draft are pending the hosted run.
+Local preparation only: five Python fixture/vendor/patch regressions and a
+dependency-free offline Cargo output-layout reproduction passed. The latter ran
+on macOS arm64 and is not a native Nix check. The prior shell syntax and workflow
+lint checks remain valid; full-suite acceptance of the corrected draft is pending.
 
 Interactive NixOS shell/detach/editor/Git, desktop clipboard and optional
 companion SSH acceptance remain separate. Neither macOS nor cross compilation

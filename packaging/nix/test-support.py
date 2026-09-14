@@ -21,6 +21,18 @@ TOOLS = {'/bin/sh', '/bin/bash', '/bin/zsh', '/bin/sleep',
          '/usr/bin/stat', '/usr/bin/sha256sum', '/usr/bin:/bin'}
 
 
+def shell_return_marker(shell):
+    # These two frozen fixtures use the default 80-column terminal. Both
+    # native exit-status prefixes have the same width. Preserve the complete
+    # expected path, including only its actual hard-wrap boundaries; capture
+    # returns JSON, so row separators appear as the literal characters \\n.
+    prefix = 'codex exited (exit status: 0). '
+    text = prefix + 'Returning to ' + shell
+    if not text.isascii():
+        raise ValueError('shell-return fixture must use an ASCII store path')
+    return '\\n'.join(text[i:i + 80] for i in range(0, len(text), 80))[len(prefix):]
+
+
 def adapt(root, replacements):
     if set(replacements) != TOOLS:
         raise ValueError('fixture tool map changed')
@@ -44,6 +56,21 @@ def adapt(root, replacements):
         else:
             prefix, text = '', old
         new, count = pattern.subn(lambda m: replacements[m.group()], text)
+        if name == 'tests/live.rs':
+            needle = json.dumps('Returning to ' + replacements['/bin/sh'])
+            if new.count(needle) != 2:
+                raise ValueError('shell-return fixtures changed')
+            new = new.replace(needle, json.dumps(shell_return_marker(replacements['/bin/sh'])))
+            count += 2
+        if name == 'tests/remote/mod.rs':
+            needle = '.env_remove("RUSTFLAGS")'
+            if new.count(needle) != 1:
+                raise ValueError('nested companion build fixture changed')
+            # Nix's Cargo hook exports CARGO_BUILD_TARGET, which would put the
+            # successful nested build below target/<triple>/debug. Preserve
+            # this native fixture's target/debug contract and real build.
+            new = new.replace(needle, needle + '\n            .env_remove("CARGO_BUILD_TARGET")')
+            count += 1
         if name == 'companion/src/bootstrap/tests.rs':
             # Execute the simulated remote receiver with test tools. Embedded
             # production SSH scripts remain byte-for-byte unchanged.

@@ -150,6 +150,13 @@ require a manual upgrade through their owner. Verified manual per-user copies
 show an explicit adoption choice in the local review; ownership is checked again
 before replacement. Older endpoints and candidates without this capability require
 one manual upgrade, including older builds with the same package version.
+The unreleased v0.3.4 development source also recognizes verified local Nix
+store outputs for both components. It shows guidance to update the owning Nix
+configuration or profile and reopen, with in-app Apply disabled. The verified
+scope is the default root-controlled local daemon/store; unproved `/nix/store`
+paths remain unknown. This does not extend acceptance of the separate v0.3.3
+Nix packaging draft or establish interactive NixOS/profile behavior.
+
 Use `command -v flere` and `flere --build-info` to inspect the command your shell selects.
 
 Updating package files does not prove a running supervisor or every attached UI

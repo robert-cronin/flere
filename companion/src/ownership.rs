@@ -4,6 +4,7 @@ use crate::remote_update::{InstallationOwner, OwnerKind};
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ManagerUpgrade {
     manager: &'static str,
+    verified: bool,
     command: Option<String>,
     detail: &'static str,
 }
@@ -66,18 +67,23 @@ pub(super) fn selected(
         owner.guidance.clear();
         return Ok(owner);
     }
-    if let Some(manager) = manager::homebrew(&executable, &build.package_version)
+    if let Some(manager) = manager::nix(&executable)
+        .or_else(|| manager::homebrew(&executable, &build.package_version))
         .or_else(|| manager::cargo(&executable, &build.package_version))
         .or_else(|| manager::system_package(&executable))
     {
-        owner.kind = OwnerKind::Manager;
+        owner.kind = if manager.verified {
+            OwnerKind::Manager
+        } else {
+            OwnerKind::Unknown
+        };
         owner.guidance = format!(
-            "Local {}: {} {}",
+            "Local {}: {}{}",
             manager.manager,
             manager
                 .command
-                .as_deref()
-                .unwrap_or("Review the installation ownership."),
+                .as_ref()
+                .map_or(String::new(), |s| format!("{s} ")),
             manager.detail
         );
         return Ok(owner);

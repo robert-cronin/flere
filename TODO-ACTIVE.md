@@ -91,11 +91,13 @@
   settings because required kernel namespaces were unavailable. The manual
   Nix sandbox acceptance workflow now uses a disposable hosted Ubuntu VM, pinned
   official Nix and public v0.3.3 source, with both full offline suites and strict
-  sandboxing. The first hosted run `34863649615` verified the installer download
-  but rejected an unsupported CLI flag before installation. The invocation now
-  uses the pinned installer's supported extra configuration; the retry remains
-  pending. No security settings were weakened and interactive/runtime ownership
-  checks remain separate.
+  sandboxing. After the first install-flag failure, run `34864791262` passed the
+  strict sandbox probe, core release build and 182 library tests, then failed
+  16 live tests. Corrections now declare Dash, preserve the nested native Cargo
+  output location and exact wrapped shell-caption expectations, and explicitly
+  apply the reviewed image-path parser fix to v0.3.3. Five focused packaging
+  regressions and the real Cargo output-layout check pass; a full rerun remains
+  pending. No security settings or test deadlines were weakened.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The unpublished v0.3.4 source is reserved for the next Windows acceptance
@@ -144,6 +146,17 @@
   first reproduced Unknown ownership; all 486 macOS tests, strict Clippy/format
   checks and Linux/Windows compile checks now pass. This correction is unreleased;
   published Homebrew v0.3.2 still contains the earlier parser.
+- [x] Implement verified local Nix ownership for core and companion, with
+  commandless owning-configuration guidance and in-app Apply disabled. Exact
+  registered-content queries passed on native Nix 2.35.2 as root and an ordinary
+  user, with corrupt/unregistered outputs rejected and owned containers removed.
+  The default root-controlled daemon/store is the verified scope; actual app
+  ownership/UI/profile acceptance and the separate 2.33.3 sandbox suite remain
+  distinct. This source change is unreleased.
+- [x] Correct wrapped image-path selection when the closing delimiter occupies
+  its own row. The regression reproduced the defect, and exact caption checks
+  pass at 32/33/64/65 columns while unrelated clicks/text stay rejected. This
+  source change is unreleased; the Nix recipe carries it as an explicit patch.
 - [x] Extend installation-owner checks to coordinated remote updates, including
   explicit manual adoption, stale-action rejection and owner rechecks under the
   installation lock. Older endpoints/candidates and unknown or manager-owned
@@ -165,9 +178,14 @@
   acceptance is claimed; one non-authoritative receipt summary field is annotated
   invalid while the independent ownership predicates and original receipts remain
   retained.
+- [x] Validate native Linux Homebrew core v0.3.2 ownership with a normal source
+  install and real receipt. Exact empty supervisor/frontend reports, blocked
+  coordinated preparation, unchanged binary/receipt/state, normal uninstall and
+  exact child/container cleanup passed. The published tap/source remained pinned;
+  companion, rendered-modal and active-session behavior were not part of this check.
 - [ ] Complete remaining native Linux package-manager and Windows runtime
-  ownership acceptance. The native Debian and Cargo core protocol checks above
-  passed; Homebrew and companion runtime ownership remain separate.
+  ownership acceptance. Native Debian, Cargo core and Homebrew core protocol
+  checks passed; companion and remaining runtime ownership remain separate.
 - [x] Automate the Linux manual Release path: explicit main version/commit
   selection, native core/companion checks, final payload/source checksums,
   immutable GitHub publication and anonymous download verification. Hosted

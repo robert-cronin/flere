@@ -3,6 +3,11 @@
 use super::query;
 use super::{ManagerUpgrade, receipt};
 use std::path::Path;
+#[path = "nix.rs"]
+mod nix;
+pub(super) fn nix(executable: &Path) -> Option<ManagerUpgrade> {
+    nix::detect(executable)
+}
 fn word(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -51,6 +56,7 @@ pub(super) fn homebrew(executable: &Path, version: &str) -> Option<ManagerUpgrad
     }
     Some(ManagerUpgrade {
         manager: "Homebrew",
+        verified: true,
         command: Some(format!("brew upgrade {tap}/{component}")),
         detail: "Run this in a shell, then reopen Flere. Running sessions stay alive.",
     })
@@ -86,6 +92,7 @@ pub(super) fn cargo(executable: &Path, version: &str) -> Option<ManagerUpgrade> 
     if owners.len() != 1 {
         return Some(ManagerUpgrade {
             manager: "Cargo",
+            verified: false,
             command: None,
             detail: "Multiple Cargo receipts claim this executable. Review the Cargo installation and reopen Flere; in-app Apply is disabled.",
         });
@@ -107,6 +114,7 @@ pub(super) fn cargo(executable: &Path, version: &str) -> Option<ManagerUpgrade> 
     }
     Some(ManagerUpgrade {
         manager: "Cargo",
+        verified: true,
         command: Some(format!(
             "cargo install --locked --registry crates-io --root {} {}",
             super::quote(root_text),
@@ -145,6 +153,7 @@ pub(super) fn system_package(executable: &Path) -> Option<ManagerUpgrade> {
     {
         return Some(ManagerUpgrade {
             manager: "Debian package manager",
+            verified: true,
             command: Some("sudo apt install ./NEW_FLERE_PACKAGE.deb".into()),
             detail: "Download the new .deb first and replace NEW_FLERE_PACKAGE.deb. No APT repository is assumed.",
         });
@@ -202,6 +211,7 @@ pub(super) fn rpm_upgrade(package: &str, available: impl Fn(&str) -> bool) -> Ma
     };
     ManagerUpgrade {
         manager: "RPM package manager",
+        verified: true,
         command: Some(command),
         detail: "Use a configured package source or download the new RPM; reopen Flere afterward.",
     }

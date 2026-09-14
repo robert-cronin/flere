@@ -401,15 +401,7 @@ impl Ui {
             style(CYAN, PANEL, true),
         );
         if !matches!(update.owner, Owner::Local) {
-            let heading = match &update.owner {
-                Owner::PackageManager(manager) if manager.command.is_some() => {
-                    format!("Installed with {}", manager.manager)
-                }
-                Owner::PackageManager(_) => "Installation ownership needs review".into(),
-                Owner::Checking(_) => "Checking installation owner…".into(),
-                Owner::Unavailable => "Installation owner check unavailable".into(),
-                Owner::Local => unreachable!(),
-            };
+            let heading = owner_heading(&update.owner);
             c.text(x + 2, y + 2, w - 4, &heading, style(MUTED, PANEL, false));
             if let Owner::PackageManager(manager) = &update.owner
                 && let Some(command) = &manager.command
@@ -482,6 +474,17 @@ impl Ui {
         );
     }
 }
+fn owner_heading(owner: &Owner) -> String {
+    match owner {
+        Owner::PackageManager(manager) if manager.verified => {
+            format!("Installed with {}", manager.manager)
+        }
+        Owner::PackageManager(_) => "Installation ownership needs review".into(),
+        Owner::Checking(_) => "Checking installation owner…".into(),
+        Owner::Unavailable => "Installation owner check unavailable".into(),
+        Owner::Local => unreachable!(),
+    }
+}
 fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
     // Recheck immediately before launching the existing installer/developer
     // helper, in case ownership changed while its modal was open.
@@ -542,6 +545,7 @@ mod tests {
     fn manager() -> ManagerUpgrade {
         ManagerUpgrade {
             manager: "Homebrew",
+            verified: true,
             command: Some("brew upgrade robert-cronin/flere/flere".into()),
             detail: "Run this in a shell",
         }
@@ -552,11 +556,23 @@ mod tests {
         for owner in [
             manager(),
             ManagerUpgrade {
+                manager: "Nix",
+                verified: true,
+                command: None,
+                detail: "Update the owning Nix configuration or profile, then reopen Flere.",
+            },
+            ManagerUpgrade {
                 manager: "Cargo",
+                verified: false,
                 command: None,
                 detail: "Review the ambiguous Cargo installation and reopen Flere",
             },
         ] {
+            let expected_heading = if owner.verified {
+                format!("Installed with {}", owner.manager)
+            } else {
+                "Installation ownership needs review".into()
+            };
             let (mut update, sender) = checking();
             for key in [
                 Key::Bytes(b"\r".to_vec()),
@@ -573,6 +589,7 @@ mod tests {
                 .unwrap();
             assert!(update.poll_owner());
             assert!(matches!(update.owner, Owner::PackageManager(_)));
+            assert_eq!(owner_heading(&update.owner), expected_heading);
             assert_eq!(update.input(&Key::Bytes(b"\r".to_vec())), UpdateInput::None);
             assert_eq!(
                 update.input(&Key::Paste(b"replacement".to_vec())),

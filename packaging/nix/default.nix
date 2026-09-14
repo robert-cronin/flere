@@ -20,7 +20,7 @@ let
     selected_lock = lockFile;
   } (builtins.readFile ./merge-vendors.sh);
   fixtureTools = pkgs.writeText "flere-test-tools.json" (builtins.toJSON {
-    "/bin/sh" = "${pkgs.bash}/bin/sh";
+    "/bin/sh" = "${pkgs.dash}/bin/dash";
     "/bin/bash" = "${pkgs.bashInteractive}/bin/bash";
     "/bin/zsh" = "${pkgs.zsh}/bin/zsh";
     "/bin/sleep" = "${pkgs.coreutils}/bin/sleep";
@@ -53,7 +53,7 @@ let
       buildAndTestSubdir = cargoRoot;
       cargoDeps = combinedDeps lockFile;
       nativeBuildInputs = [ pkgs.python3 ];
-      nativeCheckInputs = with pkgs; [ git python3 bashInteractive zsh vim neovim coreutils ncurses ];
+      nativeCheckInputs = with pkgs; [ git python3 dash bashInteractive zsh vim neovim coreutils ncurses ];
       # The core's src/os.rs links zlib directly for pixel compression.
       buildInputs = lib.optionals (pname == "flere") [ pkgs.zlib ];
       cargoBuildFlags = [
@@ -61,6 +61,9 @@ let
         "--bin"
         pname
       ];
+      # Reviewed production fix: a closing delimiter can wrap after a path
+      # fills the terminal row. Keep this separate from fixture substitutions.
+      patches = [ ./patches/wrapped-path-delimiter.patch ];
 
       # NixOS does not provide this FHS path. Retain an absolute, trusted helper.
       postPatch = ''
@@ -83,7 +86,7 @@ let
         export XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state"
         mkdir -p "$HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
         chmod 700 "$HOME"
-        export SHELL=${pkgs.bash}/bin/sh TERM=xterm-256color
+        export SHELL=${pkgs.dash}/bin/dash TERM=xterm-256color
         export CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=2
       '';
       doCheck = true;
@@ -94,7 +97,7 @@ let
       preCheck = ''
         test -c /dev/ptmx
         test "''${#HOME}" -le 20
-        for tool in git python3 bash zsh vim nvim; do command -v "$tool"; done
+        for tool in git python3 dash bash zsh vim nvim; do command -v "$tool"; done
       '';
       postCheck = ''
         cmp Cargo.lock ${./locks/core-Cargo.lock}

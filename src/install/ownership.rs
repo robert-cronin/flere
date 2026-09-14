@@ -6,7 +6,8 @@ use std::{fs, path::Path};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ManagerUpgrade {
     pub manager: &'static str,
-    /// None means the ownership evidence needs review; never offer Apply then.
+    /// Ownership proof is independent of whether a generic upgrade command exists.
+    pub verified: bool,
     pub command: Option<String>,
     pub detail: &'static str,
 }
@@ -23,6 +24,7 @@ pub(crate) fn current_manager_upgrade(managed: Option<&InstallReceipt>) -> Optio
 fn unresolved_executable() -> ManagerUpgrade {
     ManagerUpgrade {
         manager: "current executable",
+        verified: false,
         command: None,
         detail: "The running executable is missing or cannot be resolved. Reopen Flere from its installed command before updating.",
     }
@@ -60,6 +62,9 @@ fn for_executable(executable: &Path, version: &str) -> Option<ManagerUpgrade> {
     };
     if !executable.is_file() {
         return Some(unresolved_executable());
+    }
+    if let Some(owner) = manager::nix(&executable) {
+        return Some(owner);
     }
     if executable.file_name()? != "flere" {
         return None;
@@ -125,14 +130,18 @@ fn selected_executable(
         return Ok(owner);
     }
     if let Some(manager) = for_executable(&executable, &build.package_version) {
-        owner.kind = OwnerKind::Manager;
+        owner.kind = if manager.verified {
+            OwnerKind::Manager
+        } else {
+            OwnerKind::Unknown
+        };
         owner.guidance = format!(
-            "Remote {}: {} {}",
+            "Remote {}: {}{}",
             manager.manager,
             manager
                 .command
-                .as_deref()
-                .unwrap_or("Review the installation ownership."),
+                .as_ref()
+                .map_or(String::new(), |s| format!("{s} ")),
             manager.detail
         );
         return Ok(owner);

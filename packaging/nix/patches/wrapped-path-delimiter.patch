@@ -1,0 +1,71 @@
+--- a/src/ui/selection/paths.rs
++++ b/src/ui/selection/paths.rs
+@@ -77,9 +77,18 @@
+                 let mut hit = false;
+                 let mut lines = 0;
+                 let mut after_break = false;
++                let mut full_row_end = false;
+                 let mut chars = text[begin..].char_indices().peekable();
+                 while let Some((offset, c)) = chars.next() {
+                     if c == '\n' {
++                        // A closing delimiter may wrap after the path fills a
++                        // row. A short ordinary line is not that evidence.
++                        full_row_end = (begin + offset)
++                            .checked_sub(1)
++                            .and_then(|i| positions.get(i))
++                            .and_then(|&at| cells.get(at).map(|cell| (at, cell)))
++                            .is_some_and(|(at, cell)| at % cols + usize::from(cell.width) == cols)
++                            && path.chars().last().is_some_and(|c| !c.is_whitespace());
+                         after_break = true;
+                         lines += 1;
+                         if lines > 8 {
+@@ -90,7 +99,11 @@
+                     let boundary = quote == Some(c)
+                         || quote.is_none() && (c.is_whitespace() || ";&|<>)]}:\"'`".contains(c));
+                     if boundary {
+-                        if hit && !after_break && (quote.is_none() || quote == Some(c)) {
++                        let closing = quote == Some(c) || quote.is_none() && ")]}>".contains(c);
++                        if hit
++                            && (!after_break || full_row_end && closing)
++                            && (quote.is_none() || quote == Some(c))
++                        {
+                             push(&mut result, &path, cwd);
+                         }
+                         if quote.is_some() || !spaces || !c.is_whitespace() {
+@@ -145,6 +158,36 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    #[test]
++    fn closing_delimiter_after_a_full_row_keeps_the_clicked_path() {
++        let path = "/work/a comparison image.png";
++        for (open, close) in [("(", ")"), ("\"", "\""), ("<", ">")] {
++            // The closing delimiter alone wraps to the next row.
++            let cols = path.len() + open.len();
++            let mut term = crate::terminal::Terminal::new(cols, 5);
++            term.feed(format!("{open}{path}{close}\r\nDO_NOT_SUBMIT").as_bytes());
++            assert_eq!(term.grid.cells[cols].text, close);
++            assert!(
++                candidates(&term.grid.cells, cols, 4, Path::new("/work"))
++                    .contains(&PathBuf::from(path)),
++                "wrapped {close:?} lost the full path"
++            );
++            assert!(
++                !candidates(&term.grid.cells, cols, cols * 2 + 2, Path::new("/work"))
++                    .contains(&PathBuf::from(path)),
++                "a click on unrelated text must not activate the path"
++            );
++            // A line break followed by ordinary text must not complete the
++            // preceding path. Only the explicit closing delimiter is evidence.
++            let mut term = crate::terminal::Terminal::new(cols, 4);
++            term.feed(format!("{open}{path}\r\nUNRELATED_TEXT").as_bytes());
++            assert!(
++                !candidates(&term.grid.cells, cols, 4, Path::new("/work"))
++                    .contains(&PathBuf::from(path)),
++                "ordinary next-line text must not complete the preceding path"
++            );
++        }
++    }
+     #[test]
+     fn command_paths_quotes_punctuation_and_relative_names_are_literal() {
+         let mut c = Canvas::new(180, 2);
