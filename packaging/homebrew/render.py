@@ -36,7 +36,11 @@ def recipes(archive, expected, template):
         text = template
         for key, value in {"CLASS": klass, "DESCRIPTION": description, "MANIFEST": manifest,
                            "CARGO_ARGS": cargo_args, "COMPONENT": component, "VERSION": version,
-                           "SHA256": expected}.items():
+                           "SHA256": expected,
+                           "REVISION": "  revision 1\n"
+                           if (component, version) == ("flere", "0.3.0") else "",
+                           "LINUX_DEPENDENCIES": '    depends_on "zlib-ng-compat"\n'
+                           if component == "flere" else ""}.items():
             text = text.replace(f"@{key}@", value)
         result[component] = text
     return result

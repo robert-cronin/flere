@@ -5,7 +5,7 @@ class @CLASS@ < Formula
   version "@VERSION@"
   sha256 "@SHA256@"
   license all_of: ["MIT", "OFL-1.1"]
-
+@REVISION@
   depends_on "rust" => :build
 
   on_macos do
@@ -13,7 +13,7 @@ class @CLASS@ < Formula
   end
   on_linux do
     depends_on arch: :x86_64
-  end
+@LINUX_DEPENDENCIES@  end
 
   def install
     host = Utils.safe_popen_read("rustc", "--print", "host-tuple").strip

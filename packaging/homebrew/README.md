@@ -4,9 +4,11 @@ Source-built formulas for [Flere](https://github.com/robert-cronin/flere).
 
 ## Install
 
-With a current Homebrew installation:
+With Homebrew 7, trust the two formula names before the first install. This
+allows Homebrew to load their recipes; it does not install the optional companion.
 
 ```sh
+brew trust --formula robert-cronin/flere/flere robert-cronin/flere/flere-connect
 brew install robert-cronin/flere/flere
 flere --version
 ```
@@ -22,7 +24,9 @@ Homebrew downloads the pinned v0.3.0 full source archive and its Rust build
 dependencies, then compiles each executable locally. The first install takes
 longer than downloading a prebuilt binary and needs Rust 1.98 or newer, which
 Homebrew supplies as a build dependency. Dependencies follow the checked-in lock
-files; installation compiles in Cargo's offline mode after fetching them.
+files; installation compiles in Cargo's offline mode after fetching them. On Linux,
+the core also declares `zlib-ng-compat` as a runtime dependency; the companion does
+not need it.
 
 This tap supports macOS Apple Silicon and Linux x86_64. Intel Macs and Linux ARM
 are excluded pending runtime acceptance. Older macOS runtime acceptance remains
@@ -71,8 +75,14 @@ An isolated macOS arm64 check completed source installation, formula tests,
 stateless CLI checks, a same-source formula revision upgrade, and full removal
 for both components. Disposable state and configuration stayed unchanged. This
 used a cached Rust toolchain and dependencies with `--ignore-dependencies`;
-fresh Homebrew dependency provisioning, an upgrade between release versions,
-and native Linux Homebrew lifecycle checks remain unverified.
+fresh macOS dependency provisioning and an upgrade between release versions remain
+unverified. A native Linux run provisioned fresh dependencies and passed initial
+installation, both formula tests, stateless CLI checks and license checks. Strict
+linkage detected the core's missing `zlib-ng-compat` declaration; the core formula
+now declares it at revision 1. That run used a verified Git checkout before
+formula trust, so it does not validate the fresh trust-then-install sequence above. A fresh complete Linux lifecycle run,
+including first-install trust, strict linkage, revision upgrade and uninstall,
+remains required.
 
 Both formulas intentionally use the full source archive: the companion references
 shared code and build support outside its own directory. Preserve the font licenses

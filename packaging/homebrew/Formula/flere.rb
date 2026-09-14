@@ -5,6 +5,7 @@ class Flere < Formula
   version "0.3.0"
   sha256 "5ccc74765af98ae38f51be21709e3e703312ebde3eadb59d5b4cf8adbd31e94f"
   license all_of: ["MIT", "OFL-1.1"]
+  revision 1
 
   depends_on "rust" => :build
 
@@ -13,6 +14,7 @@ class Flere < Formula
   end
   on_linux do
     depends_on arch: :x86_64
+    depends_on "zlib-ng-compat"
   end
 
   def install
