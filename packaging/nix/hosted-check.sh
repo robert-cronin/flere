@@ -75,6 +75,7 @@ config = json.loads((Path(os.environ['FLERE_NIX_PROOF']) / 'nix-config.json').re
 assert config['sandbox']['value'] in (True, 'true'), config['sandbox']
 assert config['sandbox-fallback']['value'] is False, config['sandbox-fallback']
 assert config['require-sigs']['value'] is True, config['require-sigs']
+assert {'nix-command', 'flakes'} <= set(config['experimental-features']['value'])
 PY
 # A fresh input prevents an earlier probe result from standing in for this VM.
 # Normal derivations must use a private network namespace; fixed-output fetches

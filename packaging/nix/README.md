@@ -3,7 +3,11 @@
 This draft now pins the published **v0.3.3** full source archive. It is not a
 Nixpkgs submission or a supported installation method. The manual
 [Nix sandbox workflow](../../.github/workflows/nix-acceptance.yml) is prepared for
-a disposable native x86_64 Ubuntu 24.04 GitHub VM; it has not run yet.
+a disposable native x86_64 Ubuntu 24.04 GitHub VM. The first run
+[34863649615](https://github.com/robert-cronin/flere/actions/runs/34863649615)
+verified the installer download but rejected an unsupported CLI flag before
+installation. The invocation is corrected using the pinned installer's supported
+extra configuration; sandbox and suite results remain pending.
 
 The earlier v0.3.0 recipe passed all 15 native Linux Docker parsing, evaluation,
 build, build-info and inventory checks. That evidence used the official

@@ -27,12 +27,14 @@
   removal passed; synthetic state stayed unchanged. This used install-driven
   upgrade in a cached private prefix with `--ignore-dependencies`, not literal
   `brew upgrade` or the default prefix.
-- [ ] Validate fresh macOS Homebrew dependency provisioning and older macOS
-  acceptance. The completed arm64 lifecycle used `--ignore-dependencies`;
-  Intel Macs and Linux ARM remain excluded from this tap.
-  The manual Homebrew macOS acceptance workflow now covers hosted macOS 15/26
-  default-prefix installs, direct Rust dependency provisioning and literal
-  version upgrades. Its actual hosted results remain pending.
+- [x] Validate default-prefix Homebrew source installation and version upgrade
+  on native hosted macOS 15.7.9 and 26.6.2 arm64. Run `34862741037` passed both
+  jobs at `520c50c`: freshly provisioned direct Homebrew Rust, four formula tests,
+  fourteen CLI checks, strict linkage, literal v0.3.0 → v0.3.2 upgrades and removal.
+  Independent review verified all 94 command results and log hashes per job;
+  synthetic state stayed unchanged. Preinstalled transitive dependencies and
+  verified tap checkout are retained limits; physical UI/clipboard/SSH,
+  notarization, Intel Macs and Linux ARM remain separate or excluded.
 - [x] Prepare and validate the core Cargo source package at `19637da`: normal
   extracted-package verification, all 186 library tests, a release build,
   stateless CLI checks and an unchanged cached-build stamp passed on macOS arm64.
@@ -89,8 +91,11 @@
   settings because required kernel namespaces were unavailable. The manual
   Nix sandbox acceptance workflow now uses a disposable hosted Ubuntu VM, pinned
   official Nix and public v0.3.3 source, with both full offline suites and strict
-  sandboxing. Its first actual run remains pending; no security settings were
-  weakened and interactive/runtime ownership checks remain separate.
+  sandboxing. The first hosted run `34863649615` verified the installer download
+  but rejected an unsupported CLI flag before installation. The invocation now
+  uses the pinned installer's supported extra configuration; the retry remains
+  pending. No security settings were weakened and interactive/runtime ownership
+  checks remain separate.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The unpublished v0.3.4 source is reserved for the next Windows acceptance

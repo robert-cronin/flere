@@ -76,8 +76,9 @@ jobs:
           test "$(stat -c %s "$installer")" = 32239920
           printf '%s  %s\n' 6b66cb8645d351f01c2cee022c2cd783f72f0ce60d57d2b52ace68ba74394ed6 "$installer" | sha256sum --check --strict
           chmod 700 "$installer"
-          sudo "$installer" install linux --no-confirm --explain --enable-flakes --extra-conf \
-            $'sandbox = true\nsandbox-fallback = false\nrequire-sigs = true\ntrusted-users = root\ncores = 2\nmax-jobs = 1\nmax-build-log-size = 33554432\nmax-silent-time = 300\ntimeout = 3600' \
+          "$installer" install linux --help > "$FLERE_NIX_PROOF/nix-installer-help.txt"
+          sudo "$installer" install linux --no-confirm --explain --extra-conf \
+            $'experimental-features = nix-command flakes\nsandbox = true\nsandbox-fallback = false\nrequire-sigs = true\ntrusted-users = root\ncores = 2\nmax-jobs = 1\nmax-build-log-size = 33554432\nmax-silent-time = 300\ntimeout = 3600' \
             2>&1 | (ulimit -f 32768; tee "$FLERE_NIX_PROOF/nix-install.log")
           rm "$installer"
           echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
