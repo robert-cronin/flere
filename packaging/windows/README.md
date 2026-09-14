@@ -7,6 +7,57 @@ that companion; this does not claim a native Windows core.
 No Windows package-manager channel is published yet. Physical Windows acceptance
 is tracked in [the handoff](../../docs/windows-acceptance-handoff.md).
 
+## Private hosted candidate
+
+The manual **Windows companion candidate** workflow prepares the unpublished
+v0.3.4 companion from exact public source
+`3401a77193821b2c33127d2001239fb983a3712b` on a disposable Windows Server 2025
+AMD64 runner. It compares actual checkout bytes with Git blobs, installs Rust
+1.98.0 MSVC, fetches locked dependencies, then runs offline formatting, strict
+Clippy, companion tests and the release build. It packages those same bytes with
+the source receipt and existing generators, checks the ZIP inventory, and runs
+six stateless checks across both executable aliases. No Windows core is built.
+
+The retained `windows-candidate-RUN-ATTEMPT` artifact contains `candidate.json`,
+source proof, command logs and `windows/` with the ZIP and proposed catalogue
+manifests. Only `status: prepared_not_published` is a successful candidate;
+`winget.status` separately records real manifest validation or an unavailable-tool
+blocker. WinGet validation failure fails the run. Hosted checks do not establish
+physical clipboard, terminal graphics/held controls, existing-chat drafts,
+external SSH, or package-manager install/upgrade/remove and ownership acceptance.
+No release, catalogue entry, PATH change or self-install is performed.
+
+When Chocolatey is available, the same job runs `choco pack` and verifies that
+the `.nupkg` contains only NuGet metadata, the spec and the exact generated
+installation script. It retains that package and records its inventory/hash;
+this does not run the script or install its payload. Missing WinGet/Chocolatey
+tools are recorded for that run. They can be provisioned on a later disposable
+runner after review; they are not a requirement for a physical user machine.
+
+After downloading a successful artifact from the reviewed Actions run, extract
+it into a fresh private directory and verify the inner ZIP's SHA-256 against
+`candidate.json`. To try its portable companion, use a new directory (outside
+any existing managed installation):
+
+```powershell
+$Receipt = Get-Content -LiteralPath '.\candidate.json' -Raw | ConvertFrom-Json
+if ($Receipt.status -ne 'prepared_not_published') { throw 'Candidate validation did not pass.' }
+$Zip = Join-Path '.\windows' $Receipt.zip.name
+if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne $Receipt.zip.sha256) { throw 'ZIP differs.' }
+$Portable = Join-Path $env:LOCALAPPDATA ('Flere\candidates\' + [guid]::NewGuid().ToString('N'))
+if (Test-Path -LiteralPath $Portable) { throw 'Use a new candidate directory.' }
+Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
+& (Join-Path $Portable 'flere.exe') --build-info
+# When ready, use your existing OpenSSH alias; "dev" is an example.
+& (Join-Path $Portable 'flere.exe') ssh dev
+```
+
+Both command names run the same companion. This portable candidate does not make
+`winget install` available: the generated release URL is still a proposed location.
+Keep physical acceptance tied to this executable digest. Publication and a normal
+WinGet submission remain separate; no extra assets can be appended to an immutable
+older release.
+
 After a matching Windows release package has been built and verified, run:
 
 ```sh

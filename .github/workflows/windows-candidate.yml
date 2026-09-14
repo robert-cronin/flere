@@ -1,0 +1,85 @@
+name: Windows companion candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-companion-candidate
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      FLERE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      # Match Git blob bytes; test CRLF bootstrap behavior through its regression.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - name: Require a disposable hosted Windows job before setup
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:FLERE_RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+              $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REPOSITORY -ne 'robert-cronin/flere' -or
+              $env:GITHUB_REF -ne 'refs/heads/main' -or $env:RUNNER_OS -ne 'Windows' -or
+              $env:RUNNER_ARCH -ne 'X64' -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
+            throw 'Only the hosted manual Windows AMD64 job is supported.'
+          }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 3401a77193821b2c33127d2001239fb983a3712b
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check candidate integrity helpers
+        shell: pwsh
+        run: |
+          python -B automation/packaging/windows/test_hosted_candidate.py
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate helper checks failed.' }
+      - id: candidate
+        name: Build the pinned MSVC companion and validate its private ZIP
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: pwsh
+        run: |
+          $Root = Join-Path $HOME '.cache/flere/tmp'
+          New-Item -ItemType Directory -Force -Path $Root | Out-Null
+          $Output = Join-Path $Root ("windows-candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
+          python -B automation/packaging/windows/hosted-candidate.py --checkout source --output $Output
+          if ($LASTEXITCODE -ne 0) { throw 'Windows candidate failed; retain the failure evidence.' }
+      - name: Retain only candidate packages, manifests and bounded validation evidence
+        if: always() && steps.candidate.outputs.evidence != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.candidate.outputs.evidence }}/candidate.json
+            ${{ steps.candidate.outputs.evidence }}/source.json
+            ${{ steps.candidate.outputs.evidence }}/source-receipt.json
+            ${{ steps.candidate.outputs.evidence }}/logs/*.log
+            ${{ steps.candidate.outputs.evidence }}/windows/*.zip
+            ${{ steps.candidate.outputs.evidence }}/windows/*.json
+            ${{ steps.candidate.outputs.evidence }}/windows/SHA256SUMS.windows
+            ${{ steps.candidate.outputs.evidence }}/windows/winget/manifests/r/RobertCronin/FlereConnect/0.3.4/*.yaml
+            ${{ steps.candidate.outputs.evidence }}/windows/scoop/bucket/flere.json
+            ${{ steps.candidate.outputs.evidence }}/windows/chocolatey/flere-connect/flere-connect.nuspec
+            ${{ steps.candidate.outputs.evidence }}/windows/chocolatey/flere-connect/tools/chocolateyInstall.ps1
+            ${{ steps.candidate.outputs.evidence }}/windows/chocolatey-package/*.nupkg
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false
