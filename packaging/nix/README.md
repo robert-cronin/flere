@@ -1,9 +1,17 @@
 # Nix packaging proposal
 
-This is an **unvalidated draft** for the released Flere v0.3.0 source, targeting
-native x86_64 Linux. It is not a Nixpkgs submission or a supported installation
-method. No Nix executable was available during preparation, so the expression has
-not been parsed, evaluated or built by Nix. The install check is proposed, not run.
+This is a **draft** for the released Flere v0.3.0 source, targeting native
+x86_64 Linux. It is not a Nixpkgs submission or a supported installation method.
+Native Docker validation passed parsing, evaluation, both builds and each declared
+build-info install check. The first core build exposed a missing zlib input; the
+corrected recipe builds successfully. Final output inventory remains pending
+because the validation script used a utility absent from the container image.
+
+Validation used the official Nix 2.35.2 image pinned to
+`sha256:617d914dba5384bf75adf17081583b69371031ec7defce36c34c5fa14fc819b0`
+and Nixpkgs `eaad089433ca2bb662274377d33df3d0e51ef28b`, which provided
+Rust/Cargo 1.98.1. The image's default Nix and Docker security settings were
+retained. This container evidence does not establish NixOS runtime acceptance.
 
 `default.nix` exposes `flere` and the optional `flere-connect` separately. It accepts
 a caller-provided `pkgs` set and otherwise uses `<nixpkgs>`. That package set must
@@ -37,9 +45,10 @@ The only source adjustment replaces three Linux `/usr/bin/sha256sum` literals wi
 the absolute Nix coreutils path. No user PATH wrapper is added: Git, the configured
 editor, shell, OpenSSH and optional `gh`, `curl` and desktop open helpers remain
 user-environment tools. The inspected Linux feature trees select the Rust Wayland
-and X11 implementations; no native Wayland/X11 library input is assumed.
+and X11 implementations; no native Wayland/X11 library input is assumed. The
+core declares zlib for the C ABI used by pixel compression.
 
-On a disposable x86_64 Linux Nix environment, these are the first checks to run
+On a disposable x86_64 Linux Nix environment, these are the package checks to run
 from this directory. They create build outputs, not a user-profile installation:
 
 ```sh
@@ -50,7 +59,7 @@ nix-build default.nix -A flere -o result-flere
 nix-build default.nix -A flere-connect -o result-flere-connect
 ```
 
-The proposed install check reads each binary's `--build-info` JSON and checks its
+The declared install check reads each binary's `--build-info` JSON and checks its
 component and version. That command creates no application state or native chat.
 The upstream test suite is disabled here because its home-cache, PTY and absolute
 fixture-tool assumptions have not been adapted to the Nix sandbox. It must be

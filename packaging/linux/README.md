@@ -9,7 +9,7 @@ the package builder does not compile a changed checkout or execute either binary
 | Debian `.deb` | Archive and independent reproduction verified; six native extracted CLI checks passed. Offline APT install, same-payload revision upgrade, removal and purge passed in emulated amd64 Ubuntu containers; unpublished. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
-| Nix | [Source expression prepared as an unvalidated draft](../nix/README.md). Nix parsing, evaluation, builds, runtime and update ownership remain untested; not a supported installation method. |
+| Nix | [Source packaging draft](../nix/README.md). Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory and broader runtime/update-ownership acceptance remain pending; not a supported installation method. |
 
 Preparation is separate from publishing `.deb`/RPM assets or submitting the
 AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`

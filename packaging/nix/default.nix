@@ -23,6 +23,8 @@ let
       sourceRoot = "flere-${version}";
       buildAndTestSubdir = cargoRoot;
       cargoLock = { inherit lockFile; };
+      # The core's src/os.rs links zlib directly for pixel compression.
+      buildInputs = lib.optionals (pname == "flere") [ pkgs.zlib ];
       cargoBuildFlags = [
         "--locked"
         "--bin"
