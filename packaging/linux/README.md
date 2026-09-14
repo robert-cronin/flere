@@ -6,7 +6,7 @@ the package builder does not compile a changed checkout or execute either binary
 
 | Format | Current validation |
 | --- | --- |
-| Debian `.deb` | Archive and independent reproduction verified; six native extracted CLI checks passed. Offline APT install, same-payload revision upgrade, removal and purge passed in emulated amd64 Ubuntu containers; unpublished. |
+| Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; first automated publication is pending. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
 | Nix | [Source packaging draft](../nix/README.md). Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory passed; sandbox suite and broader runtime/update-ownership acceptance remain pending; not a supported installation method. |
@@ -75,7 +75,7 @@ byte identity with the reviewed release; they are not a publisher signature.
 
 Schema 1 releases contain seven files: both executables and manifests, the full
 source archive, `release.json` and `SHA256SUMS`. Schema 2 support adds a verified
-`.deb`; its workflow activation is pending native lifecycle acceptance. With
+`.deb`; it is enabled for future releases after native lifecycle acceptance. With
 Python 3.11 or newer, the package generator derives a lock from either format:
 
 ```sh
@@ -153,6 +153,30 @@ networking. The first test attempt stopped before installation because
 successful harness prepopulated that disposable cache with hash-verified candidate
 bytes and retained `--no-download`. Dependency downloading, a public APT repository,
 other distributions and different-version runtime upgrades remain untested.
+
+### Native Ubuntu upgrade and ownership
+
+A subsequent native x86-64 Ubuntu check installed the verified `0.3.0-1`
+package, upgraded to `0.3.2-1`, then removed, reinstalled and purged it. All 12
+installed CLI checks passed. Payloads/manifests, unrelated package records and
+synthetic state were preserved as expected; no owned children survived and the
+isolated container was removed. The tested `0.3.2-1` archive is 3,549,964 bytes,
+SHA-256 `3695f1472f014987c4bb68eff85285b882e63e43feed701df1400c68801eb39f`.
+Its exact bytes were copied back and passed the independent release inspector.
+
+An empty test supervisor and attached frontend both identified `/usr/bin/flere`
+as Debian-owned and returned the APT upgrade guidance. Coordinated update
+preparation stopped before staging a replacement; the installed executable stayed
+unchanged. This verifies the ownership protocol, not a visually inspected Update
+modal. No shell or native chat was opened. The initial attempt stopped before
+installation because a test parser mistook APT's `[amd64]` annotation for an old
+version; the corrected parser checks the actual prior-version field.
+
+This lifecycle used preinstalled dependencies and disabled networking. It does
+not establish dependency downloading, an APT repository, live-session migration
+or broader desktop behavior. The older emulated receipts remain separate.
+
+### AUR validation
 
 The AUR recipe also passed real Arch validation on 2026-09-14 in a disposable
 amd64 container under Docker Desktop on macOS arm64. The official

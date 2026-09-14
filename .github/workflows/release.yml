@@ -89,7 +89,7 @@ jobs:
         env:
           CARGO_NET_OFFLINE: 'true'
         run: |
-          python3 automation/scripts/release-linux-ci.py --checkout source \
+          python3 automation/scripts/release-linux-ci.py --with-debian --checkout source \
             --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
             --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
       - id: upload

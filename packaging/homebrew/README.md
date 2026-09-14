@@ -76,13 +76,20 @@ stateless CLI checks, a same-source formula revision upgrade, and full removal
 for both components. Disposable state and configuration stayed unchanged. This
 used a cached Rust toolchain and dependencies with `--ignore-dependencies`;
 fresh macOS dependency provisioning and an upgrade between release versions remain
-unverified. A native Linux run provisioned fresh dependencies and passed initial
-installation, both formula tests, stateless CLI checks and license checks. Strict
-linkage detected the core's missing `zlib-ng-compat` declaration; the core formula
-now declares it at revision 1. That run used a verified Git checkout before
-formula trust, so it does not validate the fresh trust-then-install sequence above. A fresh complete Linux lifecycle run,
-including first-install trust, strict linkage, revision upgrade and uninstall,
-remains required.
+unverified.
+
+Native Linux x86-64 checks now pass with fresh dependencies: source installation,
+both formula tests, stateless CLI and license checks, strict linkage, upgrade and
+removal. One run covered a same-source revision; a separate run upgraded core
+`0.3.0_1` and companion `0.3.0` to `0.3.2` using the exact reviewed new formulas.
+Both new executables and selected kegs were checked, synthetic state stayed
+unchanged, and both isolated containers were removed. The initial missing-zlib
+failure is corrected by the core's Linux `zlib-ng-compat` declaration.
+
+These Linux checks used the pinned Homebrew 7.0.1 image, normal dependency
+provisioning and default security settings. Scoped formula trust preceded the
+verified Git checkout. They do not establish Homebrew's automatic tap-cloning
+flow, interactive terminal behavior or preservation of live sessions.
 
 Both formulas intentionally use the full source archive: the companion references
 shared code and build support outside its own directory. Preserve the font licenses

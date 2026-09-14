@@ -34,7 +34,7 @@ it does not establish interactive desktop behavior, physical clipboard/SSH
 acceptance, upgrades from another release or package-manager installation tests.
 The temporary installation is removed with its disposable directory.
 
-The current workflow uses schema 1 with seven allowlisted files:
+Historical schema 1 releases contain these seven allowlisted files:
 
 - `flere-x86_64-unknown-linux-gnu`
 - `flere-x86_64-unknown-linux-gnu.manifest.json`
@@ -93,7 +93,8 @@ inspection. Schema 2's final checksum list, immutable retry and anonymous downlo
 checks cover all eight files. Historical schema 1 releases retain their exact
 seven-file validation and release text.
 
-Workflow activation remains pending native Debian lifecycle acceptance. Adding
+The workflow now activates schema 2 after native Ubuntu installation, upgrade
+from v0.3.0 to v0.3.2, ownership detection, removal and purge passed. Adding
 a `.deb` to a future release does not submit AUR recipes, create an APT repository
 or change the latest-release pointer. Published immutable releases remain unchanged.
 

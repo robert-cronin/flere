@@ -17,9 +17,11 @@
   scoped tap trust, source integrity, installation, formula tests, stateless CLI
   checks, strict linkage, same-source revision upgrade and uninstall. Disposable
   state stayed unchanged; the isolated container was removed.
-- [ ] Validate Homebrew upgrades between release versions. Native Linux
-  v0.3.0 → v0.3.2 acceptance is running; a same-source revision pass does not
-  establish this result.
+- [x] Validate the native Linux Homebrew upgrade from v0.3.0 to v0.3.2 for
+  both programs, with fresh dependencies, formula/CLI/license/strict-linkage
+  checks before and after, exact selected kegs and complete removal. Synthetic
+  state stayed unchanged and the isolated container was removed.
+- [ ] Validate the macOS Homebrew source-formula upgrade between releases.
 - [ ] Validate fresh macOS Homebrew dependency provisioning and older macOS
   acceptance. The completed arm64 lifecycle used `--ignore-dependencies`;
   Intel Macs and Linux ARM remain excluded from this tap.
@@ -49,13 +51,16 @@
   disposable emulated amd64 container. Six installed stateless CLI checks passed;
   synthetic state and all 175 unrelated package records were preserved. Native
   Arch hardware and interactive terminal features were not tested.
-- [ ] Complete native Debian dependency, v0.3.0 → v0.3.2 runtime upgrade and
-  installed manager-ownership acceptance. Dependency-image provisioning passed;
-  the initial lifecycle capsule stopped at parser validation and its retry is
-  pending. The earlier emulated same-payload revision checks remain separate.
+- [x] Complete native Ubuntu Debian v0.3.0 → v0.3.2 installation, upgrade,
+  removal and purge. All 12 installed CLI checks, package-manager ownership
+  detection and blocked coordinated-update staging passed. Synthetic state and
+  unrelated packages stayed unchanged; owned children and the container exited.
+  The tested archive was copied back and passed independent release inspection.
+- [ ] Validate normal APT dependency downloading for the Debian package. The
+  completed native lifecycle used preinstalled dependencies and no network.
 - [ ] Publish the verified `.deb` in a future release after native acceptance.
-  The existing immutable releases remain unchanged; the prepared eight-asset
-  release path is not yet activated.
+  The existing immutable releases remain unchanged. The eight-asset release
+  path is enabled; its first hosted publication remains pending.
 - [ ] Configure the AUR maintainer identity and publishing access.
 - [ ] Check package-name availability and submit the verified AUR recipe.
   Successful Arch package lifecycle checks do not establish publication or
