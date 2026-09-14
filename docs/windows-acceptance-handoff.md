@@ -225,9 +225,18 @@ Record each case separately as pass/fail/blocked, following [acceptance.md](acce
   open its door, then pause and exit. Check the 40×20 camera, resize and focus
   loss pause, full-game screenshots, and that queued paste/Enter never reaches
   the underlying shell or approved draft.
-  Hold Left/Right or h/l while tapping Space: the jump must retain horizontal
-  movement. On a terminal reporting keyboard release events, releasing the
-  direction must stop it; record the actual terminal and negotiated capability.
+  First hold a direction or ladder key continuously for at least one second,
+  without jumping: movement must not pause before key repeat begins. Then hold
+  Left/Right or h/l while tapping Space: the jump must retain horizontal movement.
+  On a terminal reporting keyboard release events, releasing the direction must
+  stop it; record the actual terminal and negotiated capability. The September 14
+  Windows Terminal 1.24.11911.0 evidence had no Kitty query reply and showed an
+  initial pause in legacy input. Keep that failure separate from enhanced input.
+  Microsoft introduced Kitty keyboard support in
+  [Windows Terminal Preview 1.25.622.0](https://github.com/microsoft/terminal/releases/tag/v1.25.622.0).
+  If an enhanced terminal is available, test it separately and verify that flags
+  11 are actually negotiated; its version alone is insufficient evidence. Passing
+  there does not resolve the legacy pause or authorize changes to repeat settings.
   Legacy terminals retain launch direction until landing. Pause/resume and a
   quick close/reopen must not revive stale held keys. After leaving Arcade,
   opening a local companion prompt, or disconnecting, ordinary typing must work
