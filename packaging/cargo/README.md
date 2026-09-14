@@ -11,7 +11,7 @@ external programs; agent CLIs are optional and run only when explicitly opened.
 
 ## Build from the source package
 
-After extracting `flere-0.3.0.crate`, enter its `flere-0.3.0` directory:
+After extracting `flere-0.3.1.crate`, enter its `flere-0.3.1` directory:
 
 ```sh
 cargo build --release --locked

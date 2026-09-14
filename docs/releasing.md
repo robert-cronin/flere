@@ -27,14 +27,34 @@ they do not establish interactive desktop behavior, physical clipboard/SSH
 acceptance, upgrades from another release or package-manager installation tests.
 The temporary installation is removed with its disposable directory.
 
-Only six allowlisted files can be published:
+Only seven allowlisted files can be published:
 
 - `flere-x86_64-unknown-linux-gnu`
 - `flere-x86_64-unknown-linux-gnu.manifest.json`
 - `flere-connect-x86_64-unknown-linux-gnu`
 - `flere-connect-x86_64-unknown-linux-gnu.manifest.json`
+- `flere-X.Y.Z-source.tar.gz`, containing the complete reviewed public source tree
 - `release.json`, recording source/run/workflow identity, hashes and acceptance
 - `SHA256SUMS`, including the digest of `release.json`
+
+The source archive contains exactly the selected commit's regular files under
+`flere-X.Y.Z/`, including both components and lockfiles, shared build support,
+public documentation/assets, the MIT license and both font licenses. Git metadata,
+untracked files and private build/review output are excluded. Files are sorted;
+Git executable modes are preserved, owner metadata is cleared, tar timestamps use
+the selected commit time, and gzip has no original filename or timestamp.
+
+The [source helper](../scripts/release-source.py) checks all archive members,
+package identities, required shared inputs and licenses. It rejects links,
+duplicate/unsafe paths, extra metadata and trailing data, and bounds compressed
+size, expanded size and file count. The complete member inventory reproduces the
+current `flere-source-v1` fingerprint used by both binary manifests: each sorted
+path, Unix file mode and content digest is bound together. This fingerprint is
+separate from the archive's SHA-256. The publisher repeats validation as data;
+it never extracts or executes candidate source with publication credentials.
+Content review of the selected public commit and final files remains necessary.
+Including source enables subsequent channel preparation; it does not establish
+Homebrew, Cargo, Debian/AUR or Nix lifecycle acceptance or advance their versions.
 
 The upload is a new immutable Actions artifact from this exact run. Its numeric
 artifact ID and separately recorded release-descriptor digest travel to the

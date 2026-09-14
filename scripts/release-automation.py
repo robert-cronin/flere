@@ -6,6 +6,7 @@ copy of this script, not a script downloaded with a candidate artifact.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,11 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+
+sys.dont_write_bytecode = True
+source_spec = importlib.util.spec_from_file_location("release_source", Path(__file__).with_name("release-source.py"))
+source_archive = importlib.util.module_from_spec(source_spec)
+source_spec.loader.exec_module(source_archive)
 
 REPOSITORY = "robert-cronin/flere"
 TARGET = "x86_64-unknown-linux-gnu"
@@ -70,8 +76,12 @@ def payload_names():
             for suffix in ("", ".manifest.json")}
 
 
-def allowlist():
-    return payload_names() | {"release.json", "SHA256SUMS"}
+def candidate_names(version):
+    return payload_names() | {source_archive.name(version)}
+
+
+def allowlist(version):
+    return candidate_names(version) | {"release.json", "SHA256SUMS"}
 
 
 def git(checkout, *args):
@@ -149,27 +159,28 @@ def acceptance(evidence, pinned):
 def seal(directory, version, commit, run_id, workflow_sha, evidence):
     identity(version, commit, run_id)
     identity(version, workflow_sha, run_id)
-    if {p.name for p in directory.iterdir()} != payload_names():
-        raise ValueError("candidate must contain exactly the Linux pair and their manifests")
+    if {p.name for p in directory.iterdir()} != candidate_names(version):
+        raise ValueError("candidate must contain exactly the Linux pair, manifests and full source archive")
     source = manifests(directory, version, commit)
+    archive = source_archive.inspect(directory / source_archive.name(version), version, source)
     pinned = {name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
-              for name in sorted(payload_names())}
+              for name in sorted(candidate_names(version))}
     acceptance(evidence, pinned)
     descriptor = {"schema_version": 1, "repository": REPOSITORY, "version": version,
                   "commit": commit, "workflow_sha": workflow_sha, "run_id": run_id,
-                  "source_sha256": source, "assets": pinned, "evidence": evidence,
+                  "source_sha256": source, "source_archive": archive, "assets": pinned, "evidence": evidence,
                   "targets": {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED},
                   "channels": CHANNELS, "minimum_glibc": "2.39"}
     (directory / "release.json").write_bytes(json_bytes(descriptor))
     (directory / "SHA256SUMS").write_text("".join(
-        f"{sha(read(directory / name))}  {name}\n" for name in sorted(payload_names() | {"release.json"})))
+        f"{sha(read(directory / name))}  {name}\n" for name in sorted(candidate_names(version) | {"release.json"})))
     return validate(directory, version, commit, run_id, workflow_sha)
 
 
 def validate(directory, version, commit, run_id, workflow_sha, expected_digest=None):
     identity(version, commit, run_id)
     identity(version, workflow_sha, run_id)
-    if directory.is_symlink() or {p.name for p in directory.iterdir()} != allowlist():
+    if directory.is_symlink() or {p.name for p in directory.iterdir()} != allowlist(version):
         raise ValueError("release asset allowlist differs: no extra files, paths or targets are allowed")
     raw = read(directory / "release.json", 65536)
     if expected_digest is not None and sha(raw) != expected_digest:
@@ -179,7 +190,7 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
                        "commit": commit, "run_id": run_id, "workflow_sha": workflow_sha}.items():
         if descriptor.get(key) != value:
             raise ValueError("release provenance differs from selected commit/workflow/run/version")
-    if set(descriptor["assets"]) != payload_names() or descriptor["minimum_glibc"] != "2.39":
+    if set(descriptor["assets"]) != candidate_names(version) or descriptor["minimum_glibc"] != "2.39":
         raise ValueError("descriptor asset allowlist or Linux support contract differs")
     if descriptor["source_sha256"] != manifests(directory, version, commit):
         raise ValueError("descriptor source differs from manifests")
@@ -187,8 +198,11 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
         data = read(directory / name)
         if expected != {"bytes": len(data), "sha256": sha(data)}:
             raise ValueError("final bytes differ from sealed release assets")
+    archive = source_archive.inspect(directory / source_archive.name(version), version, descriptor["source_sha256"])
+    if descriptor.get("source_archive") != archive:
+        raise ValueError("source archive provenance differs from sealed descriptor")
     expected_sums = "".join(f"{sha(read(directory / name))}  {name}\n"
-                            for name in sorted(payload_names() | {"release.json"}))
+                            for name in sorted(candidate_names(version) | {"release.json"}))
     if read(directory / "SHA256SUMS", 65536).decode() != expected_sums:
         raise ValueError("SHA256SUMS differs from final release bytes")
     acceptance(descriptor["evidence"], descriptor["assets"])
@@ -197,7 +211,7 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
         raise ValueError("missing target acceptance or unexpected channel readiness")
     return {"descriptor_sha256": sha(raw), "files": {
         name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
-        for name in sorted(allowlist())}}
+        for name in sorted(allowlist(version))}}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -265,7 +279,7 @@ def release_body(version, commit, run_id, descriptor_sha):
     return (f"Flere {version}\n\nSource commit: `{commit}`\n"
             f"Release descriptor SHA-256: `{descriptor_sha}`\n"
             f"Build run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n"
-            "Linux x86-64 core and companion; glibc 2.39 or newer. Native CI checks are recorded in release.json. "
+            "Linux x86-64 core and companion plus the complete reviewed source archive; glibc 2.39 or newer for these binaries. Native CI checks are recorded in release.json. "
             "Interactive desktop acceptance is not claimed. macOS signed binaries and Windows companion distribution remain blocked. "
             "Package-manager channels and the latest-release pointer are not advanced by this workflow.\n")
 

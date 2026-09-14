@@ -70,7 +70,7 @@ def main():
         "os": "ubuntu-24.04", "architecture": platform.machine(),
         "image": os.environ["ImageOS"], "image_version": os.environ["ImageVersion"],
         "rustc": rustc, "linker": run(["ld", "--version"], checkout).splitlines()[0], "glibc": "2.39"}}
-    # Only these six final public files are uploaded. Build logs, local paths and
+    # Only these seven final public files are uploaded. Build logs, local paths and
     # package receipts outside the two public manifests remain private to the job.
     with tempfile.TemporaryDirectory(prefix="release-install-", dir=cache) as isolated:
         acceptance_home = Path(isolated)
@@ -110,6 +110,8 @@ def main():
             evidence["payloads"][component] = before
     if release.git(checkout, "status", "--porcelain"):
         raise ValueError("validation changed selected source or a lockfile")
+    release.source_archive.create(checkout, assets / release.source_archive.name(args.version),
+                                  args.version, args.commit, result["source"]["source_sha256"])
     sealed = release.seal(assets, args.version, args.commit, args.run_id, args.workflow_sha, evidence)
     if os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:

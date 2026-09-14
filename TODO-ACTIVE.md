@@ -13,15 +13,20 @@
   remains pending; Intel Macs and Linux ARM are excluded from this tap.
 - [ ] Prepare and validate Cargo source packages; publish after registry access
   and package-name availability are established.
-  Core archive verification passed at `677971d`; first registry publication must
+  Core archive verification passed at `cdc5dab` (184 extracted unit tests); first
+  registry publication must
   use a new matching version/tag rather than relabel the original release source.
 - [x] Prepare the Linux `.deb` and AUR recipe with the glibc 2.39+ requirement.
   Corrected Debian archive/hash/mode checks and six native stateless CLI checks
   passed; the archive matches an independent Docker reproduction byte for byte.
   See [package validation](packaging/linux/README.md#validation-and-publication-follow-up).
-- [ ] Validate Debian system installation and APT upgrade/removal, complete Arch
-  `makepkg`/pacman checks, and publish the `.deb`/submit the AUR recipe. Both remain
-  unpublished; extraction and stateless CLI checks do not establish these lifecycles.
+- [x] Validate offline Debian-package installation, a same-payload revision
+  upgrade, removal and purge using real APT/dpkg in disposable emulated amd64
+  Ubuntu 24.04 containers. Both jobs passed their six installed CLI checks;
+  synthetic state and all 222 unrelated package records were preserved.
+- [ ] Publish the verified `.deb`, complete Arch `makepkg`/pacman checks and submit
+  the AUR recipe. Both remain unpublished. Debian dependency downloading and
+  upgrades between different Flere runtime versions remain untested.
 - [ ] Validate the prepared [Nix packaging draft](packaging/nix/README.md). No
   Nix parsing, evaluation or build has run; native runtime and update ownership
   acceptance also remain pending. Do not claim Nix support.
@@ -47,9 +52,10 @@
 - [ ] Automate the release process: exact version/commit selection, native builds
   and tests, final-package checksums, publication and per-channel updates. The owner
   selected a **Release button with an explicit version and commit**; ordinary
-  pushes must not publish. The first Linux workflow is implemented and has
-  16 promotion/validation tests; a hosted run, other targets and channel
-  activation remain open.
+  pushes must not publish. The Linux workflow includes the complete source
+  archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
+  final candidate validation, release immutability/environment setup, a hosted
+  run, other targets and channel activation remain open.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. Current binary casks are not published:
   ordinary Gatekeeper blocked their unnotarized executable in testing.

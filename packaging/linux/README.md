@@ -6,7 +6,7 @@ the package builder does not compile a changed checkout or execute either binary
 
 | Format | Current validation |
 | --- | --- |
-| Debian `.deb` | Corrected archive, hashes and modes verified; independent Docker reproduction is byte-identical. Six native stateless CLI checks passed on the extracted binaries. System installation and APT upgrade/removal remain untested; unpublished. |
+| Debian `.deb` | Archive and independent reproduction verified; six native extracted CLI checks passed. Offline APT install, same-payload revision upgrade, removal and purge passed in emulated amd64 Ubuntu containers; unpublished. |
 | AUR `flere-bin` | Recipe and `.SRCINFO` prepared; source checksum arrays and `package()` checked using Bash/coreutils on Linux. Full Arch `makepkg` build and pacman installation remain pending. Not submitted to AUR. |
 | RPM | Queued until `rpmbuild` and an RPM-based validation environment are available. No untested RPM artifact is offered. |
 | Nix | [Source expression prepared as an unvalidated draft](../nix/README.md). Nix parsing, evaluation, builds, runtime and update ownership remain untested; not a supported installation method. |
@@ -91,6 +91,28 @@ extracted executable: all six commands succeeded, and embedded build metadata
 matched the original release manifests. No application state or native chat was
 created. This did not install the package, exercise APT install/upgrade/removal,
 or rebuild the release binaries. The package remains unpublished.
+
+Separate offline APT/dpkg lifecycle checks subsequently passed in two disposable
+amd64 Ubuntu 24.04 containers under Docker Desktop emulation. The fresh-install
+job exercised installation, exact file/manifest verification, removal, reinstall
+and purge. The upgrade job first installed a synthetic `0.3.0-0` package with
+identical payload bytes, then upgraded it to the untouched `0.3.0-1` candidate.
+Only the fixture's `Version` and versioned `Provides` fields differed. This proves
+a package-revision upgrade; it does not prove migration between runtime versions
+or preservation of running sessions.
+
+Both jobs passed all six installed `--build-info`, `--help` and `--version`
+checks. All 222 unrelated package records and the synthetic user-state fixtures
+remained unchanged. No child process survived; removed files and purged package
+metadata were absent, and the final dpkg audit was empty. Both containers were
+removed. The host installation and real user state were never mounted.
+
+These jobs used cached dependencies, empty APT source lists and disabled container
+networking. The first test attempt stopped before installation because
+`--no-download` could not acquire the local input into APT's archive cache. The
+successful harness prepopulated that disposable cache with hash-verified candidate
+bytes and retained `--no-download`. Dependency downloading, a public APT repository,
+other distributions and different-version runtime upgrades remain untested.
 
 ```sh
 python3 scripts/test_linux_packages.py

@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from test_release_source import sample_files, source_digest, write_archive
+
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("release_automation", Path(__file__).with_name("release-automation.py"))
 release = importlib.util.module_from_spec(spec)
@@ -59,7 +61,7 @@ class FakeGitHub:
             self.files[name] = data
             return {"name": name}
         if method == "PATCH" and path == "releases/1":
-            if set(self.files) != release.allowlist():
+            if set(self.files) != release.allowlist(VERSION):
                 raise AssertionError("publication before complete asset upload")
             self.release.update(data, immutable=self.immutable)
             self.tag = {"object": {"type": "commit", "sha": COMMIT,
@@ -81,13 +83,17 @@ class ReleaseAutomation(unittest.TestCase):
             "os": "ubuntu-24.04", "architecture": "x86_64", "image": "ubuntu24",
             "image_version": "fixture", "rustc": "rustc 1.98.0 (fixture)",
             "linker": "fixture", "glibc": "2.39"}}
+        files = sample_files(VERSION)
+        self.source_digest = source_digest(files)
+        self.source_archive = self.directory / release.source_archive.name(VERSION)
+        write_archive(self.source_archive, files)
         for component in release.COMPONENTS:
             name = f"{component}-{release.TARGET}"
             payload = b"\x7fELF\x02\x01" + b"\0" * 12 + b"\x3e\x00" + component.encode()
             item = {"schema_version": 1, "build": {"component": component,
                     "target": release.TARGET, "package_version": VERSION, "profile": "release",
                     "compatibility": {"remote_protocol": {"current": "v6", "accepts": ["v6"]}}},
-                    "source": {"git_commit": COMMIT, "dirty": False, "source_sha256": "c" * 64},
+                    "source": {"git_commit": COMMIT, "dirty": False, "source_sha256": self.source_digest},
                     "payload": {"file_name": component, "download_file": name,
                                 "bytes": len(payload), "sha256": release.sha(payload)}}
             (self.directory / name).write_bytes(payload)
@@ -181,12 +187,13 @@ class ReleaseAutomation(unittest.TestCase):
             self.publish(digest)
         self.assertTrue(self.api.release["draft"])
         retained = copy.deepcopy(self.api.files)
+        self.assertEqual(retained[self.source_archive.name], self.source_archive.read_bytes())
         self.api.fail_upload = None
         result = self.publish(digest)
         self.assertEqual(result["status"], "published_immutable")
         self.assertFalse(self.api.release["draft"])
         self.assertEqual(self.api.release["make_latest"], "false")
-        self.assertEqual(set(self.api.files), release.allowlist())
+        self.assertEqual(set(self.api.files), release.allowlist(VERSION))
         for name, data in retained.items():
             self.assertEqual(self.api.files[name], data)
         writes = list(self.api.writes)
@@ -232,6 +239,61 @@ class ReleaseAutomation(unittest.TestCase):
                 release.verify_public(self.directory, VERSION, COMMIT, RUN, WORKFLOW, digest)
         self.assertEqual(self.api.writes, writes)
         self.assertFalse(self.api.release["draft"])
+
+    def test_changed_or_wrong_source_archive_stops_before_publication(self):
+        original = self.source_archive.read_bytes()
+        digest = self.seal()
+        self.source_archive.write_bytes(original + b"changed")
+        with self.assertRaisesRegex(ValueError, "final bytes"):
+            self.publish(digest)
+        self.assertEqual(self.api.writes, [])
+        self.source_archive.write_bytes(original)
+        descriptor = self.directory / "release.json"
+        value = json.loads(descriptor.read_bytes())
+        value["source_archive"]["fingerprint_algorithm"] = "unrelated-algorithm"
+        descriptor.write_bytes(release.json_bytes(value))
+        with self.assertRaisesRegex(ValueError, "source archive provenance"):
+            self.publish(release.sha(descriptor.read_bytes()))
+        self.assertEqual(self.api.writes, [])
+
+    def test_full_source_must_match_both_binary_manifests_before_sealing(self):
+        files = sample_files(VERSION)
+        files["LICENSE"] = (0o644, b"different source commit")
+        write_archive(self.source_archive, files)
+        with self.assertRaisesRegex(ValueError, "fingerprint differs"):
+            self.seal()
+        self.assertFalse((self.directory / "release.json").exists())
+        self.assertEqual(self.api.writes, [])
+
+    def test_conflicting_uploaded_source_archive_is_never_replaced(self):
+        digest = self.seal()
+        self.api.fail_upload = f"flere-{release.TARGET}"
+        with self.assertRaisesRegex(ValueError, "interruption"):
+            self.publish(digest)
+        name = self.source_archive.name
+        original = self.api.files[name]
+        self.api.files[name] = original[:-1] + bytes([original[-1] ^ 1])
+        writes = list(self.api.writes)
+        with self.assertRaisesRegex(ValueError, "remote asset bytes differ"):
+            self.publish(digest)
+        self.assertEqual(self.api.writes, writes)
+        self.assertTrue(self.api.release["draft"])
+
+    def test_anonymous_source_archive_download_must_match_promoted_bytes(self):
+        digest = self.seal()
+        self.publish(digest)
+        seen = []
+        def download(url):
+            name = url.rsplit("/", 1)[-1]
+            seen.append(name)
+            return self.api.files[name]
+        with mock.patch.object(release, "public_download", side_effect=download):
+            release.verify_public(self.directory, VERSION, COMMIT, RUN, WORKFLOW, digest)
+        self.assertEqual(set(seen), release.allowlist(VERSION))
+        self.api.files[self.source_archive.name] += b"changed-public-source"
+        with mock.patch.object(release, "public_download", side_effect=download):
+            with self.assertRaisesRegex(ValueError, "public download"):
+                release.verify_public(self.directory, VERSION, COMMIT, RUN, WORKFLOW, digest)
 
     def test_public_fetch_is_constrained_to_https_github_download_hosts(self):
         for url in ("http://github.com/asset", "https://github.com.evil.example/asset",
