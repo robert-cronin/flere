@@ -232,9 +232,17 @@
   coordinated preparation, unchanged binary/receipt/state, normal uninstall and
   exact child/container cleanup passed. The published tap/source remained pinned;
   companion, rendered-modal and active-session behavior were not part of this check.
+- [x] Validate native Linux Homebrew core and companion ownership at exact
+  unreleased v0.3.4 source `2d52985`. Both normal source installs, formula tests,
+  six stateless checks, actual owner UIs and preparation refusal before staging
+  passed. Binaries, manager receipts and synthetic state stayed unchanged; both
+  frontends, the local bridge and supervisor exited normally, both kegs uninstalled
+  and the exact container was removed. Formulas used the verified source via a
+  private local URL; published Homebrew remains v0.3.2. No active-session or
+  external SSH acceptance is claimed.
 - [ ] Complete remaining native Linux package-manager and Windows runtime
-  ownership acceptance. Native Debian, Cargo core and Homebrew core protocol
-  checks, native Fedora-container RPM core/companion UI/refusal checks and Nix
+  ownership acceptance. Native Debian, Cargo core and Homebrew core/companion
+  UI/refusal checks, native Fedora-container RPM core/companion checks and Nix
   core/companion UI/profile checks passed; other manager and Windows runtime
   checks remain open.
 - [x] Automate the Linux manual Release path: explicit main version/commit

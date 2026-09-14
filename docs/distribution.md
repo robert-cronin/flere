@@ -150,6 +150,16 @@ require a manual upgrade through their owner. Verified manual per-user copies
 show an explicit adoption choice in the local review; ownership is checked again
 before replacement. Older endpoints and candidates without this capability require
 one manual upgrade, including older builds with the same package version.
+
+The unreleased Homebrew companion parser correction passed native Linux
+acceptance at exact source `2d52985`: both normal source installs, formula tests,
+six stateless checks and actual core/companion update UIs passed. Both refused
+preparation before staging, kept their installed binaries and manager receipts
+unchanged, then exited and uninstalled normally with synthetic state preserved.
+The private formulas used a verified local source URL; the published v0.3.2 tap
+still contains the earlier companion parser. No active sessions or external SSH
+were exercised.
+
 The unreleased v0.3.4 development source also recognizes verified local Nix
 store outputs for both components. It shows guidance to update the owning Nix
 configuration or profile and reopen, with in-app Apply disabled. The verified
