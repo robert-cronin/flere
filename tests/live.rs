@@ -2054,9 +2054,21 @@ fn actual_ui_short_archive_picker_restores_without_starting_any_terminal() {
     // At eight rows the picker still renders its selected result, not a blind Enter target.
     os::resize(master.as_raw_fd(), 40, 8).unwrap();
     screen.resize(40, 8);
+    // Resizing this test's emulator does not acknowledge the frontend resize.
+    // Wait for its viewport request before opening: a queued twelve-row frame
+    // could otherwise satisfy the assertion while the actual tiny form is empty.
+    let viewport = flere::ui::Layout::new(40, 8);
+    wait_current_ui(&mut master, &mut screen, |_| {
+        let snapshot = f.snapshot();
+        (snapshot.cols, snapshot.rows) == (viewport.cols, viewport.rows)
+    });
     master.write_all(b"\0a").unwrap();
     wait_current_ui(&mut master, &mut screen, |s| {
         s.grid.rows == 8 && s.capture(20).contains("› Archive 0")
+    });
+    master.write_all(b"\x1b[B").unwrap();
+    wait_current_ui(&mut master, &mut screen, |s| {
+        s.capture(20).contains("› Archive 1") && !s.capture(20).contains("Archive 0")
     });
     master.write_all(b"\x1b").unwrap();
     // Wait for the UI to process lone Escape; a 50 ms sleep races its 40 ms

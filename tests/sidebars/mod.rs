@@ -287,15 +287,26 @@ fn sidebar_boxes_keep_group_counts_gutters_and_selected_surfaces_at_all_widths()
         ui.artifact(&format!("sidebar-boxes-{left}"));
         if left == 46 {
             ui.click(8, 2);
+            // PTY pumping does not acknowledge the click. The grouping header
+            // is redrawn after its preference has been saved.
+            ui.wait(|s| side_line(s, left, 2).contains("Project"));
             assert_eq!(preferences(&f)["grouping"], "project");
             ui.artifact("sidebar-project-expanded");
             ui.click(8, 2);
+            ui.wait(|s| side_line(s, left, 2).contains("Status"));
         }
         let heading = ui.heading("Todo");
         let count_before = ui.line(heading);
         let top_before = ui.cell(left - 3, 2).text.clone();
         assert_eq!(top_before, "4");
         ui.click(5, heading);
+        ui.wait(|s| {
+            (3..s.grid.rows - 2).any(|y| {
+                s.grid.cells[y * s.grid.cols + 1].text == " "
+                    && s.grid.cells[y * s.grid.cols + 2].text == "▸"
+                    && side_line(s, left, y).contains("Todo")
+            })
+        });
         assert!(
             preferences(&f)["folds"]
                 .as_array()

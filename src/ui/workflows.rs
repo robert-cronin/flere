@@ -1137,7 +1137,10 @@ impl Ui {
         let l = self.layout;
         let w = 70.min(l.width);
         let is_picker = picker(&f.kind);
-        let h = (f.values.len() * 2 + 6 + if is_picker { 8 } else { 0 }).min(l.height - 2);
+        // At the minimum eight-row viewport, use the spare top margin so a
+        // picker still has separate filter, selected-result and help rows.
+        let available = (l.height - 2).max(if is_picker { 7 } else { 0 });
+        let h = (f.values.len() * 2 + 6 + if is_picker { 8 } else { 0 }).min(available);
         let x = (l.width - w) / 2;
         let y = (l.height - h) / 2;
         c.fill(x, y, w, h, style(TEXT, PANEL, false));
