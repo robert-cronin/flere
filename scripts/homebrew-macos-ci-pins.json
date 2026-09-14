@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "tap_url": "https://github.com/robert-cronin/homebrew-flere",
+  "phases": {
+    "initial": {
+      "tap_commit": "3a8c34e114127502f356a02060dd82cb34451d7f",
+      "version": "0.3.0",
+      "kegs": {
+        "flere": "0.3.0_1",
+        "flere-connect": "0.3.0"
+      },
+      "source_bytes": 23182565,
+      "source_sha256": "5ccc74765af98ae38f51be21709e3e703312ebde3eadb59d5b4cf8adbd31e94f",
+      "files": {
+        "Formula/flere-connect.rb": {
+          "bytes": 1697,
+          "sha256": "1a973eadf224e466e1422c48066cd14d1a685bab15fdbf586c1e1bfd725cc12a"
+        },
+        "Formula/flere.rb": {
+          "bytes": 1687,
+          "sha256": "9c49de47555486d6009b65013d698cab62317c6767cdeae14325a54d0449d841"
+        },
+        "LICENSE": {
+          "bytes": 1075,
+          "sha256": "b997b4ab95fef146345de8b279c4d6dff41fc4a198d2bfe2488ba0ae0ac071d5"
+        },
+        "README.md": {
+          "bytes": 5868,
+          "sha256": "a4c102b977ed3ec02e8a34bf52c0b4b402ad0b3927ef19a5e41d318bc330e095"
+        },
+        "formula.rb.in": {
+          "bytes": 1607,
+          "sha256": "291dbcaab2de85287042ac445125720c6e31d6a9e39870c7e31fc0e0fc3ed136"
+        },
+        "render.py": {
+          "bytes": 3479,
+          "sha256": "fd16baa72b2fa6dcffe20803794517d36f28e54ee675de45c28766c051e2d6f9"
+        },
+        "verify.py": {
+          "bytes": 3338,
+          "sha256": "7b8461f514b38922e51f1c244f821d94ffd4dd0c0fe75166d1e162376130cf40"
+        }
+      }
+    },
+    "upgraded": {
+      "tap_commit": "97cbcffced6474d8c5258e8a37e9fbc07d23b1ef",
+      "version": "0.3.2",
+      "kegs": {
+        "flere": "0.3.2",
+        "flere-connect": "0.3.2"
+      },
+      "source_bytes": 23327721,
+      "source_sha256": "25484301d3ee5f3b0a1bbcbe6e0737c09bda00292c66d2bdcbceaefd0a01eaee",
+      "files": {
+        "Formula/flere-connect.rb": {
+          "bytes": 1697,
+          "sha256": "70a087832adda4df665c2e7ecc00c2547022de5165a0deb2cd8f71609d75576f"
+        },
+        "Formula/flere.rb": {
+          "bytes": 1674,
+          "sha256": "5c821c14ff8038f8665b06f52fe0db0ca79e70999ae4de433408365f78168765"
+        },
+        "LICENSE": {
+          "bytes": 1075,
+          "sha256": "b997b4ab95fef146345de8b279c4d6dff41fc4a198d2bfe2488ba0ae0ac071d5"
+        },
+        "README.md": {
+          "bytes": 6202,
+          "sha256": "4da909fd792fc3006c2cba42e58fab7dab8d29a76677a9defca91fec6b718e4f"
+        },
+        "formula.rb.in": {
+          "bytes": 1607,
+          "sha256": "291dbcaab2de85287042ac445125720c6e31d6a9e39870c7e31fc0e0fc3ed136"
+        },
+        "render.py": {
+          "bytes": 3479,
+          "sha256": "fd16baa72b2fa6dcffe20803794517d36f28e54ee675de45c28766c051e2d6f9"
+        },
+        "verify.py": {
+          "bytes": 3338,
+          "sha256": "7b8461f514b38922e51f1c244f821d94ffd4dd0c0fe75166d1e162376130cf40"
+        }
+      }
+    }
+  }
+}

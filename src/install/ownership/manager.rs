@@ -13,12 +13,16 @@ fn word(value: &str) -> bool {
 }
 
 pub(super) fn homebrew(executable: &Path, version: &str) -> Option<ManagerUpgrade> {
+    let component = executable.file_name()?.to_str()?;
+    if !matches!(component, "flere" | "flere-connect") {
+        return None;
+    }
     let bin = executable.parent()?;
     let keg = bin.parent()?;
     let formula = keg.parent()?;
     let cellar = formula.parent()?;
     if bin.file_name()? != "bin"
-        || formula.file_name()? != "flere"
+        || formula.file_name()? != component
         || cellar.file_name()? != "Cellar"
     {
         return None;
@@ -47,7 +51,7 @@ pub(super) fn homebrew(executable: &Path, version: &str) -> Option<ManagerUpgrad
     }
     Some(ManagerUpgrade {
         manager: "Homebrew",
-        command: Some(format!("brew upgrade {tap}/flere")),
+        command: Some(format!("brew upgrade {tap}/{component}")),
         detail: "Run this in a shell, then reopen Flere. Running sessions stay alive.",
     })
 }

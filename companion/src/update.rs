@@ -1752,6 +1752,35 @@ mod tests {
         );
     }
     #[test]
+    fn homebrew_companion_owner_keeps_its_own_upgrade_command() {
+        let f = Fixture::new();
+        let version = env!("CARGO_PKG_VERSION");
+        let directory = f.package(&format!("Cellar/flere-connect/{version}_1/bin"));
+        write_json(
+            &directory.parent().unwrap().join("INSTALL_RECEIPT.json"),
+            &serde_json::json!({
+                "homebrew_version": "7.0.1",
+                "source": {"spec": "stable", "versions": {"stable": version},
+                    "tap": "robert-cronin/flere"}
+            }),
+        )
+        .unwrap();
+        private_dir(&f.store.bin).unwrap();
+        symlink(directory.join(COMPONENT), f.store.destination()).unwrap();
+        let build = serde_json::from_str(crate::build_info::json()).unwrap();
+        let owner = ownership::selected(&f.store, &f.store.destination(), &build).unwrap();
+        assert_eq!(owner.kind, crate::remote_update::OwnerKind::Manager);
+        assert!(
+            owner
+                .guidance
+                .contains("brew upgrade robert-cronin/flere/flere-connect")
+        );
+        assert!(owner.require_update().is_err());
+        assert!(f.store.status().unwrap().is_none());
+        assert_eq!(owner.sha256, sha256(&directory.join(COMPONENT)).unwrap());
+    }
+
+    #[test]
     fn windows_launcher_names_share_one_receipt_and_stay_stable_through_update_and_rollback() {
         // Exercise the actual Windows filesystem layout/transaction on a Unix
         // fixture with harmless executable stand-ins. This does not establish

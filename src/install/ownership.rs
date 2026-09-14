@@ -382,6 +382,10 @@ mod tests {
             Some("brew upgrade robert-cronin/flere/flere")
         );
         assert!(homebrew(&exe, "0.4.0").is_none());
+        let other_component = f.file("Cellar/flere/0.3.0/bin/flere-connect", b"fixture");
+        assert!(homebrew(&other_component, "0.3.0").is_none());
+        let foreign = f.file("Cellar/flere/0.3.0/bin/unrelated", b"fixture");
+        assert!(homebrew(&foreign, "0.3.0").is_none());
         f.brew_receipt("robert-cronin/flere;bad", "0.3.0");
         assert!(homebrew(&exe, "0.3.0").is_none());
         f.brew_receipt("robert-cronin/flere", "0.4.0");

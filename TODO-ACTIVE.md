@@ -30,6 +30,9 @@
 - [ ] Validate fresh macOS Homebrew dependency provisioning and older macOS
   acceptance. The completed arm64 lifecycle used `--ignore-dependencies`;
   Intel Macs and Linux ARM remain excluded from this tap.
+  The manual Homebrew macOS acceptance workflow now covers hosted macOS 15/26
+  default-prefix installs, direct Rust dependency provisioning and literal
+  version upgrades. Its actual hosted results remain pending.
 - [x] Prepare and validate the core Cargo source package at `19637da`: normal
   extracted-package verification, all 186 library tests, a release build,
   stateless CLI checks and an unchanged cached-build stamp passed on macOS arm64.
@@ -128,6 +131,11 @@
   display the appropriate upgrade command. Ambiguous ownership and removed
   executables keep Apply disabled; a Cargo receipt advancing beyond the running
   version retains manager guidance. Unit and combined core checks pass.
+- [x] Correct Homebrew companion ownership: the executable and formula must
+  match, and the companion retains its own `brew upgrade` command. The regression
+  first reproduced Unknown ownership; all 486 macOS tests, strict Clippy/format
+  checks and Linux/Windows compile checks now pass. This correction is unreleased;
+  published Homebrew v0.3.2 still contains the earlier parser.
 - [x] Extend installation-owner checks to coordinated remote updates, including
   explicit manual adoption, stale-action rejection and owner rechecks under the
   installation lock. Older endpoints/candidates and unknown or manager-owned
