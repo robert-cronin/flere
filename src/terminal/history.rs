@@ -18,7 +18,7 @@ impl HistoryRow {
     pub fn from_cells(cells: &[Cell]) -> Self {
         debug_assert!(cells.len() <= 240);
         let mut data = Vec::with_capacity(2 + cells.len() * 3);
-        data.extend_from_slice(&[1, cells.len() as u8]);
+        data.extend_from_slice(&[2, cells.len() as u8]);
         let mut first = 0;
         while first < cells.len() {
             let style = cells[first].style;
@@ -44,19 +44,34 @@ impl HistoryRow {
             }
             first = end;
         }
-        Self(data.into())
+        let remaining = ROW_BYTES.saturating_sub(data.len());
+        let mut encoded = crate::wire::Encoder(data);
+        super::hyperlinks::encode_budget(&mut encoded, cells, remaining);
+        debug_assert!(encoded.0.len() <= ROW_BYTES);
+        Self(encoded.0.into())
     }
     pub fn cells(&self) -> Vec<Cell> {
-        let mut cells = Vec::with_capacity(self.0[1] as usize);
-        self.visit(|text, width, style| {
+        self.decode_cells().expect("validated history row")
+    }
+    fn decode_cells(&self) -> Result<Vec<Cell>, &'static str> {
+        let mut cells = Vec::with_capacity(usize::from(*self.0.get(1).ok_or("short history row")?));
+        let tail = self.visit(|text, width, style| {
             cells.push(Cell {
                 text: text.into(),
                 width,
                 style,
+                link: None,
             })
-        })
-        .expect("validated history row");
-        cells
+        })?;
+        if self.0[0] == 2 {
+            let mut decoder = crate::wire::Decoder(tail);
+            super::hyperlinks::decode_budget(&mut decoder, &mut cells, tail.len())
+                .map_err(|_| "invalid history hyperlinks")?;
+            if !decoder.0.is_empty() {
+                return Err("trailing history hyperlink bytes");
+            }
+        }
+        Ok(cells)
     }
     pub fn text(&self) -> String {
         let mut line = String::new();
@@ -69,9 +84,10 @@ impl HistoryRow {
         line.truncate(line.trim_end().len());
         line
     }
-    fn visit(&self, mut cell: impl FnMut(&str, u8, Style)) -> Result<(), &'static str> {
+    fn visit(&self, mut cell: impl FnMut(&str, u8, Style)) -> Result<&[u8], &'static str> {
         let mut r = Reader(&self.0);
-        if r.byte()? != 1 {
+        let version = r.byte()?;
+        if !matches!(version, 1 | 2) {
             return Err("unknown history row version");
         }
         let mut remaining = r.byte()? as usize;
@@ -111,10 +127,10 @@ impl HistoryRow {
             }
             remaining -= n;
         }
-        if !r.0.is_empty() {
+        if version == 1 && !r.0.is_empty() {
             return Err("trailing history bytes");
         }
-        Ok(())
+        Ok(r.0)
     }
 }
 fn put_color(data: &mut Vec<u8>, color: Color) {
@@ -171,7 +187,7 @@ impl<'de> Deserialize<'de> for HistoryRow {
                     return Err(de::Error::custom("oversized history row"));
                 }
                 let row = Self(bytes.into());
-                row.visit(|_, _, _| {}).map_err(de::Error::custom)?;
+                row.decode_cells().map_err(de::Error::custom)?;
                 Ok(row)
             }
             Saved::Cells(cells) => {
@@ -202,12 +218,14 @@ impl<'de> Deserialize<'de> for HistoryRow {
                         text: ch.to_string(),
                         width,
                         style: Style::default(),
+                        link: None,
                     });
                     if width == 2 {
                         cells.push(Cell {
                             text: String::new(),
                             width: 0,
                             style: Style::default(),
+                            link: None,
                         });
                     }
                 }
@@ -308,6 +326,7 @@ mod tests {
                     italic: true,
                     ..Style::default()
                 },
+                link: None,
             },
             Cell {
                 text: "界".into(),
@@ -321,16 +340,19 @@ mod tests {
                     inverse: true,
                     ..Style::default()
                 },
+                link: None,
             },
             Cell {
                 text: String::new(),
                 width: 0,
                 style: Style::default(),
+                link: None,
             },
             Cell {
                 text: "e\u{301}".into(),
                 width: 1,
                 style: Style::default(),
+                link: None,
             },
         ];
         let row = HistoryRow::from_cells(&cells);
@@ -410,5 +432,89 @@ mod tests {
         assert!(serde_json::from_value::<HistoryRow>(oversized).is_err());
         h.clear();
         assert!(h.is_empty() && h.bytes() == 0);
+    }
+}
+
+#[cfg(test)]
+mod hyperlink_tests {
+    use super::*;
+    use crate::terminal::hyperlinks::{Hyperlink, URI_BYTES};
+    #[test]
+    fn version_two_links_round_trip_and_version_one_remains_readable() {
+        let cells = vec![
+            Cell {
+                text: "a".into(),
+                link: Hyperlink::new("https://e.test/history"),
+                ..Cell::default()
+            };
+            20
+        ];
+        let row = HistoryRow::from_cells(&cells);
+        assert_eq!(row.0[0], 2);
+        assert_eq!(row.cells(), cells);
+        assert_eq!(
+            row.0
+                .windows(22)
+                .filter(|s| *s == b"https://e.test/history")
+                .count(),
+            1
+        );
+        let restored: HistoryRow =
+            serde_json::from_slice(&serde_json::to_vec(&row).unwrap()).unwrap();
+        assert_eq!(restored.cells(), cells);
+        let old = serde_json::json!({"packed":STANDARD.encode([1,1,1,0,0,0,1,1,b'a'])});
+        let old: HistoryRow = serde_json::from_value(old).unwrap();
+        assert_eq!(old.text(), "a");
+        assert!(old.cells()[0].link.is_none());
+        let mut malformed = row.0.to_vec();
+        malformed.pop();
+        assert!(
+            serde_json::from_value::<HistoryRow>(
+                serde_json::json!({"packed":STANDARD.encode(malformed)})
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn row_budget_drops_only_overflow_links_and_history_counts_sidecars() {
+        let cells: Vec<_> = (0..240)
+            .map(|i| Cell {
+                text: "x".repeat(64),
+                width: 1,
+                style: Style {
+                    fg: Color::Rgb(i as u8, 0, 0),
+                    bg: Color::Rgb(0, 1, 2),
+                    ..Style::default()
+                },
+                link: Hyperlink::new(&format!("https://e.test/{i}")),
+            })
+            .collect();
+        let row = HistoryRow::from_cells(&cells);
+        assert!(row.0.len() <= ROW_BYTES);
+        let restored = row.cells();
+        assert!(
+            restored.iter().any(|c| c.link.is_some()) && restored.iter().any(|c| c.link.is_none())
+        );
+        assert!(
+            restored
+                .iter()
+                .zip(&cells)
+                .all(|(a, b)| a.text == b.text && a.width == b.width && a.style == b.style)
+        );
+        let mut history = History::default();
+        let size = row.0.len();
+        for _ in 0..HISTORY_BYTES / size + 2 {
+            history.push(row.clone());
+        }
+        assert!(history.bytes() <= HISTORY_BYTES);
+        assert_eq!(history.bytes(), history.len() * size);
+        let mut cells = cells;
+        let uri = format!("https://e.test/{}", "x".repeat(URI_BYTES - 15));
+        assert!(uri.len() <= URI_BYTES);
+        for cell in &mut cells {
+            cell.link = Hyperlink::new(&uri);
+        }
+        let row = HistoryRow::from_cells(&cells);
+        assert!(row.0.len() <= ROW_BYTES && row.cells().iter().all(|c| c.link.is_none()));
     }
 }

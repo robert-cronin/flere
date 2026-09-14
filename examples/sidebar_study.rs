@@ -54,6 +54,7 @@ impl Canvas {
                 text: if elided { '…' } else { *character }.to_string(),
                 width: 1,
                 style,
+                link: None,
             };
         }
     }

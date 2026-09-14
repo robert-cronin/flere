@@ -79,7 +79,7 @@ impl Ui {
             if operation == "copy" {
                 "command-output"
             } else {
-                "command-jump"
+                self.page_command("command-jump")
             },
             &id,
             &tab.run,
@@ -252,7 +252,7 @@ impl Ui {
             wire::request(
                 &self.state,
                 &[
-                    "wheel",
+                    self.page_command("wheel"),
                     &t.id.to_string(),
                     &t.run,
                     &self.snapshot.cols.to_string(),
@@ -264,7 +264,7 @@ impl Ui {
             wire::request(
                 &self.state,
                 &[
-                    "scrollback",
+                    self.page_command("scrollback"),
                     &t.id.to_string(),
                     &t.run,
                     &anchor,

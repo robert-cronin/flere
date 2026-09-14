@@ -5,8 +5,9 @@ use std::{
     path::Path,
     time::Duration,
 };
-// A v5 snapshot can contain two retained 240×100 grids, including 64-byte
-// combining cells, plus the existing 8 MiB persisted metadata budget.
+// A v5/v6 snapshot can contain two retained 240×100 grids, including 64-byte
+// combining cells, plus the existing 8 MiB persisted metadata budget. The
+// response bound also leaves room for two bounded 64 KiB v6 hyperlink sidecars.
 pub const MAX: usize = 12 * 1024 * 1024;
 pub const MAX_STRING: usize = 2 * 1024 * 1024;
 pub const MAX_REQUEST: usize = 128 * 1024;

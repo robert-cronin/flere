@@ -1,6 +1,8 @@
 //! Bounded VT subset for shells and native TUI experiments. Never forward raw child escapes.
 mod commands;
 mod history;
+pub mod hyperlinks;
+use hyperlinks::{Hyperlink, Pool};
 pub mod search;
 pub use history::{HISTORY_BYTES, HISTORY_ROWS, History, HistoryRow};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -31,6 +33,8 @@ pub struct Cell {
     pub text: String,
     pub width: u8,
     pub style: Style,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Hyperlink>,
 }
 impl Default for Cell {
     fn default() -> Self {
@@ -38,10 +42,11 @@ impl Default for Cell {
             text: " ".into(),
             width: 1,
             style: Style::default(),
+            link: None,
         }
     }
 }
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 pub struct Grid {
     pub cols: usize,
     pub rows: usize,
@@ -121,7 +126,7 @@ enum Parse {
         overflow: bool,
     },
 }
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct Terminal {
     pub grid: Grid,
     primary: Option<Grid>,
@@ -130,6 +135,14 @@ pub struct Terminal {
     utf8: Vec<u8>,
     style: Style,
     saved: (usize, usize, Style),
+    #[serde(default)]
+    active_link: Option<Hyperlink>,
+    #[serde(default)]
+    saved_link: Option<Hyperlink>,
+    #[serde(default)]
+    primary_link: Option<Hyperlink>,
+    #[serde(skip)]
+    link_pool: Pool,
     pub cursor: bool,
     pub bracketed_paste: bool,
     pub app_cursor: bool,
@@ -144,7 +157,81 @@ pub struct Terminal {
     command_marks: commands::Marks,
     pub replies: Vec<u8>,
 }
+#[derive(serde::Deserialize)]
+#[serde(remote = "Terminal")]
+struct SavedTerminal {
+    pub grid: Grid,
+    primary: Option<Grid>,
+    primary_style: Style,
+    parse: Parse,
+    utf8: Vec<u8>,
+    style: Style,
+    saved: (usize, usize, Style),
+    #[serde(default)]
+    active_link: Option<Hyperlink>,
+    #[serde(default)]
+    saved_link: Option<Hyperlink>,
+    #[serde(default)]
+    primary_link: Option<Hyperlink>,
+    #[serde(skip)]
+    link_pool: Pool,
+    pub cursor: bool,
+    pub bracketed_paste: bool,
+    pub app_cursor: bool,
+    #[serde(default)]
+    alternate_scroll: bool,
+    autowrap: bool,
+    origin: bool,
+    pub history: History,
+    #[serde(default)]
+    history_base: u64,
+    #[serde(default)]
+    command_marks: commands::Marks,
+    pub replies: Vec<u8>,
+}
+impl<'de> serde::Deserialize<'de> for Terminal {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut terminal = SavedTerminal::deserialize(deserializer)?;
+        terminal.normalize_links();
+        Ok(terminal)
+    }
+}
+
 impl Terminal {
+    fn normalize_links(&mut self) {
+        self.link_pool = Pool::default();
+        for link in [
+            &mut self.active_link,
+            &mut self.saved_link,
+            &mut self.primary_link,
+        ]
+        .into_iter()
+        .chain(self.grid.cells.iter_mut().map(|c| &mut c.link))
+        .chain(
+            self.primary
+                .iter_mut()
+                .flat_map(|g| g.cells.iter_mut().map(|c| &mut c.link)),
+        ) {
+            *link = link
+                .as_ref()
+                .and_then(|value| self.link_pool.intern(value.as_str()));
+        }
+    }
+    fn links_valid(&self) -> bool {
+        let links: std::collections::HashSet<_> =
+            [&self.active_link, &self.saved_link, &self.primary_link]
+                .into_iter()
+                .chain(self.grid.cells.iter().map(|c| &c.link))
+                .chain(
+                    self.primary
+                        .iter()
+                        .flat_map(|g| g.cells.iter().map(|c| &c.link)),
+                )
+                .filter_map(Option::as_ref)
+                .collect();
+        links.len() <= hyperlinks::LINK_COUNT
+            && links.iter().map(|link| link.as_str().len()).sum::<usize>() <= hyperlinks::LIVE_BYTES
+    }
     pub fn valid_state(&self) -> bool {
         let valid = |g: &Grid| {
             g.cols >= 2
@@ -161,10 +248,11 @@ impl Terminal {
         valid(&self.grid)
             && self.primary.as_ref().is_none_or(valid)
             && match &self.parse {
-                Parse::String { data, .. } => data.len() <= 64,
+                Parse::String { data, .. } => data.len() <= hyperlinks::OSC_BYTES,
                 Parse::Csi(data) => data.len() <= 256,
                 _ => true,
             }
+            && self.links_valid()
             && self.utf8.len() <= 4
             && self.history.valid()
             && self.command_marks.0.len() <= 2048
@@ -185,6 +273,10 @@ impl Terminal {
             utf8: Vec::new(),
             style: Style::default(),
             saved: (0, 0, Style::default()),
+            active_link: None,
+            saved_link: None,
+            primary_link: None,
+            link_pool: Pool::default(),
             cursor: true,
             bracketed_paste: false,
             app_cursor: false,
@@ -306,12 +398,19 @@ impl Terminal {
                 if escaped && b == b'\\' || osc && b == 7 {
                     if osc && !overflow {
                         self.osc(&data);
+                    } else if osc && (data == b"8" || data.starts_with(b"8;")) {
+                        self.active_link = None;
                     }
                 } else if b != 0x18 && b != 0x1a {
                     if osc {
                         // No arbitrary strings are forwarded or retained. A malformed/oversized
                         // sequence stays discarded until its terminator, even across refresh.
-                        overflow |= escaped || data.len() >= 64;
+                        let limit = if data.starts_with(b"8;") {
+                            hyperlinks::OSC_BYTES
+                        } else {
+                            64
+                        };
+                        overflow |= escaped || data.len() >= limit;
                         if !overflow && b != 0x1b {
                             data.push(b);
                         }
@@ -322,13 +421,27 @@ impl Terminal {
                         data,
                         overflow,
                     }
+                } else if osc && (data == b"8" || data.starts_with(b"8;")) {
+                    self.active_link = None;
                 }
             }
         }
     }
     fn osc(&mut self, data: &[u8]) {
-        // Default-color queries and passive command annotations only. Clipboard,
-        // hyperlinks, titles, palette mutations and all DCS strings remain inert.
+        // Links are validated passive metadata only. Their original OSC bytes
+        // never leave the emulator. Clipboard/title/palette mutations stay inert.
+        if data == b"8" || data.starts_with(b"8;") {
+            self.active_link = None;
+            if let Some(fields) = data.strip_prefix(b"8;")
+                && let Some(separator) = fields.iter().position(|b| *b == b';')
+                && separator <= 253
+                && fields[..separator].iter().all(|b| b.is_ascii_graphic())
+                && let Ok(uri) = std::str::from_utf8(&fields[separator + 1..])
+            {
+                self.active_link = self.link_pool.intern(uri);
+            }
+            return;
+        }
         let Ok(text) = std::str::from_utf8(data) else {
             return;
         };
@@ -452,12 +565,14 @@ impl Terminal {
             text: c.to_string(),
             width,
             style: self.style,
+            link: self.active_link.clone(),
         };
         if width == 2 {
             self.grid.cells[i + 1] = Cell {
                 text: String::new(),
                 width: 0,
                 style: self.style,
+                link: self.active_link.clone(),
             }
         }
         if x + width as usize >= self.grid.cols {
@@ -509,12 +624,14 @@ impl Terminal {
         });
     }
     fn save(&mut self) {
-        self.saved = (self.grid.x, self.grid.y, self.style)
+        self.saved = (self.grid.x, self.grid.y, self.style);
+        self.saved_link = self.active_link.clone();
     }
     fn restore(&mut self) {
         self.grid.x = self.saved.0.min(self.grid.cols - 1);
         self.grid.y = self.saved.1.min(self.grid.rows - 1);
         self.style = self.saved.2;
+        self.active_link = self.saved_link.clone();
         self.grid.wrap = false
     }
     fn csi(&mut self, raw: &[u8], op: u8) {
@@ -690,11 +807,13 @@ impl Terminal {
                         47 | 1047 | 1049 => {
                             if yes && self.primary.is_none() {
                                 self.primary_style = self.style;
+                                self.primary_link = self.active_link.take();
                                 let blank = Grid::new(self.grid.cols, self.grid.rows);
                                 self.primary = Some(std::mem::replace(&mut self.grid, blank));
                             } else if !yes && let Some(primary) = self.primary.take() {
                                 self.grid = primary;
                                 self.style = self.primary_style;
+                                self.active_link = self.primary_link.take();
                             }
                         }
                         _ => {}

@@ -511,7 +511,10 @@ fn run() -> io::Result<()> {
                 }
                 if coordinated.active() {
                     coordinated.input(&bytes, received, &connection, &mut queue, dimensions)?;
-                    coordinated.draw(dimensions, &mut io::stdout())?;
+                    coordinated.draw(
+                        dimensions,
+                        &mut display.keyboard.local_output(&mut io::stdout()),
+                    )?;
                     input.reset();
                 } else if local.active() {
                     if let Some(decision) = local.input(&bytes, received) {
@@ -525,7 +528,10 @@ fn run() -> io::Result<()> {
                         );
                         input.reset();
                     } else {
-                        local.draw(dimensions, &mut io::stdout())?;
+                        local.draw(
+                            dimensions,
+                            &mut display.keyboard.local_output(&mut io::stdout()),
+                        )?;
                     }
                 } else {
                     actions(
@@ -538,9 +544,12 @@ fn run() -> io::Result<()> {
                     );
                     if local.active() {
                         input.reset();
-                        avatars.clear(&mut io::stdout())?;
-                        viewer.restart(&mut io::stdout())?;
-                        local.draw(dimensions, &mut io::stdout())?;
+                        avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
+                        viewer.restart(&mut display.keyboard.local_output(&mut io::stdout()))?;
+                        local.draw(
+                            dimensions,
+                            &mut display.keyboard.local_output(&mut io::stdout()),
+                        )?;
                     }
                 }
             }
@@ -604,9 +613,13 @@ fn run() -> io::Result<()> {
                         } else {
                             coordinated.offer(&packet, &connection, &mut queue)?;
                             input.reset();
-                            avatars.clear(&mut io::stdout())?;
-                            viewer.restart(&mut io::stdout())?;
-                            coordinated.draw(dimensions, &mut io::stdout())?;
+                            avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
+                            viewer
+                                .restart(&mut display.keyboard.local_output(&mut io::stdout()))?;
+                            coordinated.draw(
+                                dimensions,
+                                &mut display.keyboard.local_output(&mut io::stdout()),
+                            )?;
                         }
                     }
                     protocol::OUTPUT if packet.id == 0 => {
@@ -618,8 +631,11 @@ fn run() -> io::Result<()> {
                             .keyboard
                             .write(&packet.data, visible, &mut io::stdout())?;
                         if visible
-                            && let Some((id, error)) =
-                                viewer.paint(dimensions, &mut io::stdout(), os::decode_preview)?
+                            && let Some((id, error)) = viewer.paint(
+                                dimensions,
+                                &mut display.keyboard.local_output(&mut io::stdout()),
+                                os::decode_preview,
+                            )?
                         {
                             queue.push_back(Packet::new(
                                 protocol::PREVIEW_ERROR,
@@ -662,9 +678,13 @@ fn run() -> io::Result<()> {
                             );
                         } else {
                             input.reset();
-                            avatars.clear(&mut io::stdout())?;
-                            viewer.restart(&mut io::stdout())?;
-                            local.draw(dimensions, &mut io::stdout())?;
+                            avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
+                            viewer
+                                .restart(&mut display.keyboard.local_output(&mut io::stdout()))?;
+                            local.draw(
+                                dimensions,
+                                &mut display.keyboard.local_output(&mut io::stdout()),
+                            )?;
                             local.displayed();
                         }
                     }
@@ -735,25 +755,33 @@ fn run() -> io::Result<()> {
                     }
                     protocol::AVATAR_LAYOUT if packet.id == 0 && avatars_advertised => {
                         avatars.frame(&packet.data, dimensions)?;
-                        avatars.paint(viewer.cell(), &mut io::stdout(), os::decode_preview)?;
+                        avatars.paint(
+                            viewer.cell(),
+                            &mut display.keyboard.local_output(&mut io::stdout()),
+                            os::decode_preview,
+                        )?;
                     }
                     protocol::AVATAR_LAYOUT_SIZED
                         if packet.id == 0 && avatars_advertised && sized_icons =>
                     {
                         avatars.sized_frame(&packet.data, dimensions)?;
-                        avatars.paint(viewer.cell(), &mut io::stdout(), os::decode_preview)?;
+                        avatars.paint(
+                            viewer.cell(),
+                            &mut display.keyboard.local_output(&mut io::stdout()),
+                            os::decode_preview,
+                        )?;
                     }
                     protocol::AVATAR_CLEAR
                         if packet.id == 0 && packet.data.is_empty() && avatars_advertised =>
                     {
-                        avatars.clear(&mut io::stdout())?;
+                        avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                     }
                     protocol::PREVIEW_BEGIN
                     | protocol::PREVIEW_DATA
                     | protocol::PREVIEW_END
                     | protocol::PREVIEW_CLEAR => {
                         if packet.tag == protocol::PREVIEW_BEGIN {
-                            avatars.clear(&mut io::stdout())?;
+                            avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                         }
                         let ended = packet.tag == protocol::PREVIEW_END;
                         if packet.tag != protocol::PREVIEW_DATA {
@@ -762,10 +790,16 @@ fn run() -> io::Result<()> {
                                 &format!("tag={} id={}", packet.tag, packet.id),
                             );
                         }
-                        viewer.packet(packet, &mut io::stdout())?;
+                        viewer.packet(
+                            packet,
+                            &mut display.keyboard.local_output(&mut io::stdout()),
+                        )?;
                         if ended
-                            && let Some((id, error)) =
-                                viewer.paint(dimensions, &mut io::stdout(), os::decode_preview)?
+                            && let Some((id, error)) = viewer.paint(
+                                dimensions,
+                                &mut display.keyboard.local_output(&mut io::stdout()),
+                                os::decode_preview,
+                            )?
                         {
                             queue.push_back(Packet::new(
                                 protocol::PREVIEW_ERROR,
@@ -820,13 +854,13 @@ fn run() -> io::Result<()> {
                             std::str::from_utf8(&packet.data[..protocol::VERSION.len()])
                                 .map_err(io::Error::other)?
                                 .to_owned();
-                        avatars.clear(&mut io::stdout())?;
+                        avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                         avatars = avatars::Avatars::default();
                         avatars_advertised = false;
                         pending = None;
                         queue.clear();
                         input.reset();
-                        viewer.restart(&mut io::stdout())?;
+                        viewer.restart(&mut display.keyboard.local_output(&mut io::stdout()))?;
                         queue.push_back(reply);
                         if tools_protocol {
                             queue.push_back(Packet::new(
@@ -895,7 +929,7 @@ fn run() -> io::Result<()> {
         }
         if avatar_cell != viewer.cell() {
             if avatar_cell.is_some() && avatars_advertised {
-                avatars.clear(&mut io::stdout())?;
+                avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                 queue.push_back(Packet::new(
                     protocol::RESIZE,
                     0,
@@ -905,7 +939,11 @@ fn run() -> io::Result<()> {
             avatar_cell = viewer.cell();
         }
         if avatars_advertised && !viewer.active() && !local.active() && !coordinated.active() {
-            avatars.paint(viewer.cell(), &mut io::stdout(), os::decode_preview)?;
+            avatars.paint(
+                viewer.cell(),
+                &mut display.keyboard.local_output(&mut io::stdout()),
+                os::decode_preview,
+            )?;
         }
         if typed.elapsed() > Duration::from_millis(30) {
             if let Some(decision) = local.escape().or_else(|| local.expired()) {
@@ -935,16 +973,22 @@ fn run() -> io::Result<()> {
             let size = os::size();
             if size != dimensions {
                 diagnostics::record("resize", &format!("{}x{}", size.0, size.1));
-                avatars.clear(&mut io::stdout())?;
+                avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                 dimensions = size;
                 if viewer.active() {
                     viewer.invalidate();
-                    io::stdout().write_all(b"\x1b[2J")?;
+                    display
+                        .keyboard
+                        .local_output(&mut io::stdout())
+                        .write_all(b"\x1b[2J")?;
                 }
-                io::stdout().write_all(preview::QUERY)?;
+                display
+                    .keyboard
+                    .local_output(&mut io::stdout())
+                    .write_all(preview::QUERY)?;
                 io::stdout().flush()?;
                 if local.active() {
-                    local.draw(size, &mut io::stdout())?;
+                    local.draw(size, &mut display.keyboard.local_output(&mut io::stdout()))?;
                 }
                 queue.push_back(Packet::new(
                     protocol::RESIZE,
@@ -959,7 +1003,10 @@ fn run() -> io::Result<()> {
             break;
         }
         if coordinated.active() {
-            coordinated.draw(dimensions, &mut io::stdout())?;
+            coordinated.draw(
+                dimensions,
+                &mut display.keyboard.local_output(&mut io::stdout()),
+            )?;
         }
         if let Some(update) = ports.tick() {
             queue.push_back(Packet::new(remote_services::PORTS_RESULT, 0, update));
@@ -996,8 +1043,8 @@ fn run() -> io::Result<()> {
             }
         }
     }
-    avatars.clear(&mut io::stdout())?;
-    viewer.clear(&mut io::stdout())?;
+    avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
+    viewer.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
     diagnostics::record(
         "disconnect",
         &format!("ssh_status={:?}", child.0.try_wait()?),

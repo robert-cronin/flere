@@ -56,6 +56,7 @@
 | Navigation | q | Detach, preserving processes |
 | Stopped terminal | S / W / Enter / t / Space | Start agent / retry saved tabs / reopen tabs or offer start / shell / actions, without a navigation prefix |
 | Terminal | Wheel, Shift+Page Up/Down | Browse retained terminal history |
+| Web links in current `main` builds | Outer terminal hyperlink gesture (Ghostty: Cmd-click on macOS, Ctrl-click on Linux) | Open the target; requires newly emitted or redrawn OSC 8 output |
 | Terminal / scrollback | Shift+Home / Home | Jump to the oldest retained output |
 | Scrollback | Wheel, Page Up/Down, arrows | Scroll without sending keys to the chat |
 | Scrollback | Esc, End, Enter | Return to live output without sending that key |

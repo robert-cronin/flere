@@ -2,6 +2,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::os::unix::process::CommandExt;
+const VERSION: u32 = 7;
 #[derive(Serialize, Deserialize)]
 struct SavedClient {
     fd: i32,
@@ -11,6 +12,8 @@ struct SavedClient {
     watch: bool,
     #[serde(default)]
     panes: bool,
+    #[serde(default)]
+    links: bool,
     #[serde(default)]
     build: Option<serde_json::Value>,
 }
@@ -81,7 +84,7 @@ fn read(state: &Path, token: &str, preflight: bool) -> io::Result<Handoff> {
         return Err(invalid("invalid refresh image permissions/size"));
     }
     let h: Handoff = serde_json::from_reader(io::BufReader::new(f)).map_err(io::Error::other)?;
-    if !matches!(h.version, 1..=6)
+    if !(1..=VERSION).contains(&h.version)
         || h.state != state
         || h.pid
             != if preflight {
@@ -196,6 +199,7 @@ fn read(state: &Path, token: &str, preflight: bool) -> io::Result<Handoff> {
         if c.input.len() > wire::MAX_REQUEST + 4
             || c.output.len() > wire::MAX + 4
             || c.offset > c.output.len()
+            || c.links && (!c.watch || !c.panes)
         {
             return Err(invalid("invalid client refresh image"));
         }
@@ -253,7 +257,7 @@ pub(super) fn replace(
     }
     let h = Handoff {
         tasks: s.tasks.clone(),
-        version: 6,
+        version: VERSION,
         restoration: s.restoration.clone(),
         pid: std::process::id(),
         state: s.state.clone(),
@@ -275,6 +279,7 @@ pub(super) fn replace(
                 offset: c.offset,
                 watch: c.watch,
                 panes: c.panes,
+                links: c.links,
                 build: c.build.clone(),
             })
             .collect(),
@@ -407,6 +412,7 @@ pub(super) fn restore(state: &Path, token: &str) -> io::Result<()> {
             offset: c.offset,
             watch: c.watch,
             panes: c.panes,
+            links: c.links,
             build: c.build,
             done: false,
             deadline: Instant::now() + Duration::from_secs(2),
@@ -420,4 +426,32 @@ pub(super) fn restore(state: &Path, token: &str) -> io::Result<()> {
         "same PID, socket, PTYs and native processes",
     )?;
     run_loop(state, lock, listener, s, clients)
+}
+
+#[cfg(test)]
+mod hyperlink_refresh_tests {
+    use super::*;
+
+    #[test]
+    fn client_refresh_defaults_legacy_links_off_and_preserves_partial_frames() {
+        let legacy = serde_json::json!({
+            "fd": 4, "input": [], "output": [0, 0, 0, 3, 5, 0, 0],
+            "offset": 5, "watch": true, "panes": true, "build": null,
+        });
+        let mut saved: SavedClient = serde_json::from_value(legacy).unwrap();
+        assert!(!saved.links);
+        saved.links = true;
+        saved.output[4] = 6;
+        let restored: SavedClient =
+            serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        assert!(restored.watch && restored.panes && restored.links);
+        assert_eq!(restored.output, saved.output);
+        assert_eq!(restored.offset, saved.offset);
+        let build: serde_json::Value = serde_json::from_str(crate::build_info::json()).unwrap();
+        let range = &build["compatibility"]["refresh_handoff"];
+        assert_eq!(range["current"], VERSION);
+        assert_eq!(range["read_min"], 1);
+        assert_eq!(range["read_max"], VERSION);
+        assert_eq!(build["compatibility"]["saved_state"]["current"], 7);
+    }
 }

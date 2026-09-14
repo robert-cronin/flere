@@ -8,6 +8,7 @@ mod drop_backend;
 mod environment;
 use environment::fixture_home;
 mod handshake;
+mod hyperlinks;
 #[path = "../image_gallery/mod.rs"]
 mod image_gallery;
 mod tools;

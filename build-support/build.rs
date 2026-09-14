@@ -127,8 +127,11 @@ fn main() {
     let compatibility = if component == "flere" {
         json!({
             "control_identity": "flere-v4",
-            "snapshot": {"current": 5, "read_min": 1, "read_max": 5},
-            "refresh_handoff": {"current": 6, "read_min": 1, "read_max": 6},
+            // Keep the baseline writer contract readable by existing bridges.
+            // Snapshot v6 is emitted only for explicit hyperlink-capable requests;
+            // ordinary snapshot/watch requests retain their v4/v5 projections.
+            "snapshot": {"current": 5, "read_min": 1, "read_max": 6},
+            "refresh_handoff": {"current": 7, "read_min": 1, "read_max": 7},
             "saved_state": {"current": 7, "read_min": 2, "read_max": 7},
             "remote_protocol": {"current": remote, "accepts": [remote]}
         })

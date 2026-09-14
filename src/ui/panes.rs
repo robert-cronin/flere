@@ -122,11 +122,10 @@ impl Ui {
     pub(super) fn read_snapshot(&self) -> io::Result<Snapshot> {
         Snapshot::decode(&wire::request(
             &self.state,
-            &[if self.pane_capable {
-                "snapshot-panes"
-            } else {
-                "snapshot"
-            }],
+            &[hyperlinks::snapshot_command(
+                self.pane_capable,
+                self.link_capable,
+            )],
         )?)
     }
 

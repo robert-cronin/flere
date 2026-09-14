@@ -331,7 +331,13 @@ impl Ui {
         };
         if let Ok(bytes) = wire::request(
             &self.state,
-            &["scrollback", &t.id.to_string(), &t.run, "live", "0"],
+            &[
+                self.page_command("scrollback"),
+                &t.id.to_string(),
+                &t.run,
+                "live",
+                "0",
+            ],
         ) && let Ok(page) = ScrollbackPage::decode(&bytes)
         {
             selection.attach_history(&page);
@@ -367,7 +373,7 @@ impl Ui {
                 let page = wire::request(
                     &self.state,
                     &[
-                        "scrollback",
+                        self.page_command("scrollback"),
                         &t.id.to_string(),
                         &t.run,
                         &target.to_string(),

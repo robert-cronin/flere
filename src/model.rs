@@ -1,6 +1,6 @@
 pub use crate::panes::{PaneGroup, SplitAxis};
 use crate::{
-    terminal::{Cell, Color, Style},
+    terminal::{Cell, Color, Style, hyperlinks},
     wire::{Decoder, Encoder, invalid},
 };
 use std::io;
@@ -155,10 +155,21 @@ impl Snapshot {
         }
         e.0
     }
+    /// Opt-in hyperlink snapshot. Legacy v4/v5 projections retain their exact layout.
+    pub fn encode_links(&self) -> Vec<u8> {
+        let mut bytes = self.encode_panes();
+        bytes[0] = 6;
+        let mut e = Encoder(bytes);
+        hyperlinks::encode_links(&mut e, &self.cells);
+        if let Some(split) = &self.split {
+            hyperlinks::encode_links(&mut e, &split.other.cells);
+        }
+        e.0
+    }
     pub fn decode(b: &[u8]) -> io::Result<Self> {
         let mut d = Decoder(b);
         let version = d.u8()?;
-        if !(1..=5).contains(&version) {
+        if !(1..=6).contains(&version) {
             return Err(invalid("unsupported snapshot version"));
         }
         let epoch = d.string()?;
@@ -216,11 +227,11 @@ impl Snapshot {
         } else {
             String::new()
         };
-        let cells = decode_cells(&mut d, cols * rows)?;
+        let mut cells = decode_cells(&mut d, cols * rows)?;
         if version >= 5 && (cols < 2 || rows < 2 || x >= cols || y >= rows) {
             return Err(invalid("invalid pane snapshot viewport"));
         }
-        let split = if version >= 5 && d.u8()? != 0 {
+        let mut split = if version >= 5 && d.u8()? != 0 {
             let axis = match d.u8()? {
                 0 => SplitAxis::Right,
                 1 => SplitAxis::Below,
@@ -302,6 +313,12 @@ impl Snapshot {
         } else {
             None
         };
+        if version >= 6 {
+            hyperlinks::decode_links(&mut d, &mut cells)?;
+            if let Some(split) = &mut split {
+                hyperlinks::decode_links(&mut d, &mut split.other.cells)?;
+            }
+        }
         if !d.0.is_empty() {
             return Err(invalid("snapshot trailing data"));
         }
@@ -359,6 +376,7 @@ fn decode_cells(d: &mut Decoder<'_>, count: usize) -> io::Result<Vec<Cell>> {
         cells.push(Cell {
             text,
             width,
+            link: None,
             style: Style {
                 fg,
                 bg,
@@ -394,9 +412,18 @@ impl ScrollbackPage {
         encode_cells(&mut e, &self.cells);
         e.0
     }
+    /// Opt-in hyperlink sidecar; the v1 page projection remains available.
+    pub fn encode_links(&self) -> Vec<u8> {
+        let mut bytes = self.encode();
+        bytes[0] = 2;
+        let mut e = Encoder(bytes);
+        hyperlinks::encode_links(&mut e, &self.cells);
+        e.0
+    }
     pub fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut d = Decoder(bytes);
-        if d.u8()? != 1 {
+        let version = d.u8()?;
+        if !(1..=2).contains(&version) {
             return Err(invalid("unsupported scrollback version"));
         }
         let available = d.u8()? != 0;
@@ -407,7 +434,10 @@ impl ScrollbackPage {
         if cols < 2 || rows < 2 || position > end {
             return Err(invalid("invalid scrollback page"));
         }
-        let cells = decode_cells(&mut d, cols * rows)?;
+        let mut cells = decode_cells(&mut d, cols * rows)?;
+        if version >= 2 {
+            hyperlinks::decode_links(&mut d, &mut cells)?;
+        }
         if !d.0.is_empty() {
             return Err(invalid("scrollback trailing data"));
         }
@@ -502,6 +532,94 @@ mod pane_tests {
         assert_eq!(split.revision, 8);
     }
     #[test]
+    fn negotiated_hyperlinks_preserve_both_panes_and_leave_legacy_bytes_unchanged() {
+        let mut original = snapshot();
+        let legacy = original.encode();
+        let panes = original.encode_panes();
+        original.cells[0].link = hyperlinks::Hyperlink::new("https://github.com/example/core");
+        original.split.as_mut().unwrap().other.cells[3].link =
+            hyperlinks::Hyperlink::new("https://github.com/example/companion");
+        assert_eq!(original.encode(), legacy);
+        assert_eq!(original.encode_panes(), panes);
+        assert!(
+            Snapshot::decode(&panes)
+                .unwrap()
+                .cells
+                .iter()
+                .all(|c| c.link.is_none())
+        );
+        let bytes = original.encode_links();
+        assert_eq!(bytes[0], 6);
+        let decoded = Snapshot::decode(&bytes).unwrap();
+        assert_eq!(decoded.cells, original.cells);
+        assert_eq!(
+            decoded.split.unwrap().other.cells,
+            original.split.as_ref().unwrap().other.cells
+        );
+        for end in [panes.len(), bytes.len() - 1] {
+            assert!(Snapshot::decode(&bytes[..end]).is_err());
+        }
+        let mut unnegotiated = bytes.clone();
+        unnegotiated[0] = 5;
+        assert!(Snapshot::decode(&unnegotiated).is_err());
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(Snapshot::decode(&trailing).is_err());
+        original.split = None;
+        let decoded = Snapshot::decode(&original.encode_links()).unwrap();
+        assert!(decoded.split.is_none());
+        assert_eq!(decoded.cells, original.cells);
+    }
+    #[test]
+    fn hyperlink_scrollback_is_opt_in_and_rejects_incomplete_sidecars() {
+        let mut page = ScrollbackPage {
+            available: true,
+            position: 4,
+            end: 8,
+            cols: 2,
+            rows: 2,
+            cells: vec![Cell::default(); 4],
+        };
+        let legacy = page.encode();
+        page.cells[1].link = hyperlinks::Hyperlink::new("https://github.com/example/history");
+        assert_eq!(page.encode(), legacy);
+        assert!(
+            ScrollbackPage::decode(&legacy)
+                .unwrap()
+                .cells
+                .iter()
+                .all(|c| c.link.is_none())
+        );
+        let bytes = page.encode_links();
+        assert_eq!(bytes[0], 2);
+        assert_eq!(ScrollbackPage::decode(&bytes).unwrap().cells, page.cells);
+        for end in [legacy.len(), bytes.len() - 1] {
+            assert!(ScrollbackPage::decode(&bytes[..end]).is_err());
+        }
+        let mut unnegotiated = bytes.clone();
+        unnegotiated[0] = 1;
+        assert!(ScrollbackPage::decode(&unnegotiated).is_err());
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(ScrollbackPage::decode(&trailing).is_err());
+    }
+    #[test]
+    fn snapshot_metadata_keeps_the_baseline_writer_contract_for_legacy_bridges() {
+        let metadata: serde_json::Value = serde_json::from_str(crate::build_info::json()).unwrap();
+        let snapshot = &metadata["compatibility"]["snapshot"];
+        assert_eq!(snapshot["current"], 5);
+        assert_eq!(snapshot["read_min"], 1);
+        assert_eq!(snapshot["read_max"], 6);
+        // bootstrap's legacy reader.accepts(writer.current) check must still allow
+        // a v5 bridge, since only explicit link requests receive v6 frames.
+        let legacy_reader = crate::install::VersionRange {
+            current: 5,
+            read_min: 1,
+            read_max: 5,
+        };
+        assert!(legacy_reader.accepts(snapshot["current"].as_u64().unwrap()));
+    }
+    #[test]
     fn negotiated_snapshot_rejects_wrong_or_duplicate_pane_targets() {
         for mutation in 0..5 {
             let mut snapshot = snapshot();
@@ -522,6 +640,7 @@ mod pane_tests {
         let cell = Cell {
             text: format!("x{}", "\u{20d0}".repeat(21)),
             width: 1,
+            link: None,
             style: Style {
                 fg: Color::Rgb(1, 2, 3),
                 bg: Color::Rgb(4, 5, 6),
@@ -558,6 +677,37 @@ mod pane_tests {
         assert_eq!(decoded.cells.len(), 24_000);
         assert_eq!(decoded.split.unwrap().other.cells.len(), 24_000);
         assert_eq!(decoded.workspaces.len(), 127);
+        let urls: Vec<_> = (0..64)
+            .map(|i| {
+                hyperlinks::Hyperlink::new(&format!(
+                    "https://example.test/{i}/{}",
+                    "x".repeat(1950)
+                ))
+                .unwrap()
+            })
+            .collect();
+        for (i, cell) in snapshot.cells.iter_mut().enumerate() {
+            cell.link = Some(urls[i % urls.len()].clone());
+        }
+        snapshot
+            .split
+            .as_mut()
+            .unwrap()
+            .other
+            .cells
+            .clone_from(&snapshot.cells);
+        assert_eq!(snapshot.encode_panes(), bytes);
+        let linked = snapshot.encode_links();
+        assert!(linked.len() <= crate::wire::MAX);
+        let decoded = Snapshot::decode(
+            &crate::wire::read_frame(&mut &crate::wire::frame(&linked)[..]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(decoded.cells.len(), 24_000);
+        assert!(decoded.cells.iter().all(|cell| cell.text.len() == 64));
+        assert!(decoded.cells.iter().any(|cell| cell.link.is_some()));
+        assert!(decoded.cells.iter().any(|cell| cell.link.is_none()));
+        assert_eq!(decoded.split.unwrap().other.cells, decoded.cells);
         let mut prefix = ((crate::wire::MAX_REQUEST + 1) as u32)
             .to_be_bytes()
             .to_vec();

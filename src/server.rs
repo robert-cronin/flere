@@ -86,9 +86,46 @@ struct Client {
     offset: usize,
     watch: bool,
     panes: bool,
+    links: bool,
     build: Option<serde_json::Value>,
     done: bool,
     deadline: Instant,
+}
+struct WatchRequest<'a> {
+    panes: bool,
+    links: bool,
+    build: Option<&'a str>,
+}
+impl<'a> WatchRequest<'a> {
+    fn parse(request: &'a str) -> Option<Self> {
+        let (panes, links, build) = match request {
+            "watch" => (false, false, None),
+            "watch-panes" => (true, false, None),
+            "watch-links" => (true, true, None),
+            _ => {
+                if let Some(build) = request.strip_prefix("watch-panes-build\t") {
+                    (true, false, Some(build))
+                } else {
+                    let build = request.strip_prefix("watch-links-build\t")?;
+                    (true, true, Some(build))
+                }
+            }
+        };
+        Some(Self {
+            panes,
+            links,
+            build,
+        })
+    }
+    fn snapshot(&self, snapshot: &Snapshot) -> Vec<u8> {
+        if self.links {
+            snapshot.encode_links()
+        } else if self.panes {
+            snapshot.encode_panes()
+        } else {
+            snapshot.encode()
+        }
+    }
 }
 struct WorktreeJob {
     workspace: u64,
@@ -588,11 +625,14 @@ impl Server {
                 "ping"
                     | "snapshot"
                     | "snapshot-panes"
+                    | "snapshot-links"
                     | "list"
                     | "capture"
                     | "scrollback"
+                    | "scrollback-links"
                     | "search-output"
                     | "command-jump"
+                    | "command-jump-links"
                     | "command-output"
                     | "frontends"
                     | "task-list"
@@ -637,6 +677,7 @@ impl Server {
             }
             "snapshot" => Ok(self.snapshot().encode()),
             "snapshot-panes" if p.len() == 1 => Ok(self.snapshot().encode_panes()),
+            "snapshot-links" if p.len() == 1 => Ok(self.snapshot().encode_links()),
             "pane" => self.pane_command(&p),
             "resize-panes" if p.len() == 5 => {
                 if arg(1)? != self.epoch || num(2)? != self.active {
@@ -1219,7 +1260,7 @@ impl Server {
                 }
                 Ok(b"hangup-sent".to_vec())
             }
-            "wheel" => {
+            "wheel" | "wheel-links" => {
                 let id = num(1)?;
                 let run = arg(2)?;
                 let cols = num(3)?;
@@ -1247,7 +1288,12 @@ impl Server {
                     self.audit("alternate-wheel", id, &format!("run={run};delta={delta}"))?;
                     self.session(id, run)?.input.extend(bytes);
                 }
-                Ok(self.session(id, run)?.term.scrollback(None, delta).encode())
+                let page = self.session(id, run)?.term.scrollback(None, delta);
+                Ok(if p[0] == "wheel-links" {
+                    page.encode_links()
+                } else {
+                    page.encode()
+                })
             }
             "search-output" => {
                 if p.len() != 5 {
@@ -1265,7 +1311,7 @@ impl Server {
                 )
                 .map_err(io::Error::other)
             }
-            "command-jump" | "command-output" => {
+            "command-jump" | "command-jump-links" | "command-output" => {
                 let anchor = if arg(3)? == "live" {
                     None
                 } else {
@@ -1281,12 +1327,15 @@ impl Server {
                     if p.len() != 5 || !matches!(arg(4)?, "previous" | "next") {
                         return Err(invalid("invalid command navigation arguments"));
                     }
-                    Ok(terminal
-                        .command_jump(anchor, arg(4)? == "previous")?
-                        .encode())
+                    let page = terminal.command_jump(anchor, arg(4)? == "previous")?;
+                    Ok(if p[0] == "command-jump-links" {
+                        page.encode_links()
+                    } else {
+                        page.encode()
+                    })
                 }
             }
-            "scrollback" => {
+            "scrollback" | "scrollback-links" => {
                 let id = num(1)?;
                 let run = arg(2)?;
                 let anchor = if arg(3)? == "live" {
@@ -1298,11 +1347,12 @@ impl Server {
                     .parse::<i64>()
                     .map_err(|_| invalid("invalid scroll delta"))?
                     .clamp(-500, 500);
-                Ok(self
-                    .session(id, run)?
-                    .term
-                    .scrollback(anchor, delta)
-                    .encode())
+                let page = self.session(id, run)?.term.scrollback(anchor, delta);
+                Ok(if p[0] == "scrollback-links" {
+                    page.encode_links()
+                } else {
+                    page.encode()
+                })
             }
             "capture" => {
                 let id = num(1)?;
@@ -1733,6 +1783,7 @@ fn run_loop(
                         offset: 0,
                         watch: false,
                         panes: false,
+                        links: false,
                         build: None,
                         done: false,
                         deadline: Instant::now() + Duration::from_secs(2),
@@ -1790,12 +1841,8 @@ fn run_loop(
                             std::str::from_utf8(&b)
                                 .map_err(io::Error::other)
                                 .and_then(|request| {
-                                    if matches!(request, "watch" | "watch-panes")
-                                        || request.starts_with("watch-panes-build\t")
-                                    {
-                                        if let Some(encoded) =
-                                            request.strip_prefix("watch-panes-build\t")
-                                        {
+                                    if let Some(watch) = WatchRequest::parse(request) {
+                                        if let Some(encoded) = watch.build {
                                             let data = wire::unhex(encoded)?;
                                             if data.len() > 8192 {
                                                 return Err(invalid(
@@ -1820,12 +1867,9 @@ fn run_loop(
                                             c.build = Some(build);
                                         }
                                         c.watch = true;
-                                        c.panes = request != "watch";
-                                        Ok(if c.panes {
-                                            server.snapshot().encode_panes()
-                                        } else {
-                                            server.snapshot().encode()
-                                        })
+                                        c.panes = watch.panes;
+                                        c.links = watch.links;
+                                        Ok(watch.snapshot(&server.snapshot()))
                                     } else {
                                         server.command(request)
                                     }
@@ -1841,10 +1885,21 @@ fn run_loop(
             }
         }
         if server.dirty && last_frame.elapsed() >= Duration::from_millis(16) {
-            let frame = wire::frame(&server.snapshot().encode());
-            let pane_frame = wire::frame(&server.snapshot().encode_panes());
+            let snapshot = server.snapshot();
+            let frame = wire::frame(&snapshot.encode());
+            let pane_frame = wire::frame(&snapshot.encode_panes());
+            let link_frame = clients
+                .iter()
+                .any(|c| c.watch && c.links && !c.done)
+                .then(|| wire::frame(&snapshot.encode_links()));
             for c in clients.iter_mut().filter(|c| c.watch && !c.done) {
-                let frame = if c.panes { &pane_frame } else { &frame };
+                let frame = if c.links {
+                    link_frame.as_ref().expect("link watcher frame")
+                } else if c.panes {
+                    &pane_frame
+                } else {
+                    &frame
+                };
                 if c.output.is_empty() {
                     c.output = frame.clone();
                     c.offset = 0;
@@ -1921,4 +1976,57 @@ pub fn restore(state: &Path, token: &str) -> io::Result<()> {
 }
 pub fn validate_refresh(state: &Path, token: &str) -> io::Result<()> {
     refresh::validate(state, token)
+}
+
+#[cfg(test)]
+mod hyperlink_watch_tests {
+    use super::*;
+    use crate::terminal::{Cell, hyperlinks::Hyperlink};
+
+    #[test]
+    fn link_watch_is_explicit_and_legacy_watch_keeps_its_projection() {
+        let mut snapshot = Snapshot {
+            epoch: "a".repeat(32),
+            generation: 1,
+            active: 0,
+            tab: 0,
+            workspaces: Vec::new(),
+            cols: 2,
+            rows: 2,
+            x: 0,
+            y: 0,
+            cursor: false,
+            bracketed_paste: false,
+            app_cursor: false,
+            notice: String::new(),
+            cells: vec![Cell::default(); 4],
+            split: None,
+        };
+        snapshot.cells[0].link = Hyperlink::new("https://github.com/example/watch");
+        for (request, version, links, build) in [
+            ("watch", 4, false, None),
+            ("watch-panes", 5, false, None),
+            ("watch-panes-build\tmetadata", 5, false, Some("metadata")),
+            ("watch-links", 6, true, None),
+            ("watch-links-build\tmetadata", 6, true, Some("metadata")),
+        ] {
+            let watch = WatchRequest::parse(request).unwrap();
+            assert_eq!(watch.links, links);
+            assert_eq!(watch.build, build);
+            let bytes = watch.snapshot(&snapshot);
+            assert_eq!(bytes[0], version);
+            assert_eq!(
+                Snapshot::decode(&bytes).unwrap().cells[0].link.is_some(),
+                links
+            );
+        }
+        for unsupported in [
+            "watch-links-build",
+            "watch-links\textra",
+            "watch-panes\textra",
+            "watch-future",
+        ] {
+            assert!(WatchRequest::parse(unsupported).is_none());
+        }
+    }
 }

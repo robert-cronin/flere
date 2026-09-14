@@ -234,7 +234,7 @@ impl Ui {
                         match wire::request(
                             &self.state,
                             &[
-                                "scrollback",
+                                self.page_command("scrollback"),
                                 &search.origin.tab.to_string(),
                                 &search.origin.run,
                                 &row.to_string(),

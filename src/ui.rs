@@ -24,6 +24,7 @@ mod context_menu;
 mod explorer;
 mod git_history;
 mod github;
+mod hyperlinks;
 mod image_preview;
 mod intro;
 mod local_graphics;
@@ -180,12 +181,14 @@ impl Canvas {
                 text: c.to_string(),
                 width: w as u8,
                 style: s,
+                link: None,
             };
             if w == 2 {
                 self.cells[y * self.width + col + 1] = Cell {
                     text: String::new(),
                     width: 0,
                     style: s,
+                    link: None,
                 }
             }
             col += w;
@@ -250,6 +253,7 @@ impl Preview {
 struct Ui {
     state: PathBuf,
     pane_capable: bool,
+    link_capable: bool,
     snapshot: Snapshot,
     layout: Layout,
     focus: Focus,
@@ -1739,47 +1743,7 @@ fn ansi_style(s: Style, out: &mut String) {
     out.push('m');
 }
 fn render(c: &Canvas, previous: &mut Vec<Cell>) -> String {
-    let mut out = String::new();
-    for y in 0..c.height {
-        let row = &c.cells[y * c.width..(y + 1) * c.width];
-        if previous.len() == c.cells.len() && row == &previous[y * c.width..(y + 1) * c.width] {
-            continue;
-        }
-        out.push_str(&format!("\x1b[{};1H", y + 1));
-        let mut last = None;
-        let mut reanchor = false;
-        for (x, cell) in row.iter().enumerate() {
-            if previous.len() == c.cells.len()
-                && previous[y * c.width + x] == *cell
-                && c.badges.iter().any(|b| {
-                    usize::from(b.y) == y
-                        && x >= usize::from(b.x)
-                        && x < usize::from(b.x + b.columns)
-                })
-            {
-                reanchor = true;
-                continue;
-            }
-            if cell.width == 0 {
-                continue;
-            }
-            // Outer terminals can disagree on Unicode/combining widths. Position
-            // each such cell and the following run explicitly so drift cannot
-            // accumulate across the native pane and overwrite the inspector.
-            let unicode = !cell.text.is_ascii();
-            if reanchor || unicode {
-                out.push_str(&format!("\x1b[{};{}H", y + 1, x + 1));
-            }
-            reanchor = unicode;
-            if last != Some(cell.style) {
-                ansi_style(cell.style, &mut out);
-                last = Some(cell.style)
-            }
-            out.push_str(&cell.text);
-        }
-    }
-    *previous = c.cells.clone();
-    out
+    hyperlinks::render(c, previous)
 }
 // Hide the physical cursor before drawing, then restore it only at the native
 // composer. DEC 2026 batches the complete frame on supporting outer terminals;
@@ -1794,7 +1758,9 @@ fn display_frame(
         return String::new();
     }
     let mut out = String::from("\x1b[?2026h\x1b[?25l");
+    out.push_str(hyperlinks::CLOSE);
     out.push_str(&paint);
+    out.push_str(hyperlinks::CLOSE);
     if let Some(copy) = clipboard {
         out.push_str(&copy);
     }
@@ -1811,7 +1777,7 @@ struct DisplayGuard {
 impl Drop for DisplayGuard {
     fn drop(&mut self) {
         let _ = remote::emit(self.remote,
-            b"\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l",
+            b"\x18\x1b\\\x1b]8;;\x1b\\\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l",
         );
     }
 }
@@ -1866,14 +1832,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     let startup = Instant::now();
     let prefs = workflows::load_preferences(state);
     let layout = Layout::with_preferences(width as usize, height as usize, &prefs);
-    let (initial, pane_capable) = match wire::request(state, &["snapshot-panes"]) {
-        Ok(bytes) => (Snapshot::decode(&bytes)?, true),
-        Err(error) if error.to_string() == "unknown command" => (
-            Snapshot::decode(&wire::request(state, &["snapshot"])?)?,
-            false,
-        ),
-        Err(error) => return Err(error),
-    };
+    let (initial, pane_capable, link_capable) = hyperlinks::initial_snapshot(state)?;
     if pane_capable {
         wire::request(
             state,
@@ -1893,19 +1852,22 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     }
     let snapshot = Snapshot::decode(&wire::request(
         state,
-        &[if pane_capable {
-            "snapshot-panes"
-        } else {
-            "snapshot"
-        }],
+        &[hyperlinks::snapshot_command(pane_capable, link_capable)],
     )?)?;
     let mut stream = wire::connect(state)?;
     let watch = if pane_capable && wire::request(state, &["frontends"]).is_ok() {
         let metadata = serde_json::json!({"schema_version":1,"pid":std::process::id(),"attachment":os::nonce()?,"remote":is_remote,"build":serde_json::from_str::<serde_json::Value>(crate::build_info::json()).map_err(io::Error::other)?});
         format!(
-            "watch-panes-build\t{}",
+            "{}\t{}",
+            if link_capable {
+                "watch-links-build"
+            } else {
+                "watch-panes-build"
+            },
             wire::hex(&serde_json::to_vec(&metadata).map_err(io::Error::other)?)
         )
+    } else if link_capable {
+        "watch-links".into()
     } else if pane_capable {
         "watch-panes".into()
     } else {
@@ -1931,6 +1893,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     let mut ui = Ui {
         state: state.into(),
         pane_capable,
+        link_capable,
         project_icons: avatars::Projects::new(),
         checkouts: checkout::Checkouts::new(),
         pet: pet::Pet::new(),

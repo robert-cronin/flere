@@ -178,7 +178,13 @@ impl FocusRace {
                     let mut server = wire::connect(&upstream).unwrap();
                     server.write_all(&wire::frame(&request)).unwrap();
                     let command = request.split(|b| *b == b'\t').next().unwrap();
-                    if command == b"watch-panes" || command == b"watch-panes-build" {
+                    if matches!(
+                        command,
+                        b"watch-panes"
+                            | b"watch-panes-build"
+                            | b"watch-links"
+                            | b"watch-links-build"
+                    ) {
                         server
                             .set_read_timeout(Some(Duration::from_millis(50)))
                             .unwrap();
