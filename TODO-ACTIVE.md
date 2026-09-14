@@ -67,11 +67,16 @@
 
 ## Terminal hyperlinks
 
-- [ ] Make terminal hyperlinks clickable. The emulator currently discards OSC 8
-  targets; retain bounded, validated link metadata through rendered panes and
-  scrollback/history, and activate links only on an explicit user gesture. Never
-  replay raw child escape sequences. Cover malformed/unsafe targets, pane clipping,
-  scrolling, refresh/snapshot and remote protocol compatibility with tests.
+- [x] Preserve bounded HTTP(S) hyperlink metadata through terminal rendering,
+  both panes, styled history and supervisor refresh. Older clients retain their
+  text/style protocol; raw child escapes are never replayed. The outer terminal
+  owns explicit link activation. Source `80bc6c2` passed all 476 tests, core and
+  companion strict Clippy, formatting and release builds, plus Linux core and
+  Windows companion all-target compile checks.
+- [ ] Confirm physical hyperlink activation in Ghostty and Windows Terminal with
+  the updated build. Automated PTY/remote tests verify targets, clipping, history,
+  exact-session refresh and local-prompt/disconnect cleanup; browser interaction
+  has not been exercised. Previously discarded targets need child redraw/output.
 
 ## Branding and link audit
 
