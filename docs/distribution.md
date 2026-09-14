@@ -30,9 +30,9 @@ validation and publication requirements.
 | [Cargo / crates.io](../packaging/cargo/README.md) | Core source package | Archive verified; registry publication pending |
 | [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Debian archive/native CLI checks and emulated Ubuntu APT lifecycle passed. Arch makepkg/build/metadata and emulated pacman install/remove/CLI checks passed. Debian asset publication and AUR submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
-| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory and broader runtime acceptance pending; not a supported installation method |
+| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Native Linux Docker parsing, evaluation, both builds, declared install checks and exact output inventory passed. Nix sandbox suites and broader runtime acceptance pending; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
-| Chocolatey | Additional Windows installations | Queued; not validated or published |
+| [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Recipe generation and nine offline checks pass; native packing, install/upgrade/remove and publication pending |
 
 ### Install with Homebrew
 

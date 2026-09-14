@@ -40,11 +40,12 @@
 - [ ] Publish the verified `.deb` and submit the AUR recipe. Both remain
   unpublished. Debian dependency downloading and upgrades between different
   Flere runtime versions remain untested.
-- [ ] Finish output inventory for the [Nix packaging draft](packaging/nix/README.md).
-  Native Docker parsing, evaluation, both builds and declared install checks pass
-  after adding the core's zlib dependency. The final inventory script needs a
-  missing-utility fix. Native NixOS runtime and update ownership acceptance remain
-  pending; do not claim supported Nix installation.
+- [x] Finish output inventory for the [Nix packaging draft](packaging/nix/README.md).
+  All 15 native x86_64 Linux Docker phases passed: parsing, evaluation, both builds,
+  declared install checks and exact output files/modes/ownership/hashes. The core's
+  zlib input and the validator's missing-utility assumption are corrected.
+- [ ] Complete Nix sandbox test-suite, interactive NixOS runtime and update
+  ownership acceptance before promoting the packaging draft to supported status.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
 - [ ] Revalidate the public source on native Windows after incorporating the
@@ -60,8 +61,13 @@
 - [ ] Sign/publish the RPM after reviewing its checksum and provenance. Native
   Fedora hardware, interactive features and runtime-version upgrades remain
   untested; this is an upstream wrapper, not a Fedora repository submission.
-- [ ] Add Chocolatey and additional channels after their package/runtime checks
-  pass and publisher access is available.
+- [x] Prepare Chocolatey companion recipes from the same verified Windows ZIP,
+  version and checksum as Scoop/WinGet. Nine offline generator tests pass, covering
+  package inventory, provenance, escaping and AMD64 selection. No Windows core is
+  included and no package is published.
+- [ ] Run native `choco pack`, package inventory and Windows install/upgrade/remove
+  checks before publishing Chocolatey. Additional channels require their own
+  package/runtime checks and publisher access.
 - [ ] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method.
 - [x] Make the local in-app updater identify package-manager installations and
@@ -74,8 +80,12 @@
   commands stop before installation. Both strict Clippy/format checks and 49
   focused Rust tests pass; Linux core/companion and Windows companion cross-target
   compile checks pass. Published v0.3.0 still requires manual manager upgrades.
-- [ ] Complete integrated validation and install the coordinated-owner update;
-  native Linux manager and Windows runtime acceptance remain pending.
+- [x] Complete local integrated validation and install the coordinated-owner
+  update from `70083bd`. All 485 macOS arm64 tests, both strict Clippy/format checks
+  and release builds passed. Both packages were independently verified and both
+  live supervisors applied the update; seven exact session identities and their
+  selections were preserved. Existing frontends need their normal UI reload.
+- [ ] Complete native Linux manager and Windows runtime ownership acceptance.
 - [ ] Automate the release process: exact version/commit selection, native builds
   and tests, final-package checksums, publication and per-channel updates. The owner
   selected a **Release button with an explicit version and commit**; ordinary
@@ -83,20 +93,23 @@
   archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
   approved release immutability and the main-only release environment are enabled.
   Hosted run `34825445057` stopped before publication: one test assumed GitHub CLI
-  was absent from the runner. Isolate that fixture and validate a corrected source
-  candidate before seeking approval for its changed commit. Other targets and
-  channel activation remain open. Previously selected source
-  `f7a77bd` now passes the full native Linux offline serial test suites, both
-  components' formatting/strict Clippy checks and both release builds. Final
+  was absent from the runner. The isolated fixture and corrected source `70083bd`
+  pass all 485 macOS and 482 native Linux tests in the serial baseline, both
+  components' formatting/strict Clippy checks and both release builds. Final Linux
   artifact hashes, six stateless CLI calls and four ELF inspections passed;
   the binaries meet the glibc 2.39 baseline and left private state unchanged.
-  The earlier search-proof race is corrected; earlier failed receipts remain
-  retained. The hosted workflow uses this serial baseline; hosted execution and
-  publication of a corrected source commit still require review and approval.
-- [ ] Investigate six UI test failures observed under parallel/load conditions.
-  A private runner error interrupted collection of their panic details; the root
-  causes remain unconfirmed. Serial validation does not establish acceptance
-  under parallel test load.
+  The parallel UI failures below remain open; finalize and validate the corrected
+  candidate before changed-commit release approval. Other targets and channel
+  activation remain open. Earlier failed receipts remain retained. The hosted
+  workflow uses the serial baseline; hosted execution and publication of a
+  corrected source commit still require review and approval.
+- [ ] Resolve and revalidate UI tests under parallel load. A complete native
+  Linux four-thread live run at `70083bd` captured 211 passes and two failures,
+  with no harness error or surviving children. This exposed an eight-row archive
+  picker with no visible result row and a sidebar test reading preferences before
+  its click was acknowledged. Both fixes pass their focused live tests; complete
+  serial and parallel validation of the final source remains pending. The other
+  four previously failing tests passed the captured run. Preserve all evidence.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. Current binary casks are not published:
   ordinary Gatekeeper blocked their unnotarized executable in testing.

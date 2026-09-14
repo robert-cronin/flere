@@ -2,10 +2,12 @@
 
 This is a **draft** for the released Flere v0.3.0 source, targeting native
 x86_64 Linux. It is not a Nixpkgs submission or a supported installation method.
-Native Docker validation passed parsing, evaluation, both builds and each declared
-build-info install check. The first core build exposed a missing zlib input; the
-corrected recipe builds successfully. Final output inventory remains pending
-because the validation script used a utility absent from the container image.
+Native x86_64 Linux Docker validation passed parsing, evaluation, both builds,
+each declared build-info install check and the final output inventory. Each output
+contained exactly its executable and three license files, with the expected modes
+and ownership; every file was hashed. The first core build exposed a missing zlib
+input, now declared by the recipe. An intermediate inventory attempt failed on a
+missing utility; the corrected validator completed all 15 phases.
 
 Validation used the official Nix 2.35.2 image pinned to
 `sha256:617d914dba5384bf75adf17081583b69371031ec7defce36c34c5fa14fc819b0`
