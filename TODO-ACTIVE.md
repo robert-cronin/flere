@@ -13,9 +13,10 @@
   remains pending; Intel Macs and Linux ARM are excluded from this tap.
 - [ ] Prepare and validate Cargo source packages; publish after registry access
   and package-name availability are established.
-  Core archive verification passed at `cdc5dab` (184 extracted unit tests); first
-  registry publication must
-  use a new matching version/tag rather than relabel the original release source.
+  The core 0.3.1 archive passed verification at `3c24227`: 184 extracted library
+  tests, a release build, stateless CLI checks and an unchanged cached-build stamp
+  on macOS arm64. This does not validate the companion crate. Registry publication
+  remains pending and must use the matching version/tag without relabeling v0.3.0.
 - [x] Prepare the Linux `.deb` and AUR recipe with the glibc 2.39+ requirement.
   Corrected Debian archive/hash/mode checks and six native stateless CLI checks
   passed; the archive matches an independent Docker reproduction byte for byte.
@@ -55,7 +56,18 @@
   pushes must not publish. The Linux workflow includes the complete source
   archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
   final candidate validation, release immutability/environment setup, a hosted
-  run, other targets and channel activation remain open.
+  run, other targets and channel activation remain open. The latest native Linux
+  serial run passed 180 core unit tests and 209 of 210 live tests, both components'
+  strict Clippy checks, companion tests and both release builds. The remaining
+  live failure observed an empty search-cursor proof file before its write
+  completed; the retained file contains the expected value. The fixture fix is
+  prepared and awaits validation.
+  The hosted workflow is configured for the same serial baseline; full native
+  serial acceptance has not passed.
+- [ ] Investigate six UI test failures observed under parallel/load conditions.
+  A private runner error interrupted collection of their panic details; the root
+  causes remain unconfirmed. Serial validation does not establish acceptance
+  under parallel test load.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. Current binary casks are not published:
   ordinary Gatekeeper blocked their unnotarized executable in testing.
@@ -78,7 +90,8 @@
   text/style protocol; raw child escapes are never replayed. The outer terminal
   owns explicit link activation. Source `80bc6c2` passed all 476 tests, core and
   companion strict Clippy, formatting and release builds, plus Linux core and
-  Windows companion all-target compile checks.
+  Windows companion all-target compile checks. The approved update from
+  `80bc6c2` is installed; physical link activation remains unchecked.
 - [ ] Confirm physical hyperlink activation in Ghostty and Windows Terminal with
   the updated build. Automated PTY/remote tests verify targets, clipping, history,
   exact-session refresh and local-prompt/disconnect cleanup; browser interaction

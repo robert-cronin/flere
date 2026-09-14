@@ -61,6 +61,7 @@ jobs:
       descriptor_sha256: ${{ steps.candidate.outputs.descriptor_sha256 }}
     env:
       RUSTUP_TOOLCHAIN: 1.98.0
+      RUST_TEST_THREADS: '1'
       RELEASE_VERSION: ${{ needs.select.outputs.version }}
       RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
       RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}

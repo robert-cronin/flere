@@ -19,11 +19,18 @@ builds. It records the actual runner image, compiler, linker, source fingerprint
 and final payload digests. There is no shared dependency/build cache or restore
 from a pull-request run.
 
+The workflow runs both Rust suites serially with `RUST_TEST_THREADS=1`. Each
+fixture retains its internal process, thread and PTY concurrency. If candidate
+validation fails, the job prints a bounded tail of its validation log with
+credential redaction and literal line prefixes. Missing, ambiguous or unsafe logs
+leave the original failure intact. Full validation logs are excluded from public
+release assets.
+
 The final executables run `--build-info` and undergo managed installation and an
 exact-payload reinstall in a disposable home-cache directory. ELF library and
 symbol checks enforce the recorded system-library set and glibc 2.39 minimum.
-These checks establish native CI behavior;
-they do not establish interactive desktop behavior, physical clipboard/SSH
+Passing these checks establishes native CI behavior;
+it does not establish interactive desktop behavior, physical clipboard/SSH
 acceptance, upgrades from another release or package-manager installation tests.
 The temporary installation is removed with its disposable directory.
 

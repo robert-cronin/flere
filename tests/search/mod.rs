@@ -198,16 +198,21 @@ fn actual_ui_search_keeps_drafts_and_opens_exact_file_line_in_its_pane() {
         b":call writefile([string(line('.'))], $HOME . '/cursor-proof')\r",
     );
     let until = Instant::now() + Duration::from_secs(3);
-    while !f.root.join("cursor-proof").is_file() {
-        assert!(Instant::now() < until);
+    let cursor = loop {
+        match fs::read_to_string(f.root.join("cursor-proof")) {
+            // Vim creates the file before writefile finishes its newline-terminated value.
+            Ok(value) if value.ends_with('\n') => break value,
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("cursor proof read failed: {error}"),
+        }
+        assert!(
+            Instant::now() < until,
+            "cursor proof write did not complete"
+        );
         std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(
-        fs::read_to_string(f.root.join("cursor-proof"))
-            .unwrap()
-            .trim(),
-        "25"
-    );
+    };
+    assert_eq!(cursor.trim(), "25");
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
     assert!(
         wire::request(
