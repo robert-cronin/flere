@@ -31,7 +31,8 @@ validation and publication requirements.
 | [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Debian archive/native CLI checks and emulated Ubuntu APT lifecycle passed. Arch makepkg/build/metadata and emulated pacman install/remove/CLI checks passed. Debian asset publication and AUR submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Draft prepared; Nix parsing, evaluation, builds and runtime validation pending. Not a supported installation method |
-| RPM / Chocolatey | Additional installations | Queued; not validated or published |
+| [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
+| Chocolatey | Additional Windows installations | Queued; not validated or published |
 
 ### Install with Homebrew
 

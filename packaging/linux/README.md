@@ -8,10 +8,10 @@ the package builder does not compile a changed checkout or execute either binary
 | --- | --- |
 | Debian `.deb` | Archive and independent reproduction verified; six native extracted CLI checks passed. Offline APT install, same-payload revision upgrade, removal and purge passed in emulated amd64 Ubuntu containers; unpublished. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
-| RPM | Queued until `rpmbuild` and an RPM-based validation environment are available. No untested RPM artifact is offered. |
+| [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
 | Nix | [Source expression prepared as an unvalidated draft](../nix/README.md). Nix parsing, evaluation, builds, runtime and update ownership remain untested; not a supported installation method. |
 
-Preparation is separate from publishing the new `.deb` asset or submitting the
+Preparation is separate from publishing `.deb`/RPM assets or submitting the
 AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`
 entry on 2026-09-14; availability must be checked again before submission.
 
@@ -53,11 +53,12 @@ python3 scripts/linux-packages.py \
 
 Use an output directory that does not yet exist. `--deb` requires an installed
 `dpkg-deb` supporting `--root-owner-group` (1.19 or newer). Omitting `--deb`
-prepares the AUR files and provenance on other hosts. The builder does not fetch
+prepares the AUR files, RPM spec and provenance on other hosts. On an RPM build
+host, use `--rpm` instead of `--deb`; see the [RPM guide](rpm/README.md). The builder does not fetch
 files, install tools, upload artifacts, or change installed Flere.
 
 The result contains `flere_0.3.0-1_amd64.deb` when requested, the AUR files,
-`package-provenance.json`, and checksums for these outputs. Debian archive paths
+RPM spec, `package-provenance.json`, and checksums for these outputs. Debian archive paths
 are limited to the two binaries, their original manifests under
 `/usr/share/flere`, and combined project/font license notices at
 `/usr/share/doc/flere/copyright`. AUR installs the same binaries/manifests and
@@ -158,7 +159,9 @@ python3 scripts/test_linux_packages.py
 Tests use disposable directories under `~/.cache/flere/tmp` (override with
 `FLERE_TEST_CACHE`). They exercise corruption/provenance rejection and actual
 archive contents with `dpkg-deb`; Linux Bash/coreutils checks the AUR source
-arrays and install function. Platform-specific checks report skips when tools
+arrays and install function. Where installed, real `rpmbuild`/RPM also checks
+archive metadata, dependencies, payload digests/modes, license flags and
+corruption rejection without executing the inert fixture payloads. Platform-specific checks report skips when tools
 are absent. They never execute the inert test payloads.
 
 Repeat the Arch checks when changing the recipe or release payload. Before an

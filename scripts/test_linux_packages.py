@@ -180,6 +180,79 @@ package
             self.assertEqual(binary.read_bytes(), inputs[f"{component}-{packages.TARGET}"])
             self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
 
+    def test_rpm_recipe_and_preparation_include_only_reviewed_metadata(self):
+        for name, data in packages.rpm_files(packages.load_lock()).items():
+            self.assertEqual((packages.ROOT / "packaging/linux/rpm" / name).read_bytes(), data)
+        (self.assets / "private-token").write_bytes(b"DO-NOT-PACKAGE")
+        output = self.root / "prepared"
+        with mock.patch.object(packages, "load_lock", return_value=self.lock), contextlib.redirect_stdout(io.StringIO()):
+            packages.main(["--assets", str(self.assets), "--output", str(output)])
+        self.assertEqual({p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()},
+                         {"aur/flere-bin/PKGBUILD", "aur/flere-bin/.SRCINFO", "rpm/flere.spec",
+                          "package-provenance.json", "SHA256SUMS"})
+        for path in output.rglob("*"):
+            if path.is_file():
+                self.assertNotIn(b"DO-NOT-PACKAGE", path.read_bytes())
+        for line in (output / "SHA256SUMS").read_text().splitlines():
+            checksum, name = line.split("  ", 1)
+            self.assertEqual(checksum, packages.digest((output / name).read_bytes()))
+
+    def test_rpm_rejects_macro_shell_paths_before_invoking_rpmbuild(self):
+        inputs, licenses = self.load()
+        for name in ("percent%name", "quote'name", "dollar$name", "line\nbreak", "with space", "semi;colon"):
+            output = self.root / name
+            with self.subTest(name=name), mock.patch.object(packages.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "RPM output path"):
+                    packages.build_rpm(output, inputs, licenses, self.lock)
+                run.assert_not_called()
+                self.assertFalse(output.exists())
+
+    @unittest.skipUnless(sys.platform == "linux" and shutil.which("rpmbuild") and shutil.which("rpm"),
+                         "requires Linux rpmbuild and rpm")
+    def test_real_rpm_checks_hashes_modes_licenses_and_rejects_changed_input(self):
+        inputs, licenses = self.load()
+        output = self.root / "rpm-output"
+        output.mkdir()
+        artifact = packages.build_rpm(output, inputs, licenses, self.lock)
+        subprocess.run(["rpm", "--checksig", str(artifact)], check=True, stdout=subprocess.PIPE)
+        metadata = subprocess.check_output(["rpm", "-qp", "--qf", "%{NAME} %{VERSION} %{RELEASE} %{ARCH}\n%{LICENSE}\n", str(artifact)]).decode()
+        self.assertEqual(metadata, "flere 0.3.0 1 x86_64\nMIT AND OFL-1.1\n")
+        for option in ("--scripts", "--triggers"):
+            self.assertEqual(subprocess.check_output(["rpm", "-qp", option, str(artifact)]), b"")
+        requires = subprocess.check_output(["rpm", "-qp", "--requires", str(artifact)]).decode()
+        for dependency in ("glibc(x86-64) >= 2.39", "libgcc(x86-64)", "libz.so.1()(64bit)", "git-core"):
+            self.assertIn(dependency, requires.splitlines())
+        query = "[%{FILENAMES}\t%{FILEMODES}\t%{FILEDIGESTS}\t%{FILEUSERNAME}\t%{FILEGROUPNAME}\t%{FILEFLAGS:fflags}\n]"
+        rows = subprocess.check_output(["rpm", "-qp", "--qf", query, str(artifact)]).decode().splitlines()
+        expected = {}
+        for component in packages.COMPONENTS:
+            name = f"{component}-{packages.TARGET}"
+            expected[f"/usr/bin/{component}"] = (inputs[name], 0o755)
+            expected[f"/usr/share/flere/{component}.manifest.json"] = (inputs[name + ".manifest.json"], 0o644)
+        expected.update({f"/usr/share/licenses/flere/{name}": (data, 0o644) for name, data in licenses.items()})
+        files = set()
+        for row in rows:
+            name, mode, checksum, user, group, flags = row.split("\t")
+            self.assertEqual((user, group), ("root", "root"))
+            if checksum:
+                data, wanted_mode = expected[name]
+                self.assertEqual((checksum, int(mode) & 0o777), (packages.digest(data), wanted_mode))
+                if name.startswith("/usr/share/licenses/"):
+                    self.assertIn("l", flags)
+                files.add(name)
+            else:
+                self.assertIn(name, ("/usr/share/flere", "/usr/share/licenses/flere"))
+                self.assertEqual(int(mode) & 0o777, 0o755)
+        self.assertEqual(files, set(expected))
+        self.assertFalse((output / ".rpm-staging").exists())
+        broken = dict(inputs)
+        broken[f"flere-{packages.TARGET}"] += b"unexpected change"
+        rejected = self.root / "rejected-rpm"
+        rejected.mkdir()
+        with self.assertRaises(subprocess.CalledProcessError):
+            packages.build_rpm(rejected, broken, licenses, self.lock)
+        self.assertEqual(list(rejected.iterdir()), [])
+
     @unittest.skipUnless(shutil.which("dpkg-deb"), "requires dpkg-deb")
     def test_native_deb_directory_modes_do_not_depend_on_umask(self):
         inputs, licenses = self.load()

@@ -48,8 +48,15 @@
 - [ ] Fix the initial horizontal/ladder hold pause on Windows legacy input;
   investigate console-owned press/release events. Do not lengthen the legacy
   timeout blindly, alter system repeat settings or add global keyboard monitoring.
-- [ ] Add RPM/Chocolatey and additional channels after their package/runtime
-  checks pass and publisher access is available.
+- [x] Prepare the upstream RPM wrapper from the verified v0.3.0 release. Real
+  rpmbuild, payload/license/dependency checks and offline RPM install/remove
+  passed in emulated amd64 Fedora 44; six installed stateless CLI checks passed,
+  with synthetic state and all 220 unrelated package headers unchanged.
+- [ ] Sign/publish the RPM after reviewing its checksum and provenance. Native
+  Fedora hardware, interactive features and runtime-version upgrades remain
+  untested; this is an upstream wrapper, not a Fedora repository submission.
+- [ ] Add Chocolatey and additional channels after their package/runtime checks
+  pass and publisher access is available.
 - [ ] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method.
 - [x] Make the local in-app updater identify package-manager installations and
