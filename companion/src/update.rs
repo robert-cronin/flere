@@ -222,6 +222,28 @@ pub(crate) fn run(command: &mut Command, maximum: usize, timeout: Duration) -> i
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+// PowerShell 7 does not normalize PSModulePath for grandchildren such as this
+// Windows PowerShell helper. Use only .NET APIs, without module autoload, and
+// dispose the stream even when hasher creation, hashing or output fails.
+#[cfg(any(windows, test))]
+pub(crate) fn windows_sha256_command(path: &str) -> Command {
+    let script = format!(
+        "$ErrorActionPreference='Stop';\
+         $stream=[System.IO.File]::OpenRead('{}');\
+         try{{$hasher=[System.Security.Cryptography.SHA256]::Create();\
+         try{{[System.Console]::Out.WriteLine(\
+         [System.BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-','').ToLowerInvariant())\
+         }}finally{{$hasher.Dispose()}}\
+         }}finally{{$stream.Dispose()}}",
+        path.replace('\'', "''")
+    );
+    let mut command = Command::new("powershell.exe");
+    command
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null());
+    command
+}
+
 fn sha256(path: &Path) -> io::Result<String> {
     let file = regular(path, MAX_PAYLOAD)?;
     #[cfg(target_os = "linux")]
@@ -242,14 +264,7 @@ fn sha256(path: &Path) -> io::Result<String> {
         let path = path
             .to_str()
             .ok_or_else(|| invalid("package path is not Unicode"))?;
-        let script = format!(
-            "$ErrorActionPreference='Stop';(Get-FileHash -LiteralPath '{}' -Algorithm SHA256).Hash.ToLowerInvariant()",
-            path.replace('\'', "''")
-        );
-        let mut c = Command::new("powershell.exe");
-        c.args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .stdin(Stdio::null());
-        c
+        windows_sha256_command(path)
     };
     let bytes = run(&mut command, 512, Duration::from_secs(30))?;
     let digest = String::from_utf8(bytes)
@@ -2346,5 +2361,94 @@ mod tests {
         record.resume = Some("../foreign-plan".into());
         write_json(&path, &record).unwrap();
         assert!(restart_record(&f.store, &receipt, &first).is_err());
+    }
+}
+
+#[cfg(test)]
+mod windows_hash_tests {
+    use super::*;
+
+    #[test]
+    fn windows_hash_keeps_special_unicode_paths_in_one_literal_argument() {
+        let path = "C:\\private cache\\λ ' ; $([System.Console]::Write('bad')) `[x].bin";
+        let command = windows_sha256_command(path);
+        assert_eq!(command.get_program(), "powershell.exe");
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect();
+        assert_eq!(&args[..3], &["-NoProfile", "-NonInteractive", "-Command"]);
+        assert_eq!(args.len(), 4);
+        let script = args[3];
+        assert!(script.contains(
+            "[System.IO.File]::OpenRead('C:\\private cache\\λ '' ; $([System.Console]::Write(''bad'')) `[x].bin');"
+        ));
+        assert!(!script.contains("Get-FileHash"));
+        assert!(script.ends_with("}finally{$hasher.Dispose()}}finally{$stream.Dispose()}"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_hash_vectors_work_without_modules_and_fail_for_missing_files() {
+        let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap())
+            .join("flere/tmp")
+            .join(format!("hash-{}", nonce().unwrap()));
+        private_dir(&root).unwrap();
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if std::thread::panicking() {
+                    eprintln!("Retained Windows hash fixture {}", self.0.display());
+                } else {
+                    fs::remove_dir_all(&self.0).unwrap();
+                }
+            }
+        }
+        let fixture = Fixture(root);
+        let path = fixture.0.join("λ ' ; $() `[x].bin");
+        let hash_without_modules = || {
+            let generated = windows_sha256_command(path.to_str().unwrap());
+            let mut args: Vec<_> = generated
+                .get_args()
+                .map(|arg| arg.to_str().unwrap().to_owned())
+                .collect();
+            // Child-local only: disabling autoload makes Get-FileHash fail even
+            // if Windows PowerShell repairs the deliberately missing lookup.
+            args[3].insert_str(0, "$PSModuleAutoLoadingPreference='None';");
+            run(
+                Command::new(generated.get_program())
+                    .args(args)
+                    .env("PSModulePath", fixture.0.join("no-modules"))
+                    .stdin(Stdio::null()),
+                512,
+                Duration::from_secs(30),
+            )
+        };
+        for (bytes, expected) in [
+            (
+                &b""[..],
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                &b"abc"[..],
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                &b"\0\xff\x80\r\n"[..],
+                "6171db06a1c89b1ff8ab77e479d5df976ccd88a7b63567b4b18f413649e12ff3",
+            ),
+        ] {
+            fs::write(&path, bytes).unwrap();
+            let digest = String::from_utf8(hash_without_modules().unwrap()).unwrap();
+            assert_eq!(digest.trim(), expected);
+        }
+        fs::remove_file(&path).unwrap();
+        assert!(
+            hash_without_modules()
+                .unwrap_err()
+                .to_string()
+                .contains("helper failed")
+        );
+        assert!(sha256(&fixture.0).is_err());
     }
 }

@@ -65,14 +65,7 @@ fn digest(path: &Path) -> io::Result<String> {
         let path = path
             .to_str()
             .ok_or_else(|| invalid("Bootstrap package path must be Unicode"))?;
-        let script = format!(
-            "$ErrorActionPreference='Stop';(Get-FileHash -LiteralPath '{}' -Algorithm SHA256).Hash.ToLowerInvariant()",
-            path.replace('\'', "''")
-        );
-        let mut c = Command::new("powershell.exe");
-        c.args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .stdin(Stdio::null());
-        c
+        update::windows_sha256_command(path)
     };
     let bytes = update::run(&mut command, 512, Duration::from_secs(30))?;
     let text = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
