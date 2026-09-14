@@ -37,7 +37,7 @@ package() {
   for component in flere flere-connect; do
     install -Dm644 "$srcdir/$component-x86_64-unknown-linux-gnu.manifest.json" "$pkgdir/usr/share/flere/$component.manifest.json"
   done
-  for license in LICENSE OFL.txt LICENSE-Nerd-Fonts; do
-    install -Dm644 "$srcdir/$license" "$pkgdir/usr/share/licenses/flere-bin/$license"
+  for license_file in LICENSE OFL.txt LICENSE-Nerd-Fonts; do
+    install -Dm644 "$srcdir/$license_file" "$pkgdir/usr/share/licenses/flere-bin/$license_file"
   done
 }

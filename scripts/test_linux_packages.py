@@ -151,6 +151,22 @@ class LinuxPackages(unittest.TestCase):
         for name, data in packages.aur_files(packages.load_lock()).items():
             self.assertEqual((packages.ROOT / "packaging/linux/aur/flere-bin" / name).read_bytes(), data)
 
+    @unittest.skipUnless(shutil.which("bash"), "requires Bash")
+    def test_aur_package_function_preserves_license_metadata(self):
+        recipe = self.root / "PKGBUILD"
+        recipe.write_bytes(packages.aur_files(self.lock)["PKGBUILD"])
+        # Run the real generated function without depending on GNU install or
+        # executing a payload. Bash loop assignments can overwrite array index 0.
+        result = subprocess.run(["bash", "-euc", '''source "$1"
+install() { :; }
+package
+printf '%s\\n' "${license[@]}"
+''', "aur-license-check", str(recipe)], check=True, capture_output=True, timeout=5,
+                                env=dict(os.environ, srcdir=str(self.assets),
+                                         pkgdir=str(self.root / "unused-package")))
+        self.assertEqual(result.stdout.splitlines(), [b"MIT", b"OFL-1.1"])
+        self.assertEqual(result.stderr, b"")
+
     @unittest.skipUnless(sys.platform == "linux" and shutil.which("bash") and shutil.which("sha256sum"),
                          "requires Linux bash and coreutils")
     def test_aur_integrity_arrays_and_package_function_preserve_payloads(self):

@@ -60,7 +60,13 @@
   exact `.SRCINFO` comparison and offline pacman installation/removal in a
   disposable emulated amd64 container. Six installed stateless CLI checks passed;
   synthetic state and all 175 unrelated package records were preserved. Native
-  Arch hardware and interactive terminal features were not tested.
+  Arch hardware and interactive terminal features were not tested. The original
+  package's licence metadata replaced MIT with a filename; correct installed
+  licence files did not establish correct package metadata.
+- [x] Preserve the AUR licence array while installing licence files. The Bash
+  regression reproduced the overwritten MIT entry and passes after renaming the
+  loop variable. Packaging checks: 12 passed, four platform skips. Source/payload
+  pins and `.SRCINFO` stayed unchanged; native corrected-package validation is pending.
 - [x] Complete native Ubuntu Debian v0.3.0 → v0.3.2 installation, upgrade,
   removal and purge. All 12 installed CLI checks, package-manager ownership
   detection and blocked coordinated-update staging passed. Synthetic state and

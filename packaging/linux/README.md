@@ -7,7 +7,7 @@ the package builder does not compile a changed checkout or execute either binary
 | Format | Current validation |
 | --- | --- |
 | Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; v0.3.3 is published through the automated release. |
-| AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
+| AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Original licence metadata is incorrect; the corrected recipe awaits native validation. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 install/upgrade/remove, 12 CLI checks, core/companion ownership refusal and state/package preservation passed. The tested v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0. |
 | Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Separately, native Nix-on-Ubuntu core/companion ownership, UI refusal and normal profile removal passed for unpublished v0.3.4 source `2d52985`. Actual 0.3.3 → 0.3.4 profile upgrades and emulated NixOS core runtime also passed. Physical clipboard and external SSH remain unverified. |
 
@@ -214,6 +214,15 @@ pristine-machine all-dependency install, a Flere APT repository, live-session
 migration or broader desktop behavior. The older emulated receipts remain separate.
 
 ### AUR validation
+
+The original v0.3.0 archive has a package-metadata defect: its `license` entries
+are `LICENSE-Nerd-Fonts` and `OFL-1.1`, despite all three correct licence files
+being installed. The `package()` loop overwrote the first element of Bash's
+`license` array. The generator and checked-in recipe now use `license_file`;
+the declared MIT/OFL array, payload pins and `.SRCINFO` are unchanged. A real
+Bash regression fails before the correction and passes afterward. Native
+validation of a newly generated package remains pending; the original archive
+and receipt are not evidence of correct licence metadata.
 
 The AUR recipe also passed real Arch validation on 2026-09-14 in a disposable
 amd64 container under Docker Desktop on macOS arm64. The official
