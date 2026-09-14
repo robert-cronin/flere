@@ -83,6 +83,7 @@ pub(super) struct Form {
     meta: CardMeta,
     reference: Option<serde_json::Value>,
     locked: usize,
+    pub(super) project: Option<project_picker::Picker>,
 }
 #[derive(Clone)]
 struct Pick {
@@ -514,10 +515,10 @@ impl Ui {
                 ("Base ref", "HEAD".into()),
                 ("Project", meta.project.clone()),
             ],
-            "Add project" => vec![
-                ("Project directory", cwd),
-                ("Name (optional)", String::new()),
-            ],
+            "Add project" => vec![(
+                "Project directory",
+                project_picker::directory_text(Path::new(&cwd)),
+            )],
             "Edit workspace" => vec![
                 ("Name", w.map(|w| w.name.clone()).unwrap_or_default()),
                 ("Project", meta.project.clone()),
@@ -539,6 +540,8 @@ impl Ui {
             meta,
             reference: None,
             locked: 0,
+            project: (kind == "Add project")
+                .then(|| project_picker::Picker::new(PathBuf::from(cwd))),
         });
         self.menu = false;
     }
@@ -630,6 +633,13 @@ impl Ui {
         };
         let mut f = self.form.take().unwrap();
         if !paste && b == b"\x1b" {
+            return;
+        }
+        if let Some(project) = &mut f.project
+            && !paste
+            && project.key(&b, &mut f.values[0].1)
+        {
+            self.form = Some(f);
             return;
         }
         if !paste && b == b"\r" {
@@ -778,10 +788,16 @@ impl Ui {
                     ]);
                 }
                 "Add project" => {
+                    if vals[0].is_empty() {
+                        self.notice = "Choose a project directory".into();
+                        self.form = Some(f);
+                        return;
+                    }
+                    let directory = f.project.as_ref().unwrap().resolve(&vals[0]);
                     self.command(&[
                         "add-project",
-                        &wire::hex(vals[0].as_bytes()),
-                        &wire::hex(vals[1].as_bytes()),
+                        &wire::hex(directory.to_string_lossy().as_bytes()),
+                        "",
                     ]);
                     if self.notice.is_empty() {
                         self.focus = Focus::Terminal;
@@ -851,6 +867,9 @@ impl Ui {
                 value.extend_from_slice(&b);
             }
             f.result = 0;
+            if let Some(project) = &mut f.project {
+                project.update(&f.values[0].1);
+            }
         }
         self.form = Some(f);
     }
@@ -1111,6 +1130,10 @@ impl Ui {
         let Some(f) = &self.form else {
             return;
         };
+        if let Some(project) = &f.project {
+            project.draw(c, self.layout, &f.values[0].1);
+            return;
+        }
         let l = self.layout;
         let w = 70.min(l.width);
         let is_picker = picker(&f.kind);

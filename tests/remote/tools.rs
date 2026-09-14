@@ -314,14 +314,10 @@ struct CompanionUi {
 impl CompanionUi {
     fn attach(f: &Fixture, args: &[&str]) -> Self {
         let mut command = Command::new("/usr/bin/env");
-        command
+        fixture_home(&mut command, &f.root)
             .args(["-u", "FLERE"])
             .arg(companion_binary())
-            .args(args)
-            .env("HOME", &f.root)
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("XDG_STATE_HOME")
-            .env_remove("XDG_CACHE_HOME");
+            .args(args);
         let (master, child) = os::spawn_command_pty(&f.root, &mut command, 180, 42).unwrap();
         let mut ui = Self {
             master,
@@ -413,7 +409,7 @@ os.execv(args[0],args)
     )
     .unwrap();
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
-    let output = Command::new(companion_binary())
+    let output = fixture_home(&mut Command::new(companion_binary()), &f.root)
         .args([
             "connections",
             "save",
@@ -426,8 +422,6 @@ os.execv(args[0],args)
             "--ssh",
             ssh.to_str().unwrap(),
         ])
-        .env("HOME", &f.root)
-        .env_remove("XDG_CONFIG_HOME")
         .output()
         .unwrap();
     assert!(
@@ -497,6 +491,16 @@ os.execv(args[0],args)
     ui.wait("No forwarded ports");
     assert!(std::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, local_port)).is_err());
     ui.key(b"\x1b");
+    // Observe modal closure before sending the separate NAV/detach chord. A
+    // fixed 80 ms pump can leave Escape pending when the bridge is busy.
+    let ports_open = |screen: &Terminal| {
+        screen
+            .capture(screen.grid.rows)
+            .contains("a add · Enter browser · d stop · r refresh · Esc close")
+    };
+    if ports_open(&ui.screen) {
+        wait_current_ui(&mut ui.master, &mut ui.screen, |screen| !ports_open(screen));
+    }
     assert_eq!(probe_input(&f, &tabs[0]), b"kept draft");
     unchanged(&f, &tabs);
     ui.finish();
@@ -557,14 +561,10 @@ while True:read()
     .unwrap();
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
     let mut command = Command::new("/usr/bin/env");
-    command
+    fixture_home(&mut command, &f.root)
         .args(["-u", "FLERE"])
         .arg(companion_binary())
         .args(["fixture-host", "--ssh", ssh.to_str().unwrap()])
-        .env("HOME", &f.root)
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("XDG_STATE_HOME")
-        .env_remove("XDG_CACHE_HOME")
         .env(
             "FIXTURE_VERSION",
             std::str::from_utf8(protocol::VERSION).unwrap(),

@@ -19,7 +19,7 @@ acceptance. Personal connection details and retained sessions stay private.
 - Neovim close inspection uses its supported child-process API. Walking the
   shared libuv loop with `vim.loop.walk` aborts Neovim 0.9.5 when it encounters
   non-Lua handles; an isolated direct reproduction confirmed the crash.
-  Child PIDs still pass through Railhand's existing process/registered-helper
+  Child PIDs still pass through Flere's existing process/registered-helper
   verification. Both LSP discovery APIs are supported, and unknown `jobstart`
   and raw `uv.spawn` jobs still require confirmation. Dirty buffers and quit
   hooks retain their existing protection.

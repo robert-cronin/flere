@@ -1,3 +1,7 @@
 /target/
 /bin/
 /companion/target/
+
+# Python verification output may embed local source paths.
+__pycache__/
+*.py[cod]

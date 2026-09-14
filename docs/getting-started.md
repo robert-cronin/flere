@@ -5,6 +5,10 @@
 Flere 0.3.0 is a clean rename. Commands, package IDs, hooks, environment markers
 and new private folders use `flere`; old Railhand installations are separate.
 
+For prebuilt downloads and package-manager availability, start with
+[installation channels](distribution.md). The source-build workflow below is
+for development and platforms without an accepted prebuilt package.
+
 ## Build and install
 
 From this repository checkout, use **Rust 1.98 or newer** and a system C linker.
@@ -69,6 +73,10 @@ also supports `flere-connect --build-info` without connecting to SSH.
 
 ### Update from Flere
 
+This action owns Flere's per-user managed installation. If you installed through
+Homebrew, Cargo or a system package manager, upgrade through that manager instead;
+see [installation ownership](distribution.md#upgrade-through-the-installation-owner).
+
 **Ctrl+Space, Shift+K** opens **Update Flere**. Locally, select a package directory
 or HTTPS manifest and press Enter to apply; an empty source uses the explicitly
 registered checkout. `scripts/dev update` registers its checkout. You can also
@@ -87,7 +95,7 @@ separate from installing a new package.
 
 ### Install a published package
 
-Once matching release assets are published, the Unix
+The v0.3.0 Unix
 [install.py](../scripts/install.py) fetches the platform’s core and companion
 together from the Flere release channel. It checks
 both payload hashes and matching source/version/protocol before installing either.
@@ -98,8 +106,9 @@ installation; the report identifies any partial failure so it can be repaired.
 Windows uses [install-companion.ps1](../scripts/install-companion.ps1) with
 `-ManifestUrl`, installing both `flere.exe` and the `flere-connect.exe` alias.
 These installers work without Rust or a source checkout. They do not change PATH,
-start chats or publish a release. The default public channel will work only after
-matching assets are published. If the release or target is unavailable, use the
+start chats or publish a release. The default public channel currently provides
+Linux x86_64 GNU (glibc 2.39+) and macOS arm64; Windows publication is pending
+physical acceptance. If the release or target is unavailable, use the
 source-build instructions above or an explicit verified package source.
 
 ## Open a project

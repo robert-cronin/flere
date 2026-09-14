@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0",
+  "revision": 1,
+  "target": "x86_64-unknown-linux-gnu",
+  "source_commit": "3959a33af47123c11a33cf7ff62ac9695c49a9dd",
+  "source_sha256": "49f081111abc145973d0ca87fd6086ae271a439d9b91176f645e459a6eadbb8c",
+  "source_date_epoch": 1789339815,
+  "minimum_glibc": "2.39",
+  "assets": {
+    "flere-x86_64-unknown-linux-gnu": {
+      "bytes": 8294304,
+      "sha256": "3ad4f2597e41a853a694c2f0480de0e850b85cf5d2913271685c2b503472ad8b"
+    },
+    "flere-x86_64-unknown-linux-gnu.manifest.json": {
+      "bytes": 2503,
+      "sha256": "52cf877d56d0f4fec6db7a1f6b9d1df623c9483908ed22fa16aaba2e40975574"
+    },
+    "flere-connect-x86_64-unknown-linux-gnu": {
+      "bytes": 2513816,
+      "sha256": "967e7e7cf68e927c2810db66450be93f3fab13b0980b158561c583b473fe8fb6"
+    },
+    "flere-connect-x86_64-unknown-linux-gnu.manifest.json": {
+      "bytes": 2307,
+      "sha256": "25a3e5c91db265b251225d4ec08becf5243c5829e6e350cac708bec9e612815f"
+    },
+    "flere-0.3.0-source.tar.gz": {
+      "bytes": 23182565,
+      "sha256": "5ccc74765af98ae38f51be21709e3e703312ebde3eadb59d5b4cf8adbd31e94f"
+    }
+  },
+  "licenses": {
+    "LICENSE": {
+      "bytes": 1075,
+      "sha256": "b997b4ab95fef146345de8b279c4d6dff41fc4a198d2bfe2488ba0ae0ac071d5"
+    },
+    "src/assets/fonts/OFL.txt": {
+      "bytes": 4398,
+      "sha256": "60d55f23c6ce05a81099a762cb67ca2c9b6ea251c7912720998b4c89ebfd4faa"
+    },
+    "src/assets/fonts/LICENSE-Nerd-Fonts": {
+      "bytes": 6199,
+      "sha256": "bede0739eb2bf948765623a7a134360a6320240f4a9e29a5a68f31e191b0f8d0"
+    }
+  }
+}

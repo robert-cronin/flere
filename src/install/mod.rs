@@ -3,6 +3,7 @@
 mod activation;
 mod cli;
 mod manifest;
+mod ownership;
 mod package;
 mod plan;
 mod store;
@@ -10,6 +11,7 @@ mod store;
 pub use activation::ensure_update_endpoint;
 pub use activation::{Activation, RuntimeIdentity, activate, runtime_identity};
 pub use cli::command;
+pub(crate) use ownership::{ManagerUpgrade, current_manager_upgrade, update_manager_guard};
 pub use package::{
     BuildMetadata, Compatibility, MAX_PAYLOAD, Manifest, PackageSource, ProtocolCompatibility,
     SourceReceipt, VersionRange, download, inspect_binary, package, sha256, source_digest,

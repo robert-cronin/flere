@@ -1,6 +1,6 @@
 [Documentation](README.md) · [Architecture](architecture.md) · [Raw data](benchmarks/macos-m5-2026-09-11.json)
 
-# Measure the workbench, name the workload
+# Historical benchmark: Railhand 0.2.20
 
 At 120×32 cells, this run measured **18.7 ms median** and
 **20.3 ms p95** from writing an eight-byte marker into Railhand's
@@ -17,7 +17,7 @@ used **6.0 MiB resident memory** with one shell, excluding that shell.
 | Hardware | Apple M5, 10 logical CPUs, 32 GiB RAM |
 | OS | macOS 26.5.1, arm64 |
 | Build | Release, Railhand 0.2.20, rustc 1.98.0 (88d9e12ae 2026-08-18) |
-| Runtime source | [`cc19456`](https://github.com/robert-cronin/flere/commit/cc194564bccb80a0ad8ff777ebbfe511844d767e) |
+| Runtime source | `cc19456` (private historical revision; excluded from this public snapshot) |
 | Scope | One local run; ordinary desktop applications remained running |
 
 [Machine-readable results](benchmarks/macos-m5-2026-09-11.json) include the release

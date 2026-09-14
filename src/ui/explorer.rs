@@ -114,6 +114,7 @@ fn read(root: &Path) -> Listing {
 struct Target {
     epoch: String,
     wid: u64,
+    project: Option<u64>,
     root: PathBuf,
     generation: u64,
 }
@@ -143,10 +144,14 @@ impl Loader {
         }
     }
     fn request(&mut self, epoch: &str, wid: u64, e: &Explorer) {
+        self.request_for(epoch, wid, None, e);
+    }
+    fn request_for(&mut self, epoch: &str, wid: u64, project: Option<u64>, e: &Explorer) {
         if e.loading && self.target.is_none() && self.send.try_send(e.root.clone()).is_ok() {
             self.target = Some(Target {
                 epoch: epoch.into(),
                 wid,
+                project,
                 root: e.root.clone(),
                 generation: e.generation,
             });
@@ -171,13 +176,27 @@ impl Ui {
         let mut dirty = false;
         if let Some((target, listing)) = self.explorer_loader.poll()
             && target.epoch == self.snapshot.epoch
-            && let Some(e) = self.explorers.get_mut(&target.wid)
         {
-            dirty = e.apply(&target, listing);
+            if let Some(id) = target.project {
+                if let Some(project) = self.form.as_mut().and_then(|f| f.project.as_mut())
+                    && project.id == id
+                {
+                    dirty = project.explorer.apply(&target, listing);
+                }
+            } else if let Some(e) = self.explorers.get_mut(&target.wid) {
+                dirty = e.apply(&target, listing);
+            }
         }
         // Only schedule the current folder. Rapid navigation coalesces to the latest
         // request, with no thread per click and no queue of abandoned directory reads.
-        if let Some(e) = self.explorers.get(&self.snapshot.active) {
+        if let Some(project) = self.form.as_ref().and_then(|f| f.project.as_ref()) {
+            self.explorer_loader.request_for(
+                &self.snapshot.epoch,
+                self.snapshot.active,
+                Some(project.id),
+                &project.explorer,
+            );
+        } else if let Some(e) = self.explorers.get(&self.snapshot.active) {
             self.explorer_loader
                 .request(&self.snapshot.epoch, self.snapshot.active, e);
         }

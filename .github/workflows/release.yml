@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Unused X.Y.Z matching both Cargo manifests
+        required: true
+        type: string
+      commit:
+        description: Reviewed full 40-character commit SHA on main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  select:
+    if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.select.outputs.version }}
+      commit: ${{ steps.select.outputs.commit }}
+    steps:
+      # Official action implementations are pinned; never execute a dispatch SHA
+      # before checking its main ancestry and both version declarations as data.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: select
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release-automation.py select \
+            --checkout . --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+
+  linux:
+    needs: select
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      descriptor_sha256: ${{ steps.candidate.outputs.descriptor_sha256 }}
+    env:
+      RUSTUP_TOOLCHAIN: 1.98.0
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.select.outputs.commit }}
+          path: source
+          persist-credentials: false
+      - name: Provision pinned compiler and locked dependencies before offline checks
+        working-directory: source
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libx11-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev ruby
+          rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+          cargo fetch --locked --target x86_64-unknown-linux-gnu
+          cargo fetch --locked --target x86_64-unknown-linux-gnu --manifest-path companion/Cargo.toml
+      - id: candidate
+        name: Test once, package and seal the same final Linux bytes
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          python3 automation/scripts/release-linux-ci.py --checkout source \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.candidate.outputs.asset_directory }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+  publish:
+    needs: [select, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+    steps:
+      # The privileged job checks out only the trusted workflow revision. No
+      # build/test/install or candidate executable runs with publication access.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - name: Verify and publish the complete draft without replacing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 automation/scripts/release-automation.py publish --directory candidate \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA" \
+            --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA"
+
+  verify-public:
+    needs: [select, linux, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - name: Download every public version URL anonymously and compare final bytes
+        run: |
+          python3 automation/scripts/release-automation.py verify-public --directory candidate \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA" \
+            --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA" >> "$GITHUB_STEP_SUMMARY"

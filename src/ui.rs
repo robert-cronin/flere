@@ -30,6 +30,7 @@ mod local_graphics;
 mod panes;
 mod pet;
 mod polish;
+mod project_picker;
 mod remote;
 mod remote_tools;
 mod resume;

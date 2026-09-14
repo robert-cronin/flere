@@ -1,0 +1,37 @@
+pkgbase = flere-bin
+	pkgdesc = Terminal workbench with a custom UI and SSH companion (prebuilt)
+	pkgver = 0.3.0
+	pkgrel = 1
+	url = https://github.com/robert-cronin/flere
+	arch = x86_64
+	license = MIT
+	license = OFL-1.1
+	depends = glibc>=2.39
+	depends = gcc-libs
+	depends = zlib
+	depends = git
+	optdepends = openssh: SSH connections and linked remote workspaces
+	optdepends = vim: external editor
+	optdepends = wayland: clipboard on Wayland sessions
+	provides = flere=0.3.0
+	provides = flere-connect=0.3.0
+	conflicts = flere
+	conflicts = flere-connect
+	options = !strip
+	options = !debug
+	source = flere-x86_64-unknown-linux-gnu::https://github.com/robert-cronin/flere/releases/download/v0.3.0/flere-x86_64-unknown-linux-gnu
+	source = flere-x86_64-unknown-linux-gnu.manifest.json::https://github.com/robert-cronin/flere/releases/download/v0.3.0/flere-x86_64-unknown-linux-gnu.manifest.json
+	source = flere-connect-x86_64-unknown-linux-gnu::https://github.com/robert-cronin/flere/releases/download/v0.3.0/flere-connect-x86_64-unknown-linux-gnu
+	source = flere-connect-x86_64-unknown-linux-gnu.manifest.json::https://github.com/robert-cronin/flere/releases/download/v0.3.0/flere-connect-x86_64-unknown-linux-gnu.manifest.json
+	source = LICENSE::https://raw.githubusercontent.com/robert-cronin/flere/3959a33af47123c11a33cf7ff62ac9695c49a9dd/LICENSE
+	source = OFL.txt::https://raw.githubusercontent.com/robert-cronin/flere/3959a33af47123c11a33cf7ff62ac9695c49a9dd/src/assets/fonts/OFL.txt
+	source = LICENSE-Nerd-Fonts::https://raw.githubusercontent.com/robert-cronin/flere/3959a33af47123c11a33cf7ff62ac9695c49a9dd/src/assets/fonts/LICENSE-Nerd-Fonts
+	sha256sums = 3ad4f2597e41a853a694c2f0480de0e850b85cf5d2913271685c2b503472ad8b
+	sha256sums = 52cf877d56d0f4fec6db7a1f6b9d1df623c9483908ed22fa16aaba2e40975574
+	sha256sums = 967e7e7cf68e927c2810db66450be93f3fab13b0980b158561c583b473fe8fb6
+	sha256sums = 25a3e5c91db265b251225d4ec08becf5243c5829e6e350cac708bec9e612815f
+	sha256sums = b997b4ab95fef146345de8b279c4d6dff41fc4a198d2bfe2488ba0ae0ac071d5
+	sha256sums = 60d55f23c6ce05a81099a762cb67ca2c9b6ea251c7912720998b4c89ebfd4faa
+	sha256sums = bede0739eb2bf948765623a7a134360a6320240f4a9e29a5a68f31e191b0f8d0
+
+pkgname = flere-bin

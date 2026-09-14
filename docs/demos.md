@@ -22,49 +22,11 @@ and [intro cells](assets/flere-030-intro.jsonl.gz) can be rendered without start
 These are rasterized terminal cells, so glyph appearance depends on the chosen
 font; frame sampling is not a latency benchmark.
 
-## Historical Railhand 0.2.20 tour
-
-These are recordings of the real Railhand **0.2.20** UI, decoded from owned kernel PTYs.
-The project, files, commits, and shell output are deliberately generated fixtures.
-No model responses or benchmark outcomes are staged in the demos. These are
-historical captures from runtime revision `cc19456`; that private Git history is
-not included in this source snapshot.
-
-## The everyday workbench
-
-![Recorded tour: workspace, Git inspector, search, and board](assets/workbench.gif)
-
-| Moment | Try it yourself |
-| --- | --- |
-| Workspaces beside a native shell | Open Railhand in a project directory. |
-| Local working changes and commit history | **Ctrl+Space → g** |
-| Search across workspace cards | **Ctrl+Space → /**, type the name, then Enter |
-| Review workflow state in the board | **Ctrl+Space → Shift+B**; use h/l to change columns |
-
-The recording uses a **140×30-cell** viewport, a wider Git inspector, and a
-synthetic project named Signal. It follows live interactions at captured timing;
-the GIF's final frame holds briefly before looping. Captures are sampled up to
-10 times per second, so the GIF frame rate is **not a UI latency measurement**.
-
-### Prefer still images?
-
-| Workspaces | Git history |
-| --- | --- |
-| [![Workspace screenshot](assets/workbench-1.png)](assets/workbench-1.png) | [![Git inspector screenshot](assets/workbench-2.png)](assets/workbench-2.png) |
-| Search | Board |
-| [![Search screenshot](assets/workbench-3.png)](assets/workbench-3.png) | [![Board screenshot](assets/workbench-4.png)](assets/workbench-4.png) |
-
-## First opening
-
-![Railhand's real first-use intro animation](assets/intro.gif)
-
-The **100×28-cell** intro is captured for six seconds. Pressing any key advances
-into the workbench; previewing `flere intro` creates no supervisor or workspace.
-[View a static intro frame](assets/intro-1.png).
+The [archived Railhand 0.2.20 tour](history/railhand-0.2.20-tour.md) retains earlier recordings and their original provenance.
 
 ## Record it yourself
 
-The commands below record a fresh Flere build. The published 0.2.20 results above remain historical Railhand evidence.
+The commands below record a fresh Flere build into your home cache. The published recordings retain their original versions and provenance.
 
 
 Build the release binary and capture examples, then write the captures into a
@@ -89,10 +51,10 @@ and provide a local monospace font file. On macOS, for example:
 
 ```sh
 "$HOME/.cache/flere/docs-tools/bin/python" docs/tools/render_demo.py \
-  "$HOME/.cache/flere/docs-results/workbench.jsonl" docs/assets/workbench.gif \
+  "$HOME/.cache/flere/docs-results/workbench.jsonl" "$HOME/.cache/flere/docs-results/workbench.gif" \
   --font /System/Library/Fonts/Menlo.ttc
 "$HOME/.cache/flere/docs-tools/bin/python" docs/tools/render_demo.py \
-  "$HOME/.cache/flere/docs-results/intro.jsonl" docs/assets/intro.gif \
+  "$HOME/.cache/flere/docs-results/intro.jsonl" "$HOME/.cache/flere/docs-results/intro.gif" \
   --font /System/Library/Fonts/Menlo.ttc --intro
 ```
 
@@ -102,7 +64,7 @@ and draws terminal borders on the cell grid. It adds an outer caption/frame and
 progress line. Glyph appearance can differ from your terminal font. Font rasterization is an illustration of those
 captured cells, not a screenshot of a particular physical terminal application.
 
-The compressed [workbench cells](assets/workbench.jsonl.gz) and
-[intro cells](assets/intro.jsonl.gz) let you render the published capture without
+The compressed [workbench cells](assets/flere-030-workbench.jsonl.gz) and
+[intro cells](assets/flere-030-intro.jsonl.gz) let you render the published capture without
 launching Flere. [Capture source](../examples/docs_demo.rs) ·
 [Intro source](../examples/capture_intro.rs) · [Renderer](tools/render_demo.py)

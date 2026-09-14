@@ -752,6 +752,17 @@ struct Pending {
     next: Receipt,
     previous_sha256: Option<String>,
 }
+struct InstallationLock {
+    file: File,
+}
+impl Drop for InstallationLock {
+    fn drop(&mut self) {
+        // A concurrently spawned child can briefly inherit the descriptor before
+        // exec. Closing our file alone would leave its shared flock held until
+        // that child closes its copy. Release ownership when this guard ends.
+        let _ = self.file.unlock();
+    }
+}
 struct Store {
     root: PathBuf,
     bin: PathBuf,
@@ -906,7 +917,7 @@ impl Store {
     fn journal(&self) -> PathBuf {
         self.root.join("flere-connect.pending.json")
     }
-    fn lock(&self) -> io::Result<File> {
+    fn lock(&self) -> io::Result<InstallationLock> {
         private_dir(&self.root)?;
         let file = options()
             .read(true)
@@ -919,7 +930,7 @@ impl Store {
         }
         file.try_lock()
             .map_err(|_| io::Error::other("another installation owns the update lock"))?;
-        Ok(file)
+        Ok(InstallationLock { file })
     }
     fn validate(&self, package: &Package) -> io::Result<()> {
         package.manifest.validate()?;
@@ -1546,12 +1557,24 @@ mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
+    // Direct execution of fresh fixture scripts can serialize inside macOS
+    // interpreter startup after spawn succeeds. Keep independent fixtures from
+    // exhausting inspect's real deadline while retaining direct-exec coverage.
+    #[cfg(target_os = "macos")]
+    static SCRIPT_FIXTURES: Mutex<()> = Mutex::new(());
+
     struct Fixture {
         root: PathBuf,
         store: Store,
+        #[cfg(target_os = "macos")]
+        _scripts: std::sync::MutexGuard<'static, ()>,
     }
     impl Fixture {
         fn new() -> Self {
+            #[cfg(target_os = "macos")]
+            let scripts = SCRIPT_FIXTURES
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             let root = PathBuf::from(std::env::var_os("HOME").unwrap())
                 .join(".cache/flere/tmp")
                 .join(format!("cu-{}", nonce().unwrap()));
@@ -1561,7 +1584,12 @@ mod tests {
                 bin: root.join(".local/bin"),
                 windows_launchers: false,
             };
-            Self { root, store }
+            Self {
+                root,
+                store,
+                #[cfg(target_os = "macos")]
+                _scripts: scripts,
+            }
         }
         fn package(&self, name: &str) -> PathBuf {
             let directory = self.root.join(name);
@@ -1996,6 +2024,21 @@ mod tests {
         assert!(regular(&fifo, 1024).is_err());
         assert!(start.elapsed() < Duration::from_secs(1));
         assert_eq!(fs::read(f.store.destination()).unwrap(), original);
+    }
+    #[test]
+    fn installation_lock_release_ignores_inherited_descriptors() {
+        let f = Fixture::new();
+        let lock = f.store.lock().unwrap();
+        // A duplicate shares the open file description, like a child that has
+        // inherited the descriptor during a concurrent spawn but not yet exec'd.
+        let inherited = lock.file.try_clone().unwrap();
+        assert!(f.store.lock().is_err());
+        drop(lock);
+        let next = f.store.lock().unwrap();
+        drop(inherited);
+        assert!(f.store.lock().is_err());
+        drop(next);
+        assert!(f.store.lock().is_ok());
     }
     #[test]
     fn lock_adoption_and_pending_recovery_preserve_exact_payloads() {

@@ -1,12 +1,86 @@
 //! The installer runs outside the frontend. The watch/PTY loop keeps draining.
 use super::*;
-use crate::install::{InstallReceipt, PackageSource, Store};
+use crate::install::{InstallReceipt, ManagerUpgrade, PackageSource, Store};
 use std::{process::Command, sync::mpsc};
 
 pub(super) struct Update {
     source: Vec<u8>,
     status: String,
     job: Option<mpsc::Receiver<io::Result<InstallReceipt>>>,
+    owner: Owner,
+}
+enum Owner {
+    Checking(mpsc::Receiver<(Option<ManagerUpgrade>, String)>),
+    PackageManager(ManagerUpgrade),
+    Local,
+    Unavailable,
+}
+#[derive(Debug, PartialEq, Eq)]
+enum UpdateInput {
+    None,
+    Close,
+    Apply,
+}
+impl Update {
+    fn input(&mut self, key: &Key) -> UpdateInput {
+        if self.job.is_some() {
+            return UpdateInput::None;
+        }
+        if matches!(key, Key::Bytes(b) if b == b"\x1b" || b == b"\0") {
+            return UpdateInput::Close;
+        }
+        // The source field and Apply action become available only after this
+        // modal's own probe completes. Package-manager commands are display-only.
+        if !matches!(self.owner, Owner::Local) {
+            return UpdateInput::None;
+        }
+        match key {
+            Key::Bytes(b) if b == b"\r" || b == b"\n" => return UpdateInput::Apply,
+            Key::Bytes(b) | Key::Paste(b) => {
+                if matches!(key, Key::Bytes(_)) && (b == b"\x7f" || b == b"\x08") {
+                    self.source.pop();
+                    while !self.source.is_empty() && std::str::from_utf8(&self.source).is_err() {
+                        self.source.pop();
+                    }
+                } else if b == b"\x15" {
+                    self.source.clear();
+                } else if matches!(key, Key::Paste(_)) || !b.starts_with(b"\x1b") {
+                    let bytes = b.strip_prefix(b"\x1b[200~").unwrap_or(b);
+                    let bytes = bytes.strip_suffix(b"\x1b[201~").unwrap_or(bytes);
+                    self.source.extend(
+                        bytes
+                            .iter()
+                            .filter(|b| **b >= 32 && **b != 127)
+                            .take(4096usize.saturating_sub(self.source.len())),
+                    );
+                }
+            }
+            _ => {}
+        }
+        UpdateInput::None
+    }
+    fn poll_owner(&mut self) -> bool {
+        let Owner::Checking(receiver) = &self.owner else {
+            return false;
+        };
+        match receiver.try_recv() {
+            Ok((Some(manager), _)) => {
+                self.status = manager.detail.into();
+                self.owner = Owner::PackageManager(manager);
+            }
+            Ok((None, source)) => {
+                self.source = source.into_bytes();
+                self.status = "Enter applies immediately and preserves sessions".into();
+                self.owner = Owner::Local;
+            }
+            Err(mpsc::TryRecvError::Empty) => return false,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.owner = Owner::Unavailable;
+                self.status = "Ownership check stopped. Close and reopen Update to retry.".into();
+            }
+        }
+        true
+    }
 }
 pub(super) struct RemoteRpc {
     id: u64,
@@ -163,6 +237,7 @@ impl Ui {
             source: Vec::new(),
             status: "Applying updated remote frontend…".into(),
             job: Some(receiver),
+            owner: Owner::Local,
         });
         Ok(true)
     }
@@ -221,19 +296,28 @@ impl Ui {
                 .unwrap_or_else(|e| wire::passive(&e.to_string()));
             return;
         }
-        let source = Store::for_user("flere")
-            .and_then(|s| s.status())
-            .ok()
-            .flatten()
-            .and_then(|r| match r.source {
-                PackageSource::Public { manifest_url } => Some(manifest_url),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let managed = Store::for_user("flere")
+                .and_then(|store| store.status())
+                .ok()
+                .flatten();
+            let owner = crate::install::current_manager_upgrade(managed.as_ref());
+            let source = managed
+                .and_then(|receipt| match receipt.source {
+                    PackageSource::Public { manifest_url } => Some(manifest_url),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            // Closing the modal drops this receiver. A later modal creates a
+            // different channel and cannot consume a stale ownership result.
+            let _ = sender.send((owner, source));
+        });
         self.update = Some(Update {
-            source: source.into_bytes(),
-            status: "Enter applies immediately and preserves sessions".into(),
+            source: Vec::new(),
+            status: "Checking this executable's installation owner…".into(),
             job: None,
+            owner: Owner::Checking(receiver),
         });
         self.menu = false;
     }
@@ -241,13 +325,9 @@ impl Ui {
         let Some(mut update) = self.update.take() else {
             return false;
         };
-        if update.job.is_some() {
-            self.update = Some(update);
-            return true;
-        }
-        match key {
-            Key::Bytes(b) if b == b"\x1b" || b == b"\0" => return true,
-            Key::Bytes(b) if b == b"\r" || b == b"\n" => {
+        match update.input(key) {
+            UpdateInput::Close => return true,
+            UpdateInput::Apply => {
                 let state = self.state.clone();
                 let source = String::from_utf8_lossy(&update.source).trim().to_owned();
                 let (sender, receiver) = mpsc::channel();
@@ -257,27 +337,7 @@ impl Ui {
                     let _ = sender.send(perform(&state, &source));
                 });
             }
-            Key::Bytes(b) | Key::Paste(b) => {
-                if matches!(key, Key::Bytes(_)) && (b == b"\x7f" || b == b"\x08") {
-                    update.source.pop();
-                    while !update.source.is_empty() && std::str::from_utf8(&update.source).is_err()
-                    {
-                        update.source.pop();
-                    }
-                } else if b == b"\x15" {
-                    update.source.clear();
-                } else if matches!(key, Key::Paste(_)) || !b.starts_with(b"\x1b") {
-                    let bytes = b.strip_prefix(b"\x1b[200~").unwrap_or(b);
-                    let bytes = bytes.strip_suffix(b"\x1b[201~").unwrap_or(bytes);
-                    update.source.extend(
-                        bytes
-                            .iter()
-                            .filter(|b| **b >= 32 && **b != 127)
-                            .take(4096usize.saturating_sub(update.source.len())),
-                    );
-                }
-            }
-            _ => {}
+            UpdateInput::None => {}
         }
         self.update = Some(update);
         true
@@ -286,6 +346,9 @@ impl Ui {
         let Some(update) = &mut self.update else {
             return false;
         };
+        if update.poll_owner() {
+            return true;
+        }
         let Some(job) = &update.job else {
             return false;
         };
@@ -335,6 +398,45 @@ impl Ui {
             "Update Flere",
             style(CYAN, PANEL, true),
         );
+        if !matches!(update.owner, Owner::Local) {
+            let heading = match &update.owner {
+                Owner::PackageManager(manager) if manager.command.is_some() => {
+                    format!("Installed with {}", manager.manager)
+                }
+                Owner::PackageManager(_) => "Installation ownership needs review".into(),
+                Owner::Checking(_) => "Checking installation owner…".into(),
+                Owner::Unavailable => "Installation owner check unavailable".into(),
+                Owner::Local => unreachable!(),
+            };
+            c.text(x + 2, y + 2, w - 4, &heading, style(MUTED, PANEL, false));
+            if let Owner::PackageManager(manager) = &update.owner
+                && let Some(command) = &manager.command
+            {
+                for (row, text) in chrome::wrap(command, w - 4, h.saturating_sub(7))
+                    .iter()
+                    .enumerate()
+                {
+                    c.text(x + 2, y + 3 + row, w - 4, text, style(TEXT, PANEL, true));
+                }
+            }
+            for (row, text) in chrome::wrap(&update.status, w - 4, 2).iter().enumerate() {
+                c.text(
+                    x + 2,
+                    y + h - 4 + row,
+                    w - 4,
+                    text,
+                    style(GOLD, PANEL, false),
+                );
+            }
+            c.text(
+                x + 2,
+                y + h - 2,
+                w - 4,
+                "Esc close · commands are not run by Flere",
+                style(MUTED, PANEL, false),
+            );
+            return;
+        }
         c.text(
             x + 2,
             y + 2,
@@ -379,6 +481,15 @@ impl Ui {
     }
 }
 fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
+    // Recheck immediately before launching the existing installer/developer
+    // helper, in case ownership changed while its modal was open.
+    if let Some(manager) = crate::install::update_manager_guard() {
+        let guidance = manager.command.map_or_else(
+            || manager.detail.to_owned(),
+            |command| format!("Installed with {}. Run: {command}", manager.manager),
+        );
+        return Err(wire::invalid(&guidance));
+    }
     let mut command;
     if source.is_empty() {
         let checkout = Store::for_user("flere")?.local_source()?.ok_or_else(|| {
@@ -408,4 +519,111 @@ fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
         Duration::from_secs(1800),
     )?;
     serde_json::from_slice(&bytes).map_err(io::Error::other)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn checking() -> (Update, mpsc::Sender<(Option<ManagerUpgrade>, String)>) {
+        let (sender, receiver) = mpsc::channel();
+        (
+            Update {
+                source: Vec::new(),
+                status: "Checking".into(),
+                job: None,
+                owner: Owner::Checking(receiver),
+            },
+            sender,
+        )
+    }
+    fn manager() -> ManagerUpgrade {
+        ManagerUpgrade {
+            manager: "Homebrew",
+            command: Some("brew upgrade robert-cronin/flere/flere".into()),
+            detail: "Run this in a shell",
+        }
+    }
+
+    #[test]
+    fn pending_probe_and_package_manager_panel_never_accept_apply_or_source_input() {
+        for owner in [
+            manager(),
+            ManagerUpgrade {
+                manager: "Cargo",
+                command: None,
+                detail: "Review the ambiguous Cargo installation and reopen Flere",
+            },
+        ] {
+            let (mut update, sender) = checking();
+            for key in [
+                Key::Bytes(b"\r".to_vec()),
+                Key::Paste(b"https://example.invalid/manifest.json".to_vec()),
+            ] {
+                assert_eq!(update.input(&key), UpdateInput::None);
+            }
+            assert!(update.source.is_empty());
+            sender
+                .send((
+                    Some(owner),
+                    "https://old-store.invalid/manifest.json".into(),
+                ))
+                .unwrap();
+            assert!(update.poll_owner());
+            assert!(matches!(update.owner, Owner::PackageManager(_)));
+            assert_eq!(update.input(&Key::Bytes(b"\r".to_vec())), UpdateInput::None);
+            assert_eq!(
+                update.input(&Key::Paste(b"replacement".to_vec())),
+                UpdateInput::None
+            );
+            assert!(update.source.is_empty());
+            assert_eq!(
+                update.input(&Key::Bytes(b"\x1b".to_vec())),
+                UpdateInput::Close
+            );
+        }
+    }
+
+    #[test]
+    fn cancelled_modal_cannot_deliver_ownership_to_a_reopened_modal() {
+        let (mut previous, previous_sender) = checking();
+        assert_eq!(
+            previous.input(&Key::Bytes(b"\x1b".to_vec())),
+            UpdateInput::Close
+        );
+        drop(previous);
+        let (mut current, current_sender) = checking();
+        assert!(
+            previous_sender
+                .send((Some(manager()), String::new()))
+                .is_err()
+        );
+        assert!(!current.poll_owner());
+        assert_eq!(
+            current.input(&Key::Bytes(b"\r".to_vec())),
+            UpdateInput::None
+        );
+        current_sender
+            .send((None, "https://selected.invalid/manifest.json".into()))
+            .unwrap();
+        assert!(current.poll_owner());
+        assert_eq!(current.source, b"https://selected.invalid/manifest.json");
+        assert_eq!(
+            current.input(&Key::Bytes(b"\r".to_vec())),
+            UpdateInput::Apply
+        );
+    }
+
+    #[test]
+    fn interrupted_probe_stays_closed_to_apply_until_a_new_probe() {
+        let (mut update, sender) = checking();
+        drop(sender);
+        assert!(update.poll_owner());
+        assert!(matches!(update.owner, Owner::Unavailable));
+        assert_eq!(update.input(&Key::Bytes(b"\r".to_vec())), UpdateInput::None);
+        assert_eq!(
+            update.input(&Key::Bytes(b"\x1b".to_vec())),
+            UpdateInput::Close
+        );
+    }
 }

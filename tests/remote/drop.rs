@@ -17,17 +17,14 @@ fn companion(f: &Fixture, width: u16, height: u16) -> (fs::File, os::Process, Te
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
     let mut command = Command::new("/usr/bin/env");
     command.args(["-u", "FLERE"]).arg(companion_binary());
-    command
+    fixture_home(&mut command, &f.root)
         .arg("fixture-host")
         .args(["--remote", env!("CARGO_BIN_EXE_flere")])
         .arg("--state")
         .arg(&f.state)
         .arg("--ssh")
         .arg(ssh)
-        .env("HOME", &f.root)
-        .env_remove("FLERE")
-        .env_remove("XDG_CACHE_HOME")
-        .env_remove("XDG_STATE_HOME");
+        .env_remove("FLERE");
     let (mut master, child) = os::spawn_command_pty(&f.root, &mut command, width, height).unwrap();
     let mut screen = Terminal::new(width as usize, height as usize);
     drain_pty(&mut master, &mut screen, "IMAGE_NATIVE_DRAFT");
@@ -254,14 +251,11 @@ while True:
     .unwrap();
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
     let mut command = Command::new(companion_binary());
-    command
+    fixture_home(&mut command, &f.root)
         .arg("fixture-host")
         .arg("--ssh")
         .arg(ssh)
-        .env("HOME", &f.root)
-        .env_remove("FLERE")
-        .env_remove("XDG_CACHE_HOME")
-        .env_remove("XDG_STATE_HOME");
+        .env_remove("FLERE");
     let (mut master, mut child) = os::spawn_command_pty(&f.root, &mut command, 80, 24).unwrap();
     let mut screen = Terminal::new(80, 24);
     drain_pty(&mut master, &mut screen, "LEGACY CORE READY");

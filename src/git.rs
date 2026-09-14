@@ -133,7 +133,7 @@ fn run_output(command: &mut Command, timeout: Duration) -> io::Result<Vec<u8>> {
 }
 /// The first entry in Git's worktree list is its main checkout, even from a linked worktree.
 pub fn primary_root(directory: &Path) -> io::Result<std::path::PathBuf> {
-    let bytes = output(directory, &["worktree", "list", "--porcelain", "-z"])?;
+    let bytes = checkout_identity_output(directory, &["worktree", "list", "--porcelain", "-z"])?;
     let mut fields = bytes.split(|b| *b == 0);
     let first = fields
         .next()
@@ -303,6 +303,73 @@ pub fn diff_change(cwd: &Path, change: &Change) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn primary_root_ignores_inherited_repository_selectors() {
+        use std::{fs, os::unix::fs::DirBuilderExt, path::PathBuf};
+        const PROBE: &str = "FLERE_PRIMARY_ROOT_TEST";
+        if let Some(root) = std::env::var_os(PROBE) {
+            let root = PathBuf::from(root);
+            let selected = fs::canonicalize(root.join("selected")).unwrap();
+            let inherited = fs::canonicalize(root.join("inherited")).unwrap();
+            // Prove that the child really inherited a competing Git context:
+            // an ordinary query ignores its selected cwd and finds the other repo.
+            let ordinary = output(&selected, &["worktree", "list", "--porcelain", "-z"]).unwrap();
+            assert_eq!(
+                ordinary.split(|b| *b == 0).next().unwrap(),
+                format!("worktree {}", inherited.display()).as_bytes()
+            );
+            assert_eq!(primary_root(&selected).unwrap(), selected);
+            assert_eq!(primary_root(&selected.join("nested")).unwrap(), selected);
+            assert_eq!(primary_root(&inherited).unwrap(), inherited);
+            return;
+        }
+        let root = PathBuf::from(std::env::var_os("HOME").unwrap())
+            .join(".cache/flere/tmp")
+            .join(format!("primary-env-{}", crate::os::nonce().unwrap()));
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&root)
+            .unwrap();
+        for name in ["selected", "inherited"] {
+            let directory = root.join(name);
+            fs::create_dir(&directory).unwrap();
+            let initialized = Command::new("git")
+                .args(["init", "-q", "-b", "main"])
+                .current_dir(&directory)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_COMMON_DIR")
+                .output()
+                .unwrap();
+            assert!(initialized.status.success());
+        }
+        fs::create_dir(root.join("selected/nested")).unwrap();
+        // Pollution is confined to one real child; parallel tests keep their
+        // original environment, and no UI, supervisor or native chat is started.
+        let inherited = root.join("inherited");
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "git::tests::primary_root_ignores_inherited_repository_selectors",
+                "--nocapture",
+            ])
+            .env(PROBE, &root)
+            .env("GIT_DIR", inherited.join(".git"))
+            .env("GIT_COMMON_DIR", inherited.join(".git"))
+            .env("GIT_WORK_TREE", &inherited)
+            .output()
+            .unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        assert!(
+            child.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+        assert!(String::from_utf8_lossy(&child.stdout).contains("1 passed"));
+    }
+
     #[test]
     fn child_exit_does_not_turn_pending_pipe_output_into_wouldblock() {
         let mut command = Command::new("/bin/sh");

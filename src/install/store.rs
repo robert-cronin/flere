@@ -57,6 +57,18 @@ struct LocalSource {
     checkout: PathBuf,
 }
 
+struct InstallationLock {
+    file: File,
+}
+impl Drop for InstallationLock {
+    fn drop(&mut self) {
+        // A concurrent child can inherit this file description before exec.
+        // Closing only our descriptor would leave its flock held by that child;
+        // explicitly end this transaction's ownership before closing the file.
+        let _ = self.file.unlock();
+    }
+}
+
 /// One lock covers the package store, stable command and receipt/journal. The
 /// store is independent of supervisor --state directories and retains recovery
 /// packages even when activation is partial or a later rollback is incompatible.
@@ -174,7 +186,7 @@ impl Store {
         Ok(Some(source.checkout))
     }
 
-    fn lock(&self) -> io::Result<File> {
+    fn lock(&self) -> io::Result<InstallationLock> {
         private_dir(&self.root)?;
         let file = OpenOptions::new()
             .read(true)
@@ -194,7 +206,7 @@ impl Store {
         os::lock(file.as_raw_fd()).map_err(|error| {
             io::Error::new(error.kind(), "another installation owns the update lock")
         })?;
-        Ok(file)
+        Ok(InstallationLock { file })
     }
 
     fn validate_package(&self, package: &InstalledPackage) -> io::Result<()> {
@@ -660,5 +672,39 @@ impl Store {
         receipt.activation = Some(activation);
         atomic_json(&self.receipt_path(), &receipt)?;
         Ok(receipt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fixture(PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn installation_lock_release_ignores_inherited_descriptors() {
+        let root = PathBuf::from(std::env::var_os("HOME").unwrap())
+            .join(".cache/flere/tmp")
+            .join(format!("core-install-lock-{}", os::nonce().unwrap()));
+        private_dir(&root).unwrap();
+        let f = Fixture(root);
+        let store = Store::new(f.0.join("store"), f.0.join("bin"), "flere").unwrap();
+        let lock = store.lock().unwrap();
+        // A duplicate shares the open file description, like a concurrent child
+        // between fork and exec. Its lifetime must not extend the transaction.
+        let inherited = lock.file.try_clone().unwrap();
+        assert!(store.lock().is_err());
+        drop(lock);
+        let next = store.lock().unwrap();
+        drop(inherited);
+        // Closing a stale duplicate must not release the next owner's lock.
+        assert!(store.lock().is_err());
+        drop(next);
+        assert!(store.lock().is_ok());
     }
 }

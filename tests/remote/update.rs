@@ -12,7 +12,7 @@ struct Ui {
 impl Ui {
     fn attach(f: &Fixture, ssh: &Path, width: u16, height: u16) -> Self {
         let mut command = Command::new("/usr/bin/env");
-        command
+        fixture_home(&mut command, &f.root)
             .args(["-u", "FLERE"])
             .arg(companion_binary())
             .args([
@@ -24,11 +24,6 @@ impl Ui {
                 "--ssh",
                 ssh.to_str().unwrap(),
             ])
-            .env("HOME", &f.root)
-            .env_remove("XDG_DATA_HOME")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("XDG_STATE_HOME")
-            .env_remove("XDG_CACHE_HOME")
             .env_remove("FLERE_UPDATE_ACK")
             .env_remove("FLERE_CONNECT_UPDATE_ACK")
             .env_remove("FLERE_COORDINATED_UPDATE")

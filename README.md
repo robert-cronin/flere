@@ -35,9 +35,10 @@ Git, your editor, shells, and agent CLIs run as external programs.
 
 ## Start in a project directory
 
-Build from this checkout using the commands below. Prebuilt installation requires
-matching assets on the configured GitHub Releases channel; if a release or target
-is unavailable, use a source build or an explicitly supplied verified package.
+Get the tested Linux x86_64 or macOS arm64 downloads from
+[Flere v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0).
+See [installation channels and package-manager status](docs/distribution.md) for
+setup, upgrades and platform limits. The source-build workflow follows below.
 
 From this checkout, with **Rust 1.98+**, Python 3, a system C linker and cached
 dependencies:

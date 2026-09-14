@@ -16,6 +16,9 @@ Start with the tour, learn a few navigation keys, then explore the workflows you
 `flere --help`. **Upgrading a running instance?** Read the
 [session lifecycle](architecture.md#what-survives).
 
+**Installing a release or using a package manager?** See
+[downloads and distribution status](distribution.md).
+
 ## One distinction to learn first
 
 A **workspace** is a project directory and its saved workflow metadata. A **tab**

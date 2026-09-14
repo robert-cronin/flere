@@ -1,5 +1,52 @@
 //! Projects use a main checkout; additional project cards use linked worktrees.
 use super::*;
+
+fn remote_name(remote: &str) -> Option<&str> {
+    if remote.is_empty() || remote.chars().any(char::is_control) {
+        return None;
+    }
+    let path = if let Some((scheme, address)) = remote.split_once("://") {
+        if !matches!(scheme, "https" | "http" | "ssh" | "git" | "file") {
+            return None;
+        }
+        let (authority, path) = address.split_once('/')?;
+        if (authority.is_empty() && scheme != "file") || path.contains(['?', '#', '@']) {
+            return None;
+        }
+        path
+    } else if let Some((host, path)) = remote.split_once(':') {
+        if host.is_empty() || host.contains('/') || path.contains([':', '?', '#', '@']) {
+            return None;
+        }
+        path
+    } else {
+        remote
+    };
+    let last = path.trim_end_matches('/').rsplit('/').next()?;
+    let name = last.strip_suffix(".git").unwrap_or(last);
+    (!name.is_empty()
+        && name != "."
+        && name != ".."
+        && name.len() <= 256
+        && !name.chars().any(char::is_control))
+    .then_some(name)
+}
+
+fn project_name(root: &Path) -> String {
+    // GitHub SSH/HTTPS remotes carry the repository name locally. Reading the
+    // config never contacts a host, invokes gh, or requires authentication.
+    crate::git::checkout_identity_output(root, &["config", "--get", "remote.origin.url"])
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|remote| remote_name(remote.trim_end_matches('\n')).map(str::to_owned))
+        .unwrap_or_else(|| {
+            root.file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Project")
+                .into()
+        })
+}
+
 impl Server {
     pub(super) fn add_project(
         &mut self,
@@ -8,11 +55,8 @@ impl Server {
         shell: bool,
     ) -> io::Result<Vec<u8>> {
         let root = crate::git::primary_root(directory)?;
-        let default = root
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Project");
-        let name = if name.is_empty() { default } else { name };
+        let default = name.is_empty().then(|| project_name(&root));
+        let name = default.as_deref().unwrap_or(name);
         if name.len() > 256 || name.chars().any(char::is_control) {
             return Err(invalid("invalid project name"));
         }
@@ -156,5 +200,36 @@ impl Server {
             ]
             .join("\t"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_come_from_repository_paths_never_url_credentials() {
+        for remote in [
+            "https://github.com/owner/actual-repo.git",
+            "https://user:secret@github.com/owner/actual-repo.git",
+            "git@github.com:owner/actual-repo.git",
+            "ssh://git@github.com:2222/owner/actual-repo.git/",
+            "/offline/actual-repo.git",
+        ] {
+            assert_eq!(remote_name(remote), Some("actual-repo"));
+        }
+        for remote in [
+            "https://user:secret@github.com",
+            "https://user:secret@github.com/",
+            "https:///actual-repo.git",
+            "https://github.com/repo.git?token=secret",
+            "https://github.com/repo.git#secret",
+            "ext::helper secret",
+            "git@github.com:",
+            "../",
+            "\u{1b}[secret",
+        ] {
+            assert!(remote_name(remote).is_none(), "invalid remote accepted");
+        }
     }
 }

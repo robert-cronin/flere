@@ -5,6 +5,8 @@ use flere::remote_protocol::{self as protocol, Packet};
 use std::{process::ChildStdin, sync::mpsc};
 mod drop;
 mod drop_backend;
+mod environment;
+use environment::fixture_home;
 mod handshake;
 #[path = "../image_gallery/mod.rs"]
 mod image_gallery;
@@ -38,14 +40,11 @@ impl Bridge {
         bridge
     }
     fn start(f: &Fixture, width: u16, height: u16, path: String) -> Self {
-        let mut child = outer_ui_command()
+        let mut child = fixture_home(&mut outer_ui_command(), &f.root)
             .arg("--state")
             .arg(&f.state)
             .arg("_bridge")
-            .env("HOME", &f.root)
             .env("PATH", path)
-            .env_remove("XDG_CACHE_HOME")
-            .env_remove("XDG_STATE_HOME")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -503,7 +502,7 @@ fn companion_pty_image_text_refresh(clipboard_gestures: bool) {
         }
         fs::write(f.root.join("clipboard.png"), png()).unwrap();
         let mut command = Command::new("/usr/bin/env");
-        command
+        fixture_home(&mut command, &f.root)
             .args(["-u", "FLERE"])
             .arg(binary)
             .arg("fixture-host")
@@ -513,9 +512,6 @@ fn companion_pty_image_text_refresh(clipboard_gestures: bool) {
             .arg(&f.state)
             .arg("--ssh")
             .arg(&ssh)
-            .env("HOME", &f.root)
-            .env_remove("XDG_CACHE_HOME")
-            .env_remove("XDG_STATE_HOME")
             .env("PATH", &f.root);
         if !clipboard_gestures {
             command.arg("--image").arg(f.root.join("clipboard.png"));
