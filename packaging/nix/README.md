@@ -13,7 +13,12 @@ Validation used the official Nix 2.35.2 image pinned to
 `sha256:617d914dba5384bf75adf17081583b69371031ec7defce36c34c5fa14fc819b0`
 and Nixpkgs `eaad089433ca2bb662274377d33df3d0e51ef28b`, which provided
 Rust/Cargo 1.98.1. The image's default Nix and Docker security settings were
-retained. This container evidence does not establish NixOS runtime acceptance.
+retained, including `sandbox = false`. A later minimal derivation with
+`sandbox = true` and `sandbox-fallback = false` could not start because the
+container lacked the required kernel namespaces. No security settings were
+weakened and no upstream suite ran in that attempt. Sandbox acceptance needs an
+isolated Linux/Nix host or VM that supports those namespaces. This container
+evidence does not establish NixOS runtime acceptance.
 
 `default.nix` exposes `flere` and the optional `flere-connect` separately. It accepts
 a caller-provided `pkgs` set and otherwise uses `<nixpkgs>`. That package set must

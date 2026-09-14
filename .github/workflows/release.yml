@@ -214,11 +214,14 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
         run: |
           export CARGO_TARGET_DIR="$HOME/.cache/flere/tmp/cargo-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/target"
+          export CARGO_BUILD_BUILD_DIR="$CARGO_TARGET_DIR"
           cargo publish --locked --registry crates-io -p flere
+      # Pinned Cargo 1.98 uploads from build-dir/package/tmp-crate; only
+      # cargo package also copies its archive into target-dir/package.
       - name: Compare the public core crate with Cargo's exact archive and Git source
         if: steps.registry.outputs.needs_publish == 'true'
         run: |
           python3 automation/scripts/cargo-publish.py verify --checkout source \
             --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
             --output "$HOME/.cache/flere/tmp/cargo-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-            --local-crate "$HOME/.cache/flere/tmp/cargo-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/target/package/flere-$RELEASE_VERSION.crate"
+            --local-crate "$HOME/.cache/flere/tmp/cargo-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/target/package/tmp-crate/flere-$RELEASE_VERSION.crate"

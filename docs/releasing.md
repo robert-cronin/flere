@@ -156,10 +156,22 @@ publish. The owner configured the crates.io Trusted Publisher for repository
 `robert-cronin/flere`, workflow filename `release.yml`, environment `release`.
 No stored Cargo API token or `cargo login` step is needed.
 
-The helper's real read-only retry check verified the public v0.3.1 archive and all
-124 files against its exact `7f5c5eb` source. Offline tests cover missing, delayed,
-conflicting and matching registry data. Actual hosted OIDC exchange/publication
-remains to be exercised by a subsequent selected release.
+[Run 34843553467](https://github.com/robert-cronin/flere/actions/runs/34843553467)
+published v0.3.2 from `1be2dab` using OIDC and normal Cargo verification. Native
+Linux checks, immutable GitHub publication and anonymous downloads passed. The
+first attempt uploaded the crate, then the local-archive comparison looked in
+Cargo's final-package directory instead of its upload scratch directory. The
+failed-job retry verified the existing public crate and all 124 source files,
+skipping authentication and duplicate publication. An independent offline Cargo
+package build reproduced the public archive exactly.
+
+The workflow now fixes both Cargo output directories and compares the archive in
+`target/package/tmp-crate`, as used by the pinned
+[Cargo 1.98 implementation](https://github.com/rust-lang/cargo/blob/rust-1.98.0/src/cargo/ops/cargo_package/mod.rs).
+The correction passed local archive verification and review; a future new-version
+upload will exercise that corrected hosted path. The successful retry exercised
+registry reconciliation. Offline fixtures cover missing, delayed, conflicting
+and matching registry data. No owner API token is needed for future releases.
 
 ## Blocked targets and channels
 
@@ -169,7 +181,7 @@ remains to be exercised by a subsequent selected release.
 | macOS x86-64 prebuilt | Native Intel acceptance plus the same signing/notarization requirements. Cross-compilation alone does not qualify. |
 | Windows x86-64 companion | Physical clipboard, SSH, draft, image, resize, held-control and cleanup acceptance tied to final payload hashes. No Windows core claim. |
 | Homebrew source formulas | Exact source archive, real formula install/test/removal and narrowly scoped tap writer. Existing source formulas remain the current strategy. |
-| crates.io | Core v0.3.1 is published and its public archive verified. The owner configured `robert-cronin/flere`, workflow `release.yml`, environment `release` for Trusted Publishing; the workflow is wired and its first hosted OIDC publication remains pending. |
+| crates.io | Core v0.3.2 is published through the configured Trusted Publisher and independently verified. Exact version/commit selection and a matching core package layout are required for subsequent releases. |
 | Debian/AUR | New reviewed release lock and real package-manager install/update/removal validation. The checked-in lock still pins v0.3.0. AUR also needs account/credential setup. |
 | Scoop/WinGet | Physical Windows acceptance, native validators/install tests and catalogue publishing authority. Submission and acceptance remain separate statuses. |
 | Managed latest feed | Target-specific public-download/runtime acceptance and a reviewed pointer update. This workflow keeps the existing latest release. |

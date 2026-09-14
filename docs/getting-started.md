@@ -74,13 +74,13 @@ lifecycle checks remain open.
 
 ## Install with Cargo
 
-The published [flere 0.3.1 crate](https://crates.io/crates/flere/0.3.1) builds the
+The published [flere 0.3.2 crate](https://crates.io/crates/flere/0.3.2) builds the
 core locally on Linux x86_64 or macOS with **Rust 1.98+** and a system C linker.
 macOS needs Xcode Command Line Tools. Intel macOS has compile-check evidence;
 see [platform limits](reference/compatibility.md).
 
 ```sh
-cargo install flere --locked --version 0.3.1
+cargo install flere --locked --version 0.3.2
 flere --version
 ```
 

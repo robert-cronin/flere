@@ -17,8 +17,8 @@ For this source version, after it is published:
 cargo install flere --locked --version 0.3.2
 ```
 
-[Version 0.3.1](https://crates.io/crates/flere/0.3.1) is published from the matching
-GitHub release at `7f5c5eb`. Its public registry checksum and anonymous archive
+[Version 0.3.2](https://crates.io/crates/flere/0.3.2) is published from the matching
+GitHub release at `1be2dab`. Its public registry checksum and anonymous archive
 match the verified upload. Installation needs no crates.io account and normally
 places `flere` in `~/.cargo/bin`; use Cargo for upgrades and removal.
 

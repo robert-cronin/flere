@@ -50,10 +50,10 @@ for curl, `--core-only`, PATH setup and existing-installation rules.
 With Rust 1.98+ and a system C linker, install the core from crates.io:
 
 ```sh
-cargo install flere --locked --version 0.3.1
+cargo install flere --locked --version 0.3.2
 ```
 
-The [Cargo package](https://crates.io/crates/flere/0.3.1) builds locally on Linux
+The [Cargo package](https://crates.io/crates/flere/0.3.2) builds locally on Linux
 or macOS and excludes the separate SSH/clipboard companion. See
 [Cargo setup](docs/getting-started.md#install-with-cargo) for platform requirements.
 

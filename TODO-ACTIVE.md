@@ -7,7 +7,8 @@
   the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
   required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
-  using the pinned, checksummed v0.3.0 archive. Published tap commit: `754e4de`.
+  using the pinned, checksummed v0.3.0 archive. Published tap commit: `3a8c34e`;
+  core revision 1 adds its Linux `zlib-ng-compat` runtime dependency.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
   companion: install, formula tests, stateless CLI checks, same-source revision
   upgrade and full removal. Disposable state/config stayed unchanged. This used
@@ -49,6 +50,9 @@
   zlib input and the validator's missing-utility assumption are corrected.
 - [ ] Complete Nix sandbox test-suite, interactive NixOS runtime and update
   ownership acceptance before promoting the packaging draft to supported status.
+  A forced-sandbox probe could not start under the current container security
+  settings because required kernel namespaces were unavailable; use a suitable
+  isolated Nix/NixOS host or VM. No security settings were weakened.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
 - [ ] Revalidate the public source on native Windows after incorporating the
@@ -80,8 +84,11 @@
   workflow. The dedicated core job uses normal Cargo verification, exact source
   selection and short-lived OIDC credentials. A real read-only retry verified the
   published v0.3.1 checksum and all 124 source files; conflicting versions stop.
-- [ ] Complete the first hosted OIDC Cargo publication on a subsequent selected
-  release; local API-token upload and read-only retry checks do not establish it.
+- [x] Complete the first hosted OIDC Cargo publication. Run `34843553467`
+  published v0.3.2 from `1be2dab`; the failed-job retry reconciled the existing
+  upload and all jobs passed. The first upload's archive-path verification error
+  is corrected; an independent offline Cargo package exactly matches the registry
+  checksum and all 124 source files. Future releases use no owner API token.
 - [x] Make the local in-app updater identify package-manager installations and
   display the appropriate upgrade command. Ambiguous ownership and removed
   executables keep Apply disabled; a Cargo receipt advancing beyond the running
