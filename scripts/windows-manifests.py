@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a Windows companion ZIP and Scoop/WinGet manifests. Never publishes.
+"""Prepare a Windows companion ZIP and Scoop/WinGet/Chocolatey recipes. Never publishes.
 
 Inputs are the flat, verified files from release-assets.py. A generated manifest
 does not establish native Windows acceptance or availability at its proposed URL.
@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import struct
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 
 REPOSITORY = "https://github.com/robert-cronin/flere"
@@ -33,20 +34,31 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def release_version(value):
+    # NuGet/Chocolatey normalizes numeric components. Reject alternate spellings
+    # or integer overflow rather than describe a different version in one channel.
+    return (isinstance(value, str) and len(value) <= 32
+            and re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value)
+            and all(int(part) <= 2147483647 for part in value.split(".")))
+
+
 def verify(assets, target):
     if target not in TARGETS:
         raise ValueError("only the Windows x86_64 companion is supported")
     name = f"flere-connect-{target}"
     raw = read_regular(assets / (name + ".manifest.json"), 65536)
     manifest = json.loads(raw)
+    if (not isinstance(manifest, dict)
+            or any(not isinstance(manifest.get(key), dict) for key in ("build", "payload", "source"))):
+        raise ValueError("invalid Windows manifest objects")
     build, payload = manifest["build"], manifest["payload"]
     version = build["package_version"]
     source = manifest.get("source") or {}
-    if (manifest["schema_version"] != 1 or build["component"] != "flere-connect"
+    if (type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1
+            or build["component"] != "flere-connect"
             or build["target"] != target or payload["file_name"] != "flere-connect"
             or payload["download_file"] != name or build["profile"] != "release"
-            or not isinstance(version, str)
-            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
+            or not release_version(version)
             or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("source_sha256", "")))
             or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("git_commit", "")))
             or source.get("dirty") is not False):
@@ -79,6 +91,59 @@ def yaml_scalar(value):
     return json.dumps(value, ensure_ascii=True)
 
 
+def powershell_literal(value):
+    # Single-quoted PowerShell strings do not expand $, backticks or subexpressions.
+    return "'" + value.replace("'", "''") + "'"
+
+
+def chocolatey_files(version, url, checksum):
+    package = ET.Element("package", xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd")
+    metadata = ET.SubElement(package, "metadata")
+    for name, text in {
+        "id": "flere-connect", "version": version, "title": "Flere Connect",
+        "authors": "Flere contributors", "owners": "robert-cronin",
+        "projectUrl": REPOSITORY, "licenseUrl": f"{REPOSITORY}/blob/v{version}/LICENSE",
+        "requireLicenseAcceptance": "false",
+        "description": (
+            "Windows x86_64 OpenSSH and clipboard companion for a Linux or macOS Flere workbench. "
+            "Both flere and flere-connect run the companion; this is not a Windows core. "
+            "Requires an existing OpenSSH client. Files stay in the Chocolatey package tools/app directory. "
+            "Use Chocolatey to upgrade or remove this installation. Detach the companion before upgrading; "
+            "package operations do not stop sessions or remove user state."),
+        "tags": "flere ssh terminal clipboard portable x64",
+    }.items():
+        ET.SubElement(metadata, name).text = text
+    # No glob: logs, credentials, local payloads or other nearby files cannot be
+    # swept into a future nupkg by choco pack.
+    files = ET.SubElement(package, "files")
+    ET.SubElement(files, "file", src="tools\\chocolateyInstall.ps1", target="tools")
+    ET.indent(package, space="  ")
+    nuspec = '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(package, encoding="unicode") + "\n"
+    script = f"""$ErrorActionPreference = 'Stop'
+$architecture = $env:PROCESSOR_ARCHITECTURE
+# WOW64 reports x86 for 32-bit PowerShell; this variable identifies its native host.
+if ($env:PROCESSOR_ARCHITEW6432) {{
+    $architecture = $env:PROCESSOR_ARCHITEW6432
+}}
+if ($architecture -ne 'AMD64' -or $env:ChocolateyForceX86 -eq 'true') {{
+    throw 'Flere Connect requires Windows AMD64; no ARM64 or 32-bit companion is packaged.'
+}}
+$toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$packageArgs = @{{
+    packageName   = 'flere-connect'
+    unzipLocation = Join-Path $toolsDir 'app'
+    url64bit      = {powershell_literal(url)}
+    checksum64    = {powershell_literal(checksum)}
+    checksumType64 = 'sha256'
+}}
+# Chocolatey creates/removes shims and owns files beneath this package directory.
+# No custom uninstall script is needed: the payload stays in the package.
+Install-ChocolateyZipPackage @packageArgs
+"""
+    return {"flere-connect.nuspec": nuspec.encode("utf-8"),
+            "tools/chocolateyInstall.ps1": script.encode("utf-8-sig")}
+
+
 def prepare(assets, output, target, license_path=PROJECT / "LICENSE"):
     if output.exists():
         raise ValueError("output directory already exists")
@@ -93,6 +158,12 @@ def prepare(assets, output, target, license_path=PROJECT / "LICENSE"):
         "manifest.json": raw, "LICENSE": license_bytes,
     })
     checksum = sha256((output / name).read_bytes())
+    chocolatey = output / "chocolatey" / "flere-connect"
+    recipe = chocolatey_files(version, url, checksum)
+    for relative, data in recipe.items():
+        destination = chocolatey / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
     scoop = output / "scoop" / "bucket"
     scoop.mkdir(parents=True)
     (scoop / "flere.json").write_text(json.dumps({
@@ -131,8 +202,12 @@ def prepare(assets, output, target, license_path=PROJECT / "LICENSE"):
         "version": version, "target": target, "asset": name, "url": url,
         "sha256": checksum, "payload_sha256": manifest["payload"]["sha256"],
         "source_sha256": manifest["source"]["source_sha256"],
+        "chocolatey": {"id": "flere-connect", "directory": "chocolatey/flere-connect",
+                       "files": {name: {"bytes": len(data), "sha256": sha256(data)}
+                                 for name, data in recipe.items()}},
         "requires": ["native Windows acceptance at this payload SHA-256",
                      "winget validate and isolated Scoop install/upgrade/uninstall",
+                     "choco pack, package inventory review and isolated Chocolatey install/upgrade/uninstall",
                      "publish ZIP and verify its anonymous download before publishing manifests"],
     }
     (output / "windows-distribution.json").write_text(json.dumps(result, indent=2) + "\n")
