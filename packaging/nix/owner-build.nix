@@ -5,12 +5,19 @@ let
   package = pname: subdir: lock:
     pkgs.rustPlatform.buildRustPackage {
       inherit pname version;
-      src = builtins.toPath sourceArchive;
+      # Materialize the verified archive as a store input for the sandbox.
+      src = builtins.path {
+        path = sourceArchive;
+        name = "flere-source.tar";
+      };
       sourceRoot = "flere-source";
       cargoRoot = subdir;
       buildAndTestSubdir = subdir;
       cargoDeps = pkgs.rustPlatform.importCargoLock {
-        lockFile = builtins.toPath (source + "/" + lock);
+        lockFile = builtins.path {
+          path = source + "/" + lock;
+          name = "${pname}-Cargo.lock";
+        };
       };
       allowSubstitutes = false;
       preferLocalBuild = true;
