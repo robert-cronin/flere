@@ -61,7 +61,8 @@ separate from the archive's SHA-256. The publisher repeats validation as data;
 it never extracts or executes candidate source with publication credentials.
 Content review of the selected public commit and final files remains necessary.
 Including source enables subsequent channel preparation; it does not establish
-Homebrew, Cargo, Debian/AUR or Nix lifecycle acceptance or advance their versions.
+Homebrew, Debian/AUR or Nix lifecycle acceptance or advance their versions. A separate
+core Cargo job follows public release verification, as described below.
 
 The upload is a new immutable Actions artifact from this exact run. Its numeric
 artifact ID and separately recorded release-descriptor digest travel to the
@@ -127,11 +128,38 @@ days. If those artifacts are lost or a published executable needs correction,
 use a new reviewed version. Do not remove a version tag or published release to
 work around this guard.
 
-A failed anonymous download check leaves the release intact. No channel updater
-runs in this workflow, so no delayed run can reset a newer package-manager version.
-Future channel jobs must consume these same immutable bytes and serialize their
-own monotonic updates. Keep their mutable delivery/acceptance status outside the
-frozen release descriptor.
+A failed anonymous download check leaves the release intact and prevents the Cargo
+job from starting. The Cargo job publishes only the explicitly selected core
+version; it does not change a moving channel pointer. Future package-manager jobs
+must consume verified release bytes and serialize their own monotonic updates.
+Keep mutable channel acceptance status outside the frozen release descriptor.
+
+## Core Cargo Trusted Publishing
+
+After `verify-public`, the separate `publish-core` job checks the selected clean
+source and public registry. If that version already exists, its API/index checksum,
+downloaded archive, complete core file inventory, Git commit and normalized Cargo
+manifest/lock must match. A matching retry skips Cargo builds and authentication;
+a conflicting publication stops without uploading or changing the GitHub release.
+
+For a new version, the job provisions Rust 1.98.0 and locked core dependencies,
+then obtains a short-lived token through the pinned official
+`rust-lang/crates-io-auth-action`. Normal `cargo publish --locked --registry crates-io -p flere`
+builds and verifies the selected source before uploading. The final public archive
+must match both Cargo's exact upload and the selected Git source. The companion
+is excluded. This dedicated Cargo job can build the reviewed source; the separate
+GitHub asset publisher continues to execute no candidate payloads.
+
+Only this job receives `id-token: write`; it uses the existing `release`
+environment and the same manual version/commit selection. Ordinary pushes do not
+publish. The owner configured the crates.io Trusted Publisher for repository
+`robert-cronin/flere`, workflow filename `release.yml`, environment `release`.
+No stored Cargo API token or `cargo login` step is needed.
+
+The helper's real read-only retry check verified the public v0.3.1 archive and all
+124 files against its exact `7f5c5eb` source. Offline tests cover missing, delayed,
+conflicting and matching registry data. Actual hosted OIDC exchange/publication
+remains to be exercised by a subsequent selected release.
 
 ## Blocked targets and channels
 
@@ -141,7 +169,7 @@ frozen release descriptor.
 | macOS x86-64 prebuilt | Native Intel acceptance plus the same signing/notarization requirements. Cross-compilation alone does not qualify. |
 | Windows x86-64 companion | Physical clipboard, SSH, draft, image, resize, held-control and cleanup acceptance tied to final payload hashes. No Windows core claim. |
 | Homebrew source formulas | Exact source archive, real formula install/test/removal and narrowly scoped tap writer. Existing source formulas remain the current strategy. |
-| crates.io | Core v0.3.1 is published and its public archive verified. The owner configured `robert-cronin/flere`, workflow `release.yml`, environment `release` for Trusted Publishing; workflow integration and its first hosted execution remain separate checks. |
+| crates.io | Core v0.3.1 is published and its public archive verified. The owner configured `robert-cronin/flere`, workflow `release.yml`, environment `release` for Trusted Publishing; the workflow is wired and its first hosted OIDC publication remains pending. |
 | Debian/AUR | New reviewed release lock and real package-manager install/update/removal validation. The checked-in lock still pins v0.3.0. AUR also needs account/credential setup. |
 | Scoop/WinGet | Physical Windows acceptance, native validators/install tests and catalogue publishing authority. Submission and acceptance remain separate statuses. |
 | Managed latest feed | Target-specific public-download/runtime acceptance and a reviewed pointer update. This workflow keeps the existing latest release. |

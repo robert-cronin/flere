@@ -76,9 +76,12 @@
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
   Homebrew and Windows generators retain their own verified inputs. Generated
   recipes remain local until their channel's lifecycle/publication checks pass.
-- [ ] Connect the configured crates.io Trusted Publisher to the manual Release
-  workflow and complete its first hosted execution; local API-token publication
-  does not establish OIDC workflow acceptance.
+- [x] Connect the configured crates.io Trusted Publisher to the manual Release
+  workflow. The dedicated core job uses normal Cargo verification, exact source
+  selection and short-lived OIDC credentials. A real read-only retry verified the
+  published v0.3.1 checksum and all 124 source files; conflicting versions stop.
+- [ ] Complete the first hosted OIDC Cargo publication on a subsequent selected
+  release; local API-token upload and read-only retry checks do not establish it.
 - [x] Make the local in-app updater identify package-manager installations and
   display the appropriate upgrade command. Ambiguous ownership and removed
   executables keep Apply disabled; a Cargo receipt advancing beyond the running
