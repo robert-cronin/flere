@@ -1,0 +1,98 @@
+name: Nix sandbox acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-sandbox-acceptance
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      FLERE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+    steps:
+      - name: Guard hosted manual run and create private proof directory
+        id: proof
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$FLERE_RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REPOSITORY" = robert-cronin/flere
+          test "$GITHUB_REF" = refs/heads/main
+          test "$RUNNER_OS/$RUNNER_ARCH" = Linux/X64
+          test "$(uname -sm)" = 'Linux x86_64'
+          test "$(cat /proc/1/comm)" = systemd
+          [[ "$FLERE_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+/[0-9]+$ ]]
+          umask 077
+          mkdir -p "$HOME/.cache/flere/tmp"
+          proof=$(mktemp -d "$HOME/.cache/flere/tmp/nix-sandbox-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-XXXXXX")
+          printf 'path=%s\n' "$proof" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: NixOS/nixpkgs
+          ref: eaad089433ca2bb662274377d33df3d0e51ef28b
+          path: nixpkgs
+          persist-credentials: false
+      - name: Install pinned official Nix on the disposable VM
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          FLERE_NIX_PROOF: ${{ steps.proof.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$FLERE_RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REPOSITORY" = robert-cronin/flere
+          test "$GITHUB_REF" = refs/heads/main
+          test "$RUNNER_OS/$RUNNER_ARCH" = Linux/X64
+          test "$(uname -sm)" = 'Linux x86_64'
+          test "$(cat /proc/1/comm)" = systemd
+          test ! -e /nix
+          test "$(git -C nixpkgs rev-parse HEAD)" = eaad089433ca2bb662274377d33df3d0e51ef28b
+          test "$(git rev-parse HEAD)" = "$FLERE_WORKFLOW_SHA"
+          test -d "$FLERE_NIX_PROOF"
+          installer="$RUNNER_TEMP/nix-installer-x86_64-linux"
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 180 --max-filesize 32239920 \
+            https://github.com/NixOS/nix-installer/releases/download/2.33.3/nix-installer-x86_64-linux \
+            --output "$installer"
+          test "$(stat -c %s "$installer")" = 32239920
+          printf '%s  %s\n' 6b66cb8645d351f01c2cee022c2cd783f72f0ce60d57d2b52ace68ba74394ed6 "$installer" | sha256sum --check --strict
+          chmod 700 "$installer"
+          sudo "$installer" install linux --no-confirm --explain --enable-flakes --extra-conf \
+            $'sandbox = true\nsandbox-fallback = false\nrequire-sigs = true\ntrusted-users = root\ncores = 2\nmax-jobs = 1\nmax-build-log-size = 33554432\nmax-silent-time = 300\ntimeout = 3600' \
+            2>&1 | (ulimit -f 32768; tee "$FLERE_NIX_PROOF/nix-install.log")
+          rm "$installer"
+          echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
+      - name: Require sandbox and run both full offline suites
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          FLERE_NIX_PROOF: ${{ steps.proof.outputs.path }}
+        shell: bash
+        run: bash packaging/nix/hosted-check.sh
+      - name: Retain bounded validation evidence
+        if: always() && steps.proof.outputs.path != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nix-sandbox-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.proof.outputs.path }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
