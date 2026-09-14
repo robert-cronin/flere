@@ -1,18 +1,28 @@
 # Nix packaging draft
 
 This draft pins the published **v0.3.3** full source archive with the explicit
-production correction below. It is not a
-Nixpkgs submission or a supported installation method. The manual
-[Nix sandbox workflow](../../.github/workflows/nix-acceptance.yml) is prepared for
-a disposable native x86_64 Ubuntu 24.04 GitHub VM. The first run
+production correction below. Native strict-sandbox builds, all **485 tests** and
+both output inventories passed in hosted run
+[34869221522](https://github.com/robert-cronin/flere/actions/runs/34869221522)
+at workflow commit `2d52985845ed322b1c6c0f3018eaedf38d6bcead`. Profile ownership
+and interactive NixOS acceptance remain open; this is not a Nixpkgs submission
+or a supported installation method yet.
+
+The [manual workflow](../../.github/workflows/nix-acceptance.yml) used a disposable
+native x86_64 Ubuntu 24.04.5 GitHub VM. The 485 passing tests comprise 183 core
+library, 213 live, 13 installer and 76 companion/example tests, with none failed,
+ignored or filtered. Independent review matched every summary to its actual test
+assembly and verified both build-info records, exact executable/license
+inventories and the artifact digest. Both packages built locally in the real
+Nix sandbox; the namespace probe passed before the package builds.
+
+Earlier failures remain separate: run
 [34863649615](https://github.com/robert-cronin/flere/actions/runs/34863649615)
-verified the installer download but rejected an unsupported CLI flag before
-installation. After the installer correction, run
+rejected an installer flag, and
 [34864791262](https://github.com/robert-cronin/flere/actions/runs/34864791262)
-passed the strict sandbox probe, core release build and 182 core library tests,
-then failed 16 of 213 live tests. The installer and companion suites were not
-reached. The fixture corrections and production fix below await a full hosted
-rerun; this is not complete Nix acceptance.
+failed 16 live tests after passing the sandbox probe and core library tests.
+All 16 cases pass in the corrected run. The fixture corrections and production
+fix below preserve the original assertions, deadlines and isolation settings.
 
 The earlier v0.3.0 recipe passed all 15 native Linux Docker parsing, evaluation,
 build, build-info and inventory checks. That evidence used the official
@@ -21,8 +31,8 @@ with `sandbox = false`. A later strict sandbox probe could not create the
 required namespaces under unchanged Docker security. Neither result is a
 v0.3.3 sandbox test-suite pass.
 
-The new workflow pins Nixpkgs `eaad089433ca2bb662274377d33df3d0e51ef28b`, previously
-observed to provide Rust/Cargo 1.98.1. It verifies the official NixOS installer
+The passing workflow pins Nixpkgs `eaad089433ca2bb662274377d33df3d0e51ef28b`,
+which provided Rust/Cargo 1.98.1. It verifies the official NixOS installer
 2.33.3 Linux executable's published SHA-256 and size before installation. Only
 the disposable VM is modified. It sets `sandbox = true`,
 `sandbox-fallback = false`, and requires a real derivation to observe a separate
@@ -100,10 +110,9 @@ substitute a previous result for this acceptance run. No user profile, Flere
 session, native model or release is installed or launched. Fixtures exercise the
 product using owned stand-ins. A failed check remains failed.
 
-Local preparation only: five Python fixture/vendor/patch regressions and a
-dependency-free offline Cargo output-layout reproduction passed. The latter ran
-on macOS arm64 and is not a native Nix check. The prior shell syntax and workflow
-lint checks remain valid; full-suite acceptance of the corrected draft is pending.
+Five focused Python fixture/vendor/patch regressions and a dependency-free
+offline Cargo output-layout reproduction also passed during preparation. These
+are distinct from the subsequent native hosted full-suite acceptance above.
 
 Interactive NixOS shell/detach/editor/Git, desktop clipboard and optional
 companion SSH acceptance remain separate. Neither macOS nor cross compilation

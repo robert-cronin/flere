@@ -37,7 +37,7 @@ channels retain their individual validation and publication requirements.
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Arch build/metadata and emulated pacman install/remove/CLI checks passed. Account setup and submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
-| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Native Linux Docker parsing, evaluation, both builds, declared install checks and exact output inventory passed. Nix sandbox suites and broader runtime acceptance pending; not a supported installation method |
+| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Both native strict-sandbox builds, 485 tests and exact inventories passed for v0.3.3 plus the declared parser patch. Profile ownership and interactive NixOS acceptance remain pending; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
 | [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Recipe generation and nine offline checks pass; native packing, install/upgrade/remove and publication pending |
 

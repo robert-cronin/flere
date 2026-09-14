@@ -85,19 +85,17 @@
   All 15 native x86_64 Linux Docker phases passed: parsing, evaluation, both builds,
   declared install checks and exact output files/modes/ownership/hashes. The core's
   zlib input and the validator's missing-utility assumption are corrected.
-- [ ] Complete Nix sandbox test-suite, interactive NixOS runtime and update
-  ownership acceptance before promoting the packaging draft to supported status.
-  A forced-sandbox probe could not start under the earlier container security
-  settings because required kernel namespaces were unavailable. The manual
-  Nix sandbox acceptance workflow now uses a disposable hosted Ubuntu VM, pinned
-  official Nix and public v0.3.3 source, with both full offline suites and strict
-  sandboxing. After the first install-flag failure, run `34864791262` passed the
-  strict sandbox probe, core release build and 182 library tests, then failed
-  16 live tests. Corrections now declare Dash, preserve the nested native Cargo
-  output location and exact wrapped shell-caption expectations, and explicitly
-  apply the reviewed image-path parser fix to v0.3.3. Five focused packaging
-  regressions and the real Cargo output-layout check pass; a full rerun remains
-  pending. No security settings or test deadlines were weakened.
+- [x] Complete native strict-sandbox Nix builds and full test suites for the
+  pinned v0.3.3 recipe plus the explicit wrapped-image parser patch. Hosted run
+  `34869221522` at `2d52985` passed all 485 tests, both release builds/build-info
+  checks and exact executable/license inventories. Independent review verified
+  the logs, archive digest, declared inputs and real sandbox namespace probe.
+  All 16 previously failing live tests now pass; earlier failures remain retained.
+  Fixture corrections preserve assertions, deadlines and isolation settings.
+- [ ] Complete Nix profile/install ownership and interactive NixOS runtime
+  acceptance before promoting the packaging draft to supported status. The
+  passing v0.3.3 recipe lacks the newer ownership code; current v0.3.4 source
+  acceptance is separate. Desktop clipboard and companion SSH remain unverified.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The unpublished v0.3.4 source is reserved for the next Windows acceptance
@@ -169,6 +167,12 @@
   live supervisors applied the update; all six sessions present at installation
   and their selections were preserved. Existing frontends need their normal UI
   reload. The earlier `70083bd` installation receipt remains retained separately.
+- [x] Install the verified development update from `2d52985` after all 493
+  macOS tests, strict Clippy/format checks, Linux/Windows compile checks and both
+  release builds passed. Both managed commands match the reviewed payloads;
+  both known supervisors applied the update with all five exact session identities
+  preserved. Existing frontends remain attached and need their normal UI reload.
+  The unidentified legacy runtime was excluded. v0.3.4 remains unpublished.
 - [x] Validate actual native Linux Cargo v0.3.3 installed ownership: normal
   registry installation, exact empty supervisor/frontend owner reports,
   coordinated preparation rejected before staging, and normal Cargo uninstall.
