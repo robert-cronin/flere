@@ -37,7 +37,7 @@ channels retain their individual validation and publication requirements.
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Arch build/metadata and emulated pacman install/remove/CLI checks passed. Account setup and submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
-| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Both native strict-sandbox builds, 485 tests and exact inventories passed for v0.3.3 plus the declared parser patch. Profile ownership and interactive NixOS acceptance remain pending; not a supported installation method |
+| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and both strict-sandbox builds/inventories. Separate v0.3.4 development core/companion ownership, UI and profile checks passed on native Nix-on-Ubuntu. NixOS and version-upgrade acceptance remain pending; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
 | [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Recipe generation and nine offline checks pass; native packing, install/upgrade/remove and publication pending |
 
@@ -154,8 +154,13 @@ The unreleased v0.3.4 development source also recognizes verified local Nix
 store outputs for both components. It shows guidance to update the owning Nix
 configuration or profile and reopen, with in-app Apply disabled. The verified
 scope is the default root-controlled local daemon/store; unproved `/nix/store`
-paths remain unknown. This does not extend acceptance of the separate v0.3.3
-Nix packaging draft or establish interactive NixOS/profile behavior.
+paths remain unknown. Exact source `2d52985` passed native Nix-on-Ubuntu
+[installed-owner acceptance](https://github.com/robert-cronin/flere/actions/runs/34874904110):
+both real update UIs refused preparation before staging, six stateless flags
+passed, and normal private profile install/remove preserved synthetic user state
+with clean runtime exits. This does not repin the separate v0.3.3 packaging draft.
+Interactive NixOS, actual version upgrades, physical clipboard and external
+companion SSH remain unverified.
 
 Use `command -v flere` and `flere --build-info` to inspect the command your shell selects.
 

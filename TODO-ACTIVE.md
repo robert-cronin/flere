@@ -92,10 +92,16 @@
   the logs, archive digest, declared inputs and real sandbox namespace probe.
   All 16 previously failing live tests now pass; earlier failures remain retained.
   Fixture corrections preserve assertions, deadlines and isolation settings.
-- [ ] Complete Nix profile/install ownership and interactive NixOS runtime
-  acceptance before promoting the packaging draft to supported status. The
-  passing v0.3.3 recipe lacks the newer ownership code; current v0.3.4 source
-  acceptance is separate. Desktop clipboard and companion SSH remain unverified.
+- [x] Validate native Nix-on-Ubuntu core and companion installation ownership
+  and normal profile install/remove. Hosted run `34874904110` at workflow
+  `8fb9d7d` built exact v0.3.4 development source `2d52985` in the strict sandbox.
+  Both actual update UIs showed verified Nix guidance and refused preparation
+  before staging; six stateless flags, exact empty runtime identities, clean
+  detach/exit and profile removal preserving synthetic state passed.
+- [ ] Complete interactive NixOS runtime, actual Nix version-upgrade, physical
+  desktop clipboard and external companion SSH acceptance before promoting the
+  packaging draft to supported status. The pinned v0.3.3 recipe plus its explicit
+  parser patch still lacks the newer ownership code; it was not repinned.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The unpublished v0.3.4 source is reserved for the next Windows acceptance
@@ -148,9 +154,10 @@
   commandless owning-configuration guidance and in-app Apply disabled. Exact
   registered-content queries passed on native Nix 2.35.2 as root and an ordinary
   user, with corrupt/unregistered outputs rejected and owned containers removed.
-  The default root-controlled daemon/store is the verified scope; actual app
-  ownership/UI/profile acceptance and the separate 2.33.3 sandbox suite remain
-  distinct. This source change is unreleased.
+  The default root-controlled daemon/store is the verified scope. Actual core
+  and companion ownership/UI/profile checks also passed on native Nix 2.33.3 in
+  run `34874904110`, separately from the v0.3.3 full-suite recipe. This source
+  change remains unreleased.
 - [x] Correct wrapped image-path selection when the closing delimiter occupies
   its own row. The regression reproduced the defect, and exact caption checks
   pass at 32/33/64/65 columns while unrelated clicks/text stay rejected. This
@@ -189,7 +196,8 @@
   companion, rendered-modal and active-session behavior were not part of this check.
 - [ ] Complete remaining native Linux package-manager and Windows runtime
   ownership acceptance. Native Debian, Cargo core and Homebrew core protocol
-  checks passed; companion and remaining runtime ownership remain separate.
+  checks and Nix core/companion UI/profile checks passed; other manager and
+  Windows runtime checks remain open.
 - [x] Automate the Linux manual Release path: explicit main version/commit
   selection, native core/companion checks, final payload/source checksums,
   immutable GitHub publication and anonymous download verification. Hosted

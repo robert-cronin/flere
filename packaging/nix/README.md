@@ -4,9 +4,10 @@ This draft pins the published **v0.3.3** full source archive with the explicit
 production correction below. Native strict-sandbox builds, all **485 tests** and
 both output inventories passed in hosted run
 [34869221522](https://github.com/robert-cronin/flere/actions/runs/34869221522)
-at workflow commit `2d52985845ed322b1c6c0f3018eaedf38d6bcead`. Profile ownership
-and interactive NixOS acceptance remain open; this is not a Nixpkgs submission
-or a supported installation method yet.
+at workflow commit `2d52985845ed322b1c6c0f3018eaedf38d6bcead`. Separate native
+Nix-on-Ubuntu ownership/profile acceptance passed for the newer v0.3.4 development
+source, as described below. Interactive NixOS and actual version-upgrade checks
+remain open; this is not a Nixpkgs submission or a supported installation method yet.
 
 The [manual workflow](../../.github/workflows/nix-acceptance.yml) used a disposable
 native x86_64 Ubuntu 24.04.5 GitHub VM. The 485 passing tests comprise 183 core
@@ -114,12 +115,38 @@ Five focused Python fixture/vendor/patch regressions and a dependency-free
 offline Cargo output-layout reproduction also passed during preparation. These
 are distinct from the subsequent native hosted full-suite acceptance above.
 
-Interactive NixOS shell/detach/editor/Git, desktop clipboard and optional
-companion SSH acceptance remain separate. Neither macOS nor cross compilation
-is covered. v0.3.3 still lacks proof-based Nix update ownership: do not use its
-installation controls to replace Nix-owned files. No profile or NixOS/Home Manager
-upgrade command can be inferred safely from a store path alone. This draft adds
-no ownership policy patch and does not close that TODO.
+The separate [installed-owner workflow](../../.github/workflows/nix-owner-acceptance.yml)
+passed [run 34874904110](https://github.com/robert-cronin/flere/actions/runs/34874904110)
+at workflow commit `8fb9d7db7461d2fb5d8884d1791fe4caf2f1d440`. It built exact public
+source `2d52985845ed322b1c6c0f3018eaedf38d6bcead`, the unreleased v0.3.4 development
+version, on native Ubuntu 24.04.5 x86_64 with Nix 2.33.3 and the same pinned
+Nixpkgs providing Rust 1.98.1. Both builds used the strict sandbox, original locks
+and only the three declared hash-helper substitutions. This targeted check did not repeat
+the full suites or change `default.nix` and its v0.3.3 source pin.
+
+An ordinary user installed both actual store outputs through a private
+`nix-env --profile`. Six stateless flags passed. Exact empty supervisor/frontend
+identities and real core/companion update UIs confirmed verified Nix ownership,
+passive owning-configuration guidance and refusal before staging. The product's
+unchanged two-second live-content verification ran on the actual package outputs.
+Both UIs detached normally, the empty supervisor exited cleanly, and normal
+profile removal preserved synthetic Flere and unrelated user state. No process
+needed a forced kill. UI evidence is retained terminal output; the companion used
+an exact local SSH stand-in, not an external connection.
+
+The initial [run 34874043087](https://github.com/robert-cronin/flere/actions/runs/34874043087)
+remains a failed pre-compilation check: the verified archive was referenced by
+its host filename instead of a store input. Importing both the archive and locks
+into the store corrected the harness without weakening sandboxing or changing
+product code.
+
+Interactive NixOS shell/detach/editor/Git, actual version upgrades, physical
+desktop clipboard and external companion SSH acceptance remain open. Neither
+macOS nor cross compilation is covered by these runs. The pinned v0.3.3 recipe
+still lacks proof-based Nix update ownership: do not use its installation controls
+to replace Nix-owned files. No profile or NixOS/Home Manager upgrade command can
+be inferred safely from a store path alone. The published recipe remains
+v0.3.3 plus its explicit parser patch, separate from the newer ownership proof.
 
 The build script embeds a random/time/process build identity. Pinned source and
 dependencies do not imply bit-identical executable outputs.
