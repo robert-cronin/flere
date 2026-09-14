@@ -15,12 +15,14 @@
 - [ ] Validate fresh Homebrew dependency provisioning, upgrades between release
   versions, and the native Linux x86_64 Homebrew lifecycle. Older macOS acceptance
   remains pending; Intel Macs and Linux ARM are excluded from this tap.
-- [ ] Prepare and validate Cargo source packages; publish after registry access
-  and package-name availability are established.
-  The core 0.3.1 archive passed verification at `3c24227`: 184 extracted library
-  tests, a release build, stateless CLI checks and an unchanged cached-build stamp
-  on macOS arm64. This does not validate the companion crate. Registry publication
-  remains pending and must use the matching version/tag without relabeling v0.3.0.
+- [x] Prepare and validate the core Cargo source package at `19637da`: normal
+  extracted-package verification, all 186 library tests, a release build,
+  stateless CLI checks and an unchanged cached-build stamp passed on macOS arm64.
+  The archive contains 124 reviewed files and matches the exact clean source.
+- [ ] Publish the verified core Cargo package after registry access and
+  package-name availability are established. The name is currently unoccupied,
+  and the owner has completed local Cargo login. The first upload remains pending
+  and must use the matching version/tag without relabeling v0.3.0.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
   failed before creating a crate; companion downloads and other channels remain separate.
@@ -80,11 +82,12 @@
   commands stop before installation. Both strict Clippy/format checks and 49
   focused Rust tests pass; Linux core/companion and Windows companion cross-target
   compile checks pass. Published v0.3.0 still requires manual manager upgrades.
-- [x] Complete local integrated validation and install the coordinated-owner
-  update from `70083bd`. All 485 macOS arm64 tests, both strict Clippy/format checks
+- [x] Complete local integrated validation and install the corrected update
+  from `19637da`. All 485 macOS arm64 tests, both strict Clippy/format checks
   and release builds passed. Both packages were independently verified and both
-  live supervisors applied the update; seven exact session identities and their
-  selections were preserved. Existing frontends need their normal UI reload.
+  live supervisors applied the update; all six sessions present at installation
+  and their selections were preserved. Existing frontends need their normal UI
+  reload. The earlier `70083bd` installation receipt remains retained separately.
 - [ ] Complete native Linux manager and Windows runtime ownership acceptance.
 - [ ] Automate the release process: exact version/commit selection, native builds
   and tests, final-package checksums, publication and per-channel updates. The owner
@@ -93,23 +96,28 @@
   archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
   approved release immutability and the main-only release environment are enabled.
   Hosted run `34825445057` stopped before publication: one test assumed GitHub CLI
-  was absent from the runner. The isolated fixture and corrected source `70083bd`
-  pass all 485 macOS and 482 native Linux tests in the serial baseline, both
-  components' formatting/strict Clippy checks and both release builds. Final Linux
-  artifact hashes, six stateless CLI calls and four ELF inspections passed;
-  the binaries meet the glibc 2.39 baseline and left private state unchanged.
-  The parallel UI failures below remain open; finalize and validate the corrected
-  candidate before changed-commit release approval. Other targets and channel
-  activation remain open. Earlier failed receipts remain retained. The hosted
-  workflow uses the serial baseline; hosted execution and publication of a
-  corrected source commit still require review and approval.
-- [ ] Resolve and revalidate UI tests under parallel load. A complete native
-  Linux four-thread live run at `70083bd` captured 211 passes and two failures,
-  with no harness error or surviving children. This exposed an eight-row archive
-  picker with no visible result row and a sidebar test reading preferences before
-  its click was acknowledged. Both fixes pass their focused live tests; complete
-  serial and parallel validation of the final source remains pending. The other
-  four previously failing tests passed the captured run. Preserve all evidence.
+  was absent from the runner. The corrected candidate `19637da` passes all
+  485 macOS and 482 native Linux tests in the serial baseline, both components'
+  formatting/strict Clippy checks and both release builds. All 213 native Linux
+  live tests also pass with four test threads. Final Linux artifact hashes, six
+  stateless CLI calls and four ELF inspections passed; the binaries meet the
+  glibc 2.39 baseline and left private state unchanged. The signed source is
+  public on main. Hosted run `34835313350` passed all Rust checks but stopped
+  before publication because an optional packaging test assumed Ubuntu's
+  `rpmbuild` implied an RPM database with its build dependencies. The prerequisite
+  check is corrected while retaining all RPM payload assertions. All 78 Python
+  cases complete on macOS (74 passed, four platform/tool skips); actual Fedora
+  queries confirm both provider-present and missing-provider behavior. The owner
+  has authorized routine release/distribution decisions; publication and final
+  public-download verification remain pending. Other targets and channel
+  activation remain open, and earlier failed receipts remain retained. The
+  hosted workflow uses the serial test baseline.
+- [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
+  picker now retains a visible result row, and sidebar tests wait for the actual
+  click acknowledgement. Both focused tests and the full serial/parallel suites
+  pass at `19637da`: all 213 native Linux live tests passed with four threads,
+  with no surviving owned children or harness errors. The prior `70083bd` run
+  and its two failures remain retained; no assertions were removed or weakened.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. Current binary casks are not published:
   ordinary Gatekeeper blocked their unnotarized executable in testing.

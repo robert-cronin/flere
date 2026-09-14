@@ -207,9 +207,78 @@ package
                 run.assert_not_called()
                 self.assertFalse(output.exists())
 
+    def require_rpm_coreutils(self):
+        # Ubuntu can provide rpmbuild without an RPM database containing the
+        # spec's BuildRequires. Probe that database, not just commands on PATH.
+        home = self.root / "rpm-probe-home"
+        home.mkdir(mode=0o700, exist_ok=True)
+        options = dict(capture_output=True, text=True, timeout=10,
+                       env=dict(os.environ, HOME=str(home), LC_ALL="C",
+                                XDG_CONFIG_HOME=str(home / ".config"),
+                                XDG_CACHE_HOME=str(home / ".cache"), TMPDIR=str(home)))
+        database = subprocess.run(["rpm", "--eval", "%{_dbpath}"], check=True, **options)
+        database_path = Path(database.stdout.strip())
+        if (len(database.stdout.splitlines()) != 1 or not database_path.is_absolute()
+                or database.stderr.strip()):
+            raise ValueError("RPM database path query returned an unexpected result")
+        try:
+            database_path.stat()
+        except FileNotFoundError:
+            self.skipTest("requires an existing RPM dependency database")
+        result = subprocess.run(["rpm", "-q", "--whatprovides", "coreutils"], **options)
+        if (result.returncode == 1 and result.stdout.strip() == "no package provides coreutils"
+                and not result.stderr.strip()):
+            self.skipTest("requires an RPM database provider for BuildRequires: coreutils")
+        result.check_returncode()
+
+    def test_rpm_coreutils_probe_accepts_database_provider(self):
+        result = subprocess.CompletedProcess([], 0, "coreutils-single-9.10-1.fc44.x86_64\n", "")
+        database = subprocess.CompletedProcess([], 0, str(self.root), "")
+        with mock.patch.object(subprocess, "run", side_effect=[database, result]) as run:
+            self.require_rpm_coreutils()
+        self.assertEqual([call.args for call in run.call_args_list],
+                         [(["rpm", "--eval", "%{_dbpath}"],),
+                          (["rpm", "-q", "--whatprovides", "coreutils"],)])
+        options = run.call_args.kwargs
+        self.assertEqual(options["timeout"], 10)
+        self.assertTrue(options["capture_output"])
+        self.assertEqual(options["env"]["LC_ALL"], "C")
+        self.assertEqual(options["env"]["HOME"], str(self.root / "rpm-probe-home"))
+        self.assertEqual(options["env"]["TMPDIR"], options["env"]["HOME"])
+
+    def test_rpm_coreutils_probe_skips_absent_database_without_querying(self):
+        database = subprocess.CompletedProcess([], 0, str(self.root / "absent-db"), "")
+        with mock.patch.object(subprocess, "run", return_value=database) as run:
+            with self.assertRaisesRegex(unittest.SkipTest, "existing RPM dependency database"):
+                self.require_rpm_coreutils()
+        run.assert_called_once()
+        self.assertFalse((self.root / "absent-db").exists())
+
+    def test_rpm_coreutils_probe_skips_missing_database_provider(self):
+        result = subprocess.CompletedProcess([], 1, "no package provides coreutils\n", "")
+        database = subprocess.CompletedProcess([], 0, str(self.root), "")
+        with mock.patch.object(subprocess, "run", side_effect=[database, result]):
+            with self.assertRaisesRegex(unittest.SkipTest, "RPM database provider"):
+                self.require_rpm_coreutils()
+
+    def test_rpm_coreutils_probe_preserves_unexpected_failures(self):
+        database = subprocess.CompletedProcess([], 0, str(self.root), "")
+        for code, output, error in ((1, "no package provides coreutils\n", "error: cannot open database\n"),
+                                    (1, "unexpected query failure\n", ""),
+                                    (2, "no package provides coreutils\n", "")):
+            result = subprocess.CompletedProcess([], code, output, error)
+            with self.subTest(code=code, output=output, error=error):
+                with mock.patch.object(subprocess, "run", side_effect=[database, result]):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self.require_rpm_coreutils()
+        with mock.patch.object(subprocess, "run", side_effect=[database, subprocess.TimeoutExpired("rpm", 10)]):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.require_rpm_coreutils()
+
     @unittest.skipUnless(sys.platform == "linux" and shutil.which("rpmbuild") and shutil.which("rpm"),
                          "requires Linux rpmbuild and rpm")
     def test_real_rpm_checks_hashes_modes_licenses_and_rejects_changed_input(self):
+        self.require_rpm_coreutils()
         inputs, licenses = self.load()
         output = self.root / "rpm-output"
         output.mkdir()
