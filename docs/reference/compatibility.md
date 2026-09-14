@@ -41,8 +41,14 @@ still needs checking on the user's terminal; it does not claim emulator parity.
 Current `main` builds preserve HTTP(S) links through pane rendering, retained
 history and supervisor refresh. This is newer than the published v0.3.0 assets.
 The outer terminal handles opening a link after its normal explicit gesture;
-Flere does not open a browser from child output. With Ghostty, use Command-click
-on macOS or Control-click on Linux. Its [link settings](https://ghostty.org/docs/config/reference#link-url)
+Flere does not open a browser from child output. With Ghostty, use
+**Shift+Command-click on macOS** or **Shift+Control-click on Linux** while Flere
+captures mouse input. Shift bypasses Ghostty's application mouse capture with its
+default [mouse-shift-capture setting](https://ghostty.org/docs/config/reference#mouse-shift-capture).
+Flere requests that Shift mouse gestures remain available to the host terminal.
+These are Ghostty's expected gestures; physical activation in the reported
+Ghostty session remains unresolved. Other terminals use their own hyperlink
+gesture. Ghostty's [link settings](https://ghostty.org/docs/config/reference#link-url)
 control URL matching and previews.
 
 Older clients still receive their existing text/style snapshots. Links that an

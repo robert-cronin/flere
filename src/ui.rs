@@ -1777,7 +1777,7 @@ struct DisplayGuard {
 impl Drop for DisplayGuard {
     fn drop(&mut self) {
         let _ = remote::emit(self.remote,
-            b"\x18\x1b\\\x1b]8;;\x1b\\\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l",
+            b"\x18\x1b\\\x1b]8;;\x1b\\\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[>0s\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l",
         );
     }
 }
@@ -1882,9 +1882,12 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     };
     os::signals();
     let _display = DisplayGuard { remote: is_remote };
+    // XTSHIFTESCAPE leaves Shift mouse gestures with the outer terminal. This
+    // per-terminal mode can survive alternate-screen switches; request it before
+    // capture rather than inherit another application's Shift reporting policy.
     remote::emit(
         is_remote,
-        b"\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[?2004h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[2J",
+        b"\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[?2004h\x1b[>0s\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[2J",
     )?;
     let local_graphics = (!is_remote).then(local_graphics::Graphics::new);
     if !is_remote {

@@ -157,3 +157,124 @@ fn terminal_hyperlinks_survive_history_and_never_escape_into_ui_chrome() {
     );
     bridge.disconnect();
 }
+
+fn shift_mouse_boundary(bytes: &[u8], boundary: &[u8]) {
+    let boundary = bytes
+        .windows(boundary.len())
+        .position(|w| w == boundary)
+        .unwrap();
+    let request = bytes[..boundary].windows(5).rposition(|w| w == b"\x1b[>0s");
+    assert!(
+        request.is_some(),
+        "terminal Shift policy was not set before mouse boundary"
+    );
+    assert!(
+        !bytes[request.unwrap()..boundary]
+            .windows(5)
+            .any(|w| w == b"\x1b[>1s")
+    );
+}
+
+fn shift_mouse_read(master: &mut fs::File, needle: &[u8]) -> Vec<u8> {
+    let mut screen = Terminal::new(100, 30);
+    let mut bytes = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !bytes.windows(needle.len()).any(|w| w == needle) {
+        assert!(
+            Instant::now() < deadline,
+            "missing mouse setup/cleanup bytes"
+        );
+        assert!(bytes.len() < 1024 * 1024, "excessive fixture output");
+        read_ui_bytes(master, &mut screen, &mut bytes);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    bytes
+}
+
+#[test]
+fn shift_mouse_policy_precedes_capture_locally_remotely_and_with_an_older_peer() {
+    let f = Fixture::new();
+    f.new_workspace("Shift gestures");
+    // This peer models old core startup: it enables capture without setting the
+    // Shift policy, then disconnects on one literal key without remote cleanup.
+    let ssh = f.root.join("shift-ssh");
+    fs::write(
+        &ssh,
+        r#"#!/usr/bin/python3
+import os,struct,sys
+def send(tag,data):
+ b=bytes([tag])+bytes(8)+data
+ sys.stdout.buffer.write(struct.pack('>I',len(b))+b);sys.stdout.buffer.flush()
+def read():
+ n=struct.unpack('>I',sys.stdin.buffer.read(4))[0]
+ return sys.stdin.buffer.read(n)
+send(1,os.environ['FIXTURE_VERSION'].encode()+b'a'*32)
+assert read()[0]==1
+send(16,b'\x1b[?1049h\x1b[?1000h\x1b[?1006hSHIFT_READY')
+while True:
+ b=read()
+ if b[0]==2 and b[9:]==b'x':break
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
+    for companion in [false, true] {
+        // Model an inherited per-terminal Shift-reporting request. Switching
+        // alternate screens alone must not be mistaken for restoring this mode.
+        let mut command = Command::new("/bin/sh");
+        fixture_home(&mut command, &f.root).args([
+            "-c",
+            "printf '\\033[>1s'; exec \"$@\"",
+            "shift-fixture",
+            "/usr/bin/env",
+            "-u",
+            "FLERE",
+        ]);
+        let ready: &[u8] = if companion {
+            command
+                .arg(companion_binary())
+                .args(["fixture-host", "--ssh", ssh.to_str().unwrap()])
+                .env(
+                    "FIXTURE_VERSION",
+                    std::str::from_utf8(protocol::VERSION).unwrap(),
+                );
+            b"SHIFT_READY"
+        } else {
+            command
+                .arg(env!("CARGO_BIN_EXE_flere"))
+                .arg("--state")
+                .arg(&f.state)
+                .arg("attach");
+            b"\x1b[?1006h"
+        };
+        let (mut master, mut child) =
+            os::spawn_command_pty(&f.root, &mut command, 100, 30).unwrap();
+        let startup = shift_mouse_read(&mut master, ready);
+        master
+            .write_all(if companion { b"x" } else { b"\0q" })
+            .unwrap();
+        let cleanup = shift_mouse_read(&mut master, b"\x1b[?1049l");
+        assert!(child.wait().unwrap().success());
+        assert!(startup.windows(5).any(|w| w == b"\x1b[>1s"));
+        shift_mouse_boundary(&startup, b"\x1b[?1000h");
+        shift_mouse_boundary(&cleanup, b"\x1b[?1049l");
+    }
+    let mut bridge = Bridge::start(&f, 100, 30, std::env::var("PATH").unwrap_or_default());
+    let hello = bridge.until(|p, _| p.tag == protocol::HELLO);
+    protocol::hello_reply(&hello, 100, 30)
+        .unwrap()
+        .write(bridge.input.as_mut().unwrap())
+        .unwrap();
+    let startup = bridge
+        .until(|p, _| p.tag == protocol::OUTPUT && p.data.windows(8).any(|w| w == b"\x1b[?1000h"));
+    bridge.input.take();
+    let cleanup = bridge
+        .until(|p, _| p.tag == protocol::OUTPUT && p.data.windows(8).any(|w| w == b"\x1b[?1049l"));
+    bridge.disconnect();
+    shift_mouse_boundary(&startup.data, b"\x1b[?1000h");
+    shift_mouse_boundary(&cleanup.data, b"\x1b[?1049l");
+    assert!(
+        f.snapshot().session().unwrap().alive,
+        "UI detach stopped the shell"
+    );
+}

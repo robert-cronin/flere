@@ -92,10 +92,16 @@
   companion strict Clippy, formatting and release builds, plus Linux core and
   Windows companion all-target compile checks. The approved update from
   `80bc6c2` is installed; physical link activation remains unchecked.
+- [x] Request host Shift mouse gestures before capture and during core/companion
+  cleanup, including companions attached to older cores. Focused PTY/bridge and
+  hyperlink/output checks passed; this does not establish the cause of the
+  reported Ghostty failure.
 - [ ] Confirm physical hyperlink activation in Ghostty and Windows Terminal with
-  the updated build. Automated PTY/remote tests verify targets, clipping, history,
-  exact-session refresh and local-prompt/disconnect cleanup; browser interaction
-  has not been exercised. Previously discarded targets need child redraw/output.
+  the updated build. Ghostty activation still fails in the reported session,
+  including Shift+Command-click. Automated PTY/remote tests verify targets,
+  clipping, history, exact-session refresh and local-prompt/disconnect cleanup;
+  physical browser interaction remains unresolved. Previously discarded targets
+  need child redraw/output.
 
 ## Branding and link audit
 

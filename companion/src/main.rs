@@ -82,7 +82,7 @@ struct Display {
 impl Drop for Display {
     fn drop(&mut self) {
         let _ = self.keyboard.reset(&mut io::stdout());
-        let _=io::stdout().write_all(b"\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l");
+        let _=io::stdout().write_all(b"\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[>0s\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l");
         let _ = io::stdout().flush();
     }
 }
@@ -389,6 +389,11 @@ fn run() -> io::Result<()> {
     );
     let _console = os::Console::enter()?;
     let mut display = Display::default();
+    // The companion owns the physical terminal, including with older cores.
+    // Leave Shift gestures to the host before replying: remote OUTPUT may enable
+    // mouse capture as soon as the handshake completes.
+    io::stdout().write_all(b"\x1b[>0s")?;
+    io::stdout().flush()?;
     reply.write(&mut writer)?;
     let (events, rx) = mpsc::sync_channel(32);
     let output_events = events.clone();
