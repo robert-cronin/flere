@@ -124,6 +124,44 @@ class ReleaseAutomation(unittest.TestCase):
         self.addCleanup(shutil.rmtree, output, True)
         return output
 
+    def rewrite_channels(self, channels):
+        path = self.directory / "release.json"
+        descriptor = json.loads(path.read_bytes())
+        descriptor["channels"] = channels
+        path.write_bytes(release.json_bytes(descriptor))
+        names = sorted(release.candidate_names(VERSION) | {"release.json"})
+        (self.directory / "SHA256SUMS").write_text("".join(
+            f"{release.sha((self.directory / name).read_bytes())}  {name}\n" for name in names))
+        return release.sha(path.read_bytes())
+
+    def test_new_and_pinned_historical_channel_snapshots_support_linux_derivation(self):
+        digest = self.seal()
+        descriptor = json.loads((self.directory / "release.json").read_bytes())
+        self.assertEqual(descriptor["channels"], release.CHANNELS)
+        self.assertEqual(descriptor["channels"]["crates_io"],
+                         "pending: separate core Cargo job follows verified GitHub publication")
+        for channels in (release.CHANNELS, release.LEGACY_CHANNELS):
+            with self.subTest(channels=channels):
+                digest = self.rewrite_channels(channels)
+                proof = release.validate(self.directory, VERSION, COMMIT, RUN, WORKFLOW, digest)
+                self.assertEqual(proof["descriptor_sha256"], digest)
+                lock = packages.lock_from_release(self.directory, digest, 1)
+                self.assertEqual(lock["version"], VERSION)
+                self.assertEqual(lock["assets"], descriptor["assets"])
+        with self.assertRaisesRegex(ValueError, "unexpected channel readiness"):
+            release.validate(self.directory, VERSION, COMMIT, RUN, WORKFLOW)
+
+    def test_pinned_unknown_channel_readiness_is_rejected(self):
+        self.seal()
+        for channels in (dict(release.CHANNELS, crates_io="published"),
+                         dict(release.LEGACY_CHANNELS, windows="accepted")):
+            with self.subTest(channels=channels):
+                digest = self.rewrite_channels(channels)
+                with self.assertRaisesRegex(ValueError, "unexpected channel readiness"):
+                    release.validate(self.directory, VERSION, COMMIT, RUN, WORKFLOW, digest)
+                with self.assertRaisesRegex(ValueError, "unexpected channel readiness"):
+                    packages.lock_from_release(self.directory, digest, 1)
+
     def test_verified_release_drives_linux_recipes_lock_and_checksums(self):
         descriptor_digest = self.seal()
         checked_in_lock = (packages.ROOT / "packaging/linux/release.json").read_bytes()

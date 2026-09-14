@@ -37,13 +37,17 @@ BLOCKED = {
     "x86_64-apple-darwin": "blocked: native Intel acceptance, Developer ID and accepted notarization required",
     "x86_64-pc-windows-gnu": "blocked: physical Windows companion acceptance required",
 }
-CHANNELS = {
+# Exact frozen channel snapshot used before the separate Cargo job.
+LEGACY_CHANNELS = {
     "managed_latest": "blocked: latest-release pointer is not advanced by this workflow",
     "homebrew": "prepared: source formula validation and tap writer required",
     "crates_io": "blocked: first publication and trusted publisher enrollment required",
     "debian_aur": "blocked: reviewed new release lock and native package-manager acceptance required",
     "scoop_winget": "blocked: physical Windows acceptance, catalogue validation and publisher setup required",
 }
+
+CHANNELS = {**LEGACY_CHANNELS,
+    "crates_io": "pending: separate core Cargo job follows verified GitHub publication"}
 
 
 def identity(version, commit, run_id):
@@ -207,8 +211,10 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
     if read(directory / "SHA256SUMS", 65536).decode() != expected_sums:
         raise ValueError("SHA256SUMS differs from final release bytes")
     acceptance(descriptor["evidence"], descriptor["assets"])
+    # Historical snapshots are accepted only with the caller's exact digest.
+    channels = (CHANNELS, LEGACY_CHANNELS) if expected_digest is not None else (CHANNELS,)
     if (descriptor["targets"] != {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED}
-            or descriptor["channels"] != CHANNELS):
+            or descriptor["channels"] not in channels):
         raise ValueError("missing target acceptance or unexpected channel readiness")
     return {"descriptor_sha256": sha(raw), "files": {
         name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
@@ -282,7 +288,8 @@ def release_body(version, commit, run_id, descriptor_sha):
             f"Build run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n"
             "Linux x86-64 core and companion plus the complete reviewed source archive; glibc 2.39 or newer for these binaries. Native CI checks are recorded in release.json. "
             "Interactive desktop acceptance is not claimed. macOS signed binaries and Windows companion distribution remain blocked. "
-            "Package-manager channels and the latest-release pointer are not advanced by this workflow.\n")
+            "Linux asset publication does not advance package-manager channels or the latest-release pointer. "
+            "The separate core Cargo job follows public verification.\n")
 
 
 def verify_tag(api, version, commit, *, missing=False, wait_for_visibility=False):
