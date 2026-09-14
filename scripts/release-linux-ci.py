@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,81 @@ spec.loader.exec_module(release)
 
 def run(args, checkout, *, env=None):
     return subprocess.check_output(list(map(str, args)), cwd=checkout, env=env, text=True)
+
+
+def validation_tail(base, previous, environment):
+    """Read only this invocation's new private candidate log, never a reported path."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root = os.open(base, flags)
+    try:
+        metadata = os.fstat(root)
+        if metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+            raise ValueError("validation cache is not private and owned")
+        created = {n for n in os.listdir(root) if re.fullmatch(r"candidate-[A-Za-z0-9_-]{8}", n)} - previous
+        if len(created) != 1:
+            raise ValueError("new validation candidate is ambiguous or missing")
+        candidate = os.open(created.pop(), flags, dir_fd=root)
+        try:
+            metadata = os.fstat(candidate)
+            if metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+                raise ValueError("validation candidate is not private and owned")
+            descriptor = os.open("validation.log", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                 dir_fd=candidate)
+        finally:
+            os.close(candidate)
+    finally:
+        os.close(root)
+    with os.fdopen(descriptor, "rb") as log:
+        metadata = os.fstat(log.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise ValueError("validation log is not an owned regular file")
+        offset = max(0, metadata.st_size - 32768)
+        log.seek(offset)
+        raw = log.read(32768)
+    if offset:
+        # Drop a partial first line before redaction; never expose a clipped token.
+        raw = raw.partition(b"\n")[2]
+    text = raw.decode("utf-8", errors="replace")
+    for key, value in environment.items():
+        if value and re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE.?KEY|API.?KEY|ACCESS.?KEY|AUTH", key, re.I):
+            text = text.replace(value, "[redacted]")
+    text = re.sub(r"\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+", "[redacted]", text)
+    text = re.sub(r"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}", "[redacted]", text)
+    text = re.sub(r"https?://[^/\s]+@", "https://[redacted]@", text)
+    text = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*", "[redacted private key]", text, flags=re.S)
+    lines = []
+    for line in text.splitlines()[-60:]:
+        if re.search(r"(?:authorization|password|passwd|token|secret|credential|api[_-]?key)\s*[:=]|\b(?:Bearer|Basic)\s+", line, re.I):
+            line = "[redacted credential-bearing line]"
+        # Literal prefixes prevent terminal escapes and GitHub workflow commands.
+        line = "".join(c if c.isprintable() or c == "\t" else "?" for c in line)
+        lines.append("validation | " + line[:500])
+    while len("\n".join(lines)) > 16384:
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def package_candidate(checkout, environment=None):
+    environment = dict(os.environ if environment is None else environment)
+    cache = Path(environment.get("XDG_CACHE_HOME", str(Path(environment["HOME"]) / ".cache")))
+    base = cache / "flere/dev-updates"
+    try:
+        previous = set(os.listdir(base)) if base.exists() else set()
+    except OSError:
+        previous = None
+    try:
+        return json.loads(run([sys.executable, checkout / "scripts/dev", "package", "--with-companion"],
+                              checkout, env=environment))
+    except subprocess.CalledProcessError:
+        try:
+            if previous is None:
+                raise ValueError("validation cache could not be observed")
+            tail = validation_tail(base, previous, environment)
+            print("Bounded validation.log tail (credential values redacted):", file=sys.stderr)
+            print(tail or "validation | (no complete log lines available)", file=sys.stderr)
+        except (OSError, ValueError):
+            print("Validation failed; a unique safe log tail was unavailable.", file=sys.stderr)
+        raise
 
 
 def inspect_elf(text):
@@ -61,7 +137,7 @@ def main():
     work = Path(tempfile.mkdtemp(prefix="release-ci-", dir=cache))
     # scripts/dev writes its log and build receipts under private home cache. It
     # runs both components' fmt, offline strict Clippy, tests and release builds.
-    result = json.loads(run([sys.executable, checkout / "scripts/dev", "package", "--with-companion"], checkout))
+    result = package_candidate(checkout)
     package_root = Path(result["artifact"])
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py"], cwd=checkout, check=True)
     assets = work / "assets"

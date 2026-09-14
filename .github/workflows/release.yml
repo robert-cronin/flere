@@ -79,7 +79,7 @@ jobs:
         working-directory: source
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libx11-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev ruby
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libx11-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev ruby vim
           rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
           cargo fetch --locked --target x86_64-unknown-linux-gnu
           cargo fetch --locked --target x86_64-unknown-linux-gnu --manifest-path companion/Cargo.toml
