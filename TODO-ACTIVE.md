@@ -66,7 +66,17 @@
 - [x] Preserve the AUR licence array while installing licence files. The Bash
   regression reproduced the overwritten MIT entry and passes after renaming the
   loop variable. Packaging checks: 12 passed, four platform skips. Source/payload
-  pins and `.SRCINFO` stayed unchanged; native corrected-package validation is pending.
+  pins and `.SRCINFO` stayed unchanged. Native corrected-package validation
+  passed for both the v0.3.3 wrapper and a private v0.3.4 fixture.
+- [x] Validate native Arch package installation, a real v0.3.0 → v0.3.3
+  pacman upgrade and removal, followed by a separate private v0.3.4 package from
+  exact source `3401a77`. All 18 stateless checks, exact payloads and corrected
+  licence metadata passed. Both development update UIs recognized pacman and
+  refused preparation before staging. Synthetic state, unrelated package records
+  and repository/keyring configuration stayed unchanged; owned application
+  processes exited normally and the exact container was removed. The initial
+  helper failure on inherited signature policy is retained; no package-security
+  setting was relaxed. These packages are unsigned and not submitted to AUR.
 - [x] Complete native Ubuntu Debian v0.3.0 → v0.3.2 installation, upgrade,
   removal and purge. All 12 installed CLI checks, package-manager ownership
   detection and blocked coordinated-update staging passed. Synthetic state and
@@ -240,11 +250,10 @@
   and the exact container was removed. Formulas used the verified source via a
   private local URL; published Homebrew remains v0.3.2. No active-session or
   external SSH acceptance is claimed.
-- [ ] Complete remaining native Linux package-manager and Windows runtime
-  ownership acceptance. Native Debian, Cargo core and Homebrew core/companion
-  UI/refusal checks, native Fedora-container RPM core/companion checks and Nix
-  core/companion UI/profile checks passed; other manager and Windows runtime
-  checks remain open.
+- [ ] Complete Windows package-manager runtime ownership acceptance. Native
+  Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
+  pacman and Nix at their separately recorded versions and scopes above. Physical
+  desktop and external companion SSH acceptance remain separate.
 - [x] Automate the Linux manual Release path: explicit main version/commit
   selection, native core/companion checks, final payload/source checksums,
   immutable GitHub publication and anonymous download verification. Hosted

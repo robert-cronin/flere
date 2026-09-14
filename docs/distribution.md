@@ -35,7 +35,7 @@ channels retain their individual validation and publication requirements.
 | [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.2; native Linux fresh dependencies and version upgrade passed. Hosted macOS 15/26 arm64 default-prefix installs, fresh direct Rust and literal version upgrade passed |
 | [Cargo / crates.io](https://crates.io/crates/flere/0.3.3) | Core source package for Linux/macOS | Published v0.3.3 through Trusted Publishing; public archive and all 124 source files verified. Companion excluded |
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
-| [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Emulated Arch build and pacman install/remove/CLI checks passed. Licence-metadata correction awaits native validation; account setup and submission pending |
+| [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Physical clipboard/external SSH remain open; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
@@ -176,6 +176,13 @@ normal removal. The separate [emulated NixOS run](https://github.com/robert-cron
 passed core shell/editor/Git/detach and draft checks with normal application/VM
 exits. It used TCG with KVM disabled. Physical clipboard and external companion
 SSH remain unverified; these runs do not establish NixOS/Home Manager upgrades.
+
+The later unreleased source `3401a77` also recognizes local pacman-owned
+executables after successful package registration and metadata checks. Both real
+update UIs passed native Arch acceptance and refused preparation before staging.
+Flere shows pacman guidance with Apply disabled; it does not assume a repository
+or AUR helper. These metadata checks are distinct from the acceptance harness
+comparing the installed payloads against their SHA-256 hashes.
 
 Use `command -v flere` and `flere --build-info` to inspect the command your shell selects.
 

@@ -7,7 +7,7 @@ the package builder does not compile a changed checkout or execute either binary
 | Format | Current validation |
 | --- | --- |
 | Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; v0.3.3 is published through the automated release. |
-| AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Original licence metadata is incorrect; the corrected recipe awaits native validation. Not submitted to AUR. |
+| AUR `flere-bin` | Native Arch `makepkg`, v0.3.0 → v0.3.3 pacman upgrade/removal and corrected licence metadata passed. A separate private v0.3.4 fixture passed core/companion ownership refusal. All 18 stateless checks passed; not submitted to AUR. |
 | [RPM](rpm/README.md) | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 install/upgrade/remove, 12 CLI checks, core/companion ownership refusal and state/package preservation passed. The tested v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0. |
 | Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Separately, native Nix-on-Ubuntu core/companion ownership, UI refusal and normal profile removal passed for unpublished v0.3.4 source `2d52985`. Actual 0.3.3 → 0.3.4 profile upgrades and emulated NixOS core runtime also passed. Physical clipboard and external SSH remain unverified. |
 
@@ -221,8 +221,8 @@ being installed. The `package()` loop overwrote the first element of Bash's
 `license` array. The generator and checked-in recipe now use `license_file`;
 the declared MIT/OFL array, payload pins and `.SRCINFO` are unchanged. A real
 Bash regression fails before the correction and passes afterward. Native
-validation of a newly generated package remains pending; the original archive
-and receipt are not evidence of correct licence metadata.
+validation of newly generated v0.3.3 and private v0.3.4 packages passed below;
+the original archive and receipt remain separate evidence with that limitation.
 
 The AUR recipe also passed real Arch validation on 2026-09-14 in a disposable
 amd64 container under Docker Desktop on macOS arm64. The official
@@ -260,6 +260,41 @@ builder and stateless homes with that emulator directory present beforehand.
 This validates an emulated Arch package lifecycle, not native Arch hardware,
 interactive terminal features, or upgrades between Flere runtime versions. AUR
 submission remains pending.
+
+### Native Arch version upgrade and ownership
+
+A subsequent run used that same pinned image on native x86_64 Linux. Normal
+signed `pacman -Syu` provisioning completed before networking was disconnected.
+The corrected recipe passed `makepkg --verifysource`, `.SRCINFO` comparison and
+unprivileged packaging. Pacman then installed v0.3.0, upgraded to v0.3.3 and
+removed it. The wrapper preserves the public v0.3.3 payloads from `ce6bb62`;
+its explicit licence-loop correction comes from the later packaging helper.
+
+A separate private fixture used both native offline release builds from exact
+unpublished source `3401a77`. It passed installation, both actual pacman ownership
+UIs, preparation refusal before staging and removal. All 18 stateless checks
+across the three versions passed, alongside exact binary/manifest/licence hashes,
+modes and corrected MIT/OFL metadata. The core and companion displayed pacman
+guidance without assuming a package repository or AUR helper. The application
+uses pacman's registration and metadata checks; independent acceptance hashing
+verifies the tested payload bytes.
+
+Synthetic state, unrelated package records and repository/public-keyring
+configuration stayed unchanged during each lifecycle. Both frontends, their local
+bridge and the supervisor exited normally; the exact container was removed and
+its absence confirmed. The first attempt stopped before provisioning because the
+helper rejected inherited repository signature settings. A read-only query of the
+same image established the format, and the corrected helper resolves only an
+empty override to the independently verified global policy. Explicit unsigned
+repository policies remain rejected; no security setting was relaxed.
+
+The tested v0.3.3 package has SHA-256
+`984c09e9d12526f31ac429271c20a197630d0a923e0c736faaf3c923950a0027`.
+The private v0.3.4 fixture has SHA-256
+`8051f6cc75d226ae1b57f928ec7dd886989cdfee9a101c13f747a7d4beb07df4`.
+Both are unsigned, unpublished validation artifacts. The checked-in recipe
+retains its v0.3.0 payload pins. These checks do not establish physical desktop,
+external SSH or AUR submission acceptance.
 
 ```sh
 python3 scripts/test_linux_packages.py
