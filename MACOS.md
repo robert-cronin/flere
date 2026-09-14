@@ -58,9 +58,23 @@ into disposable home-cache directories, repair its local library reference and
 ad-hoc sign the copy. Tests never modify the installed interpreter or start real
 coding agents. PTY assertions wait for complete UI frames and allow short writes.
 
+The published Homebrew v0.3.2 source formulas also passed
+[hosted arm64 lifecycle checks](https://github.com/robert-cronin/flere/actions/runs/34862741037)
+on macOS 15.7.9 (Xcode 16.4) and 26.6.2 (Xcode 26.6). Both fresh VMs used the default
+`/opt/homebrew` prefix, empty private caches, normal Homebrew Rust 1.98.1
+provisioning and the enabled Homebrew sandbox. Normal install, literal upgrade
+from core 0.3.0_1/companion 0.3.0 to both 0.3.2, formula/stateless CLI/license and
+strict linkage checks, and removal passed; disposable state stayed unchanged.
+Preinstalled transitive dependencies were recorded. Scoped trust preceded a
+verified tap checkout, so automatic tap cloning was not tested. See the
+[Homebrew validation record](packaging/homebrew/README.md#maintain-and-validate).
+
 ## Acceptance limits
 
-Older macOS releases and Intel Mac runtime behavior have not been exercised.
+The Homebrew source-formula checks cover only the two macOS versions above; they
+do not extend acceptance of the separate v0.3.0 prebuilt downloads or establish
+physical UI/clipboard behavior. Other macOS versions and Intel Mac runtime
+acceptance remain pending. Developer ID signing and notarization remain pending.
 Real Codex/Claude/Copilot sessions and physical terminal-specific key handling
 still need user acceptance. Full VT compatibility is not claimed.
 

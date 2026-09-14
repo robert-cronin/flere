@@ -32,7 +32,7 @@ channels retain their individual validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
-| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.2; native Linux fresh dependencies and version upgrade passed. Isolated macOS version upgrade passed with cached-dependency limits |
+| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.2; native Linux fresh dependencies and version upgrade passed. Hosted macOS 15/26 arm64 default-prefix installs, fresh direct Rust and literal version upgrade passed |
 | [Cargo / crates.io](https://crates.io/crates/flere/0.3.3) | Core source package for Linux/macOS | Published v0.3.3 through Trusted Publishing; public archive and all 124 source files verified. Companion excluded |
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Arch build/metadata and emulated pacman install/remove/CLI checks passed. Account setup and submission pending |
@@ -60,17 +60,21 @@ Use `brew upgrade robert-cronin/flere/flere` after `brew update`; upgrade the
 companion through Homebrew too if installed. See the
 [tap guide](../packaging/homebrew/README.md) for removal and maintenance.
 
-Native Linux and isolated macOS arm64 source installation, formula tests, CLI
-checks, upgrade from v0.3.0 to v0.3.2 and removal passed for both components. Linux
-used fresh dependencies and passed strict linkage checks. macOS used a private
-prefix, cached dependencies, `--ignore-dependencies` and install-driven upgrade;
-fresh macOS provisioning remains unverified. Test state stayed unchanged. See the
+Native Linux and hosted macOS 15/26 arm64 checks passed source installation,
+formula tests, stateless CLI and license checks, strict linkage, upgrade from core
+v0.3.0_1/companion v0.3.0 to v0.3.2, and removal for both components. The macOS jobs
+used the default `/opt/homebrew` prefix, empty private caches, fresh direct
+Homebrew Rust and literal `brew upgrade`, with the normal sandbox enabled.
+Preinstalled transitive dependencies were recorded; scoped trust preceded a
+verified tap checkout, so automatic tap cloning was not tested. Disposable state
+stayed unchanged. See the
 [tap validation record](../packaging/homebrew/README.md#maintain-and-validate).
 
 The source build uses the host's runtime; the prebuilt Linux glibc requirement
-does not apply to these formulas. Intel Macs and Linux ARM are excluded, and older
-macOS runtime acceptance remains pending. Building successfully does not establish
-all runtime features on a new OS/version.
+does not apply to these formulas. Intel Macs and Linux ARM remain excluded.
+The macOS source-formula checks cover 15.7.9 and 26.6.2, not other OS versions or
+physical terminal behavior. They do not extend acceptance of the separate
+v0.3.0 macOS prebuilt downloads.
 
 The [prepared binary casks](../packaging/homebrew-prebuilt/README.md) remain
 unpublished: normal macOS Gatekeeper blocked execution of the unnotarized download

@@ -28,10 +28,11 @@ files; installation compiles in Cargo's offline mode after fetching them. On Lin
 the core also declares `zlib-ng-compat` as a runtime dependency; the companion does
 not need it.
 
-This tap supports macOS Apple Silicon and Linux x86_64. Intel Macs and Linux ARM
-are excluded pending runtime acceptance. Older macOS runtime acceptance remains
-pending; Homebrew and its Rust dependency also impose their own supported OS
-requirements. See [platform limits](https://github.com/robert-cronin/flere/blob/main/MACOS.md)
+This tap supports macOS Apple Silicon and Linux x86_64. Source-formula lifecycle
+checks passed on macOS 15.7.9 and 26.6.2; other macOS versions and physical terminal
+behavior remain unverified by those checks. Intel Macs and Linux ARM are excluded
+pending runtime acceptance. Homebrew and its Rust dependency also impose their own
+supported OS requirements. See [platform limits](https://github.com/robert-cronin/flere/blob/main/MACOS.md)
 and [release validation](https://github.com/robert-cronin/flere/blob/main/docs/releases/0.3.0-validation.md).
 The source build uses the host runtime; the separate Linux GNU prebuilt package's
 glibc 2.39 minimum does not apply to a native source build.
@@ -71,7 +72,7 @@ runtime acceptance.
 
 ## Maintain and validate
 
-Native Linux x86_64 and isolated macOS arm64 checks completed source installation,
+Native Linux x86_64 and hosted macOS arm64 checks completed source installation,
 both formula tests, stateless CLI and license checks, upgrade from core `0.3.0_1`
 and companion `0.3.0` to `0.3.2`, and full removal. Both new executables and selected
 kegs were checked; disposable state and configuration stayed unchanged.
@@ -83,13 +84,22 @@ Default security settings remained enabled and the exact isolated container was
 removed. Scoped formula trust preceded a verified Git checkout, so this does not
 establish Homebrew's automatic tap-cloning flow.
 
-macOS used a nonstandard private prefix, cached Rust/Cargo dependencies and
-Homebrew's unsupported `--ignore-dependencies` option, with its sandbox enabled. The between-release
-upgrade used `brew install`'s automatic upgrade behavior, not literal
-`brew upgrade`. Fresh macOS dependency provisioning and the default prefix remain
-unvalidated. The retained Rust toolchain emitted an LLVM stripping warning while
-builds succeeded. Neither platform's stateless checks establish interactive
-terminal behavior or preservation of live sessions.
+The [hosted macOS acceptance run](https://github.com/robert-cronin/flere/actions/runs/34862741037)
+passed on native arm64 macOS 15.7.9 with Xcode 16.4 and macOS 26.6.2 with Xcode
+26.6. Each disposable VM used the default `/opt/homebrew` prefix, Homebrew 7.0.1,
+empty private caches and newly installed direct Homebrew Rust 1.98.1. Normal
+`brew install`, literal `brew upgrade`, both formula tests, CLI/license checks,
+strict linkage before and after upgrade, and normal uninstall passed with the
+Homebrew sandbox enabled. No `--ignore-dependencies` option was used.
+
+Preinstalled transitive dependencies were recorded, so this does not claim every
+dependency was pristine. Scoped trust and verified tap checkouts at the two
+reviewed commits were used; automatic tap cloning was not tested. Earlier local
+macOS private-prefix checks used cached dependencies and install-driven upgrade;
+they remain separate historical evidence. Neither platform's stateless checks
+establish interactive terminal behavior or preservation of live sessions. These
+source-formula results do not validate the separate v0.3.0 prebuilt downloads,
+Intel Macs, Developer ID signing or notarization.
 
 Both formulas intentionally use the full source archive: the companion references
 shared code and build support outside its own directory. Preserve the font licenses
@@ -113,11 +123,13 @@ In this standalone tap, run the same commands without `packaging/homebrew/`; use
 hashes the archive and checks that the core, companion, shared build inputs and
 licenses are present. It never extracts, installs, commits or publishes anything.
 
-Run Homebrew style, installation and formula tests in an isolated prefix on each
-supported OS. Use disposable home-cache directories for build/test state. During
-local offline validation, preseed a disposable Cargo cache and set
+Run Homebrew style, installation and formula tests on disposable machines for each
+supported OS, keeping build/test state in disposable home-cache directories. The
+[manual macOS workflow](https://github.com/robert-cronin/flere/blob/main/.github/workflows/homebrew-macos.yml)
+checks fresh direct Rust provisioning, the default prefix and literal version upgrade.
+For separate local offline checks, preseed a disposable Cargo cache and set
 `CARGO_NET_OFFLINE=true`; the formula's fetch step then checks the cache without
-network access. A fresh user's Homebrew installation fetches the locked dependencies.
+network access. Cached checks do not establish fresh dependency provisioning.
 
 Publish only `Formula/`, `README.md`, `LICENSE`, `render.py`, `verify.py` and
 `formula.rb.in` from this directory.
