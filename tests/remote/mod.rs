@@ -1186,7 +1186,9 @@ fn remote_card_links_copy_only_after_explicit_activation_without_native_input() 
     ]);
     f.send(&t, b"echo REMOTE_DETAILS_DRAFT");
     f.wait_text(&t, "REMOTE_DETAILS_DRAFT");
-    let mut b = Bridge::with_path(&f, 160, 35, "/usr/bin:/bin".into());
+    let empty_bin = f.root.join("empty-bin");
+    fs::create_dir(&empty_bin).unwrap();
+    let mut b = Bridge::with_path(&f, 160, 35, empty_bin.to_string_lossy().into_owned());
     b.send(protocol::KEYS, 0, b"\0h?");
     b.wait_screen("Install gh");
     assert!(b.screen.capture(100).contains("Copy PR"));
