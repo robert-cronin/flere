@@ -1048,3 +1048,13 @@ The local companion and remote Flere both need the current implementation for
 this sizing fix. That historical change retained v4; screenshot export followed
 in v5, and the current coordinated-update/file-tools protocol is v6. **Ctrl+Space,
 Shift+K** now prepares and reviews the pair through the companion before apply.
+
+Current development builds check the installation owner of both remote processes
+and the local companion before preparing the update. A package-manager copy shows
+upgrade instructions; an unknown owner keeps Apply unavailable. A recognized
+manual per-user copy can be adopted only through the explicit local review, with
+its previous bytes retained. Ownership and the selected connection are checked
+again before installation. Both candidate programs must support this flow; older
+endpoints or candidates need a manual upgrade first, even when their version
+number matches. Native Linux manager and Windows runtime acceptance of these new
+checks remain pending.

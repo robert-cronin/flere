@@ -7,7 +7,11 @@ use std::{
     collections::VecDeque,
     io::{self, Write},
     path::PathBuf,
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 
@@ -15,7 +19,12 @@ fn invalid(s: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, s)
 }
 fn clean(s: &str) -> String {
-    s.chars().filter(|c| !c.is_control()).take(4096).collect()
+    s.chars()
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .take(4096)
+        .collect()
 }
 #[derive(Clone, Deserialize, Serialize)]
 struct Core {
@@ -36,6 +45,10 @@ struct Plan {
     companion_attempt: Option<String>,
     core_attempt: Option<String>,
     detail: String,
+    owners: protocol::CoreOwners,
+    companion_owner: protocol::InstallationOwner,
+    adopt_core: bool,
+    adopt_companion: bool,
 }
 fn path(token: &str) -> io::Result<PathBuf> {
     if !protocol::token(token) {
@@ -48,28 +61,42 @@ fn save(plan: &Plan) -> io::Result<()> {
 }
 struct Request {
     args: Vec<String>,
+    generation: u64,
     reply: mpsc::SyncSender<io::Result<Value>>,
 }
 #[derive(Clone)]
-struct Rpc(mpsc::SyncSender<Request>);
+struct Rpc(mpsc::SyncSender<Request>, u64, Arc<AtomicU64>);
 impl Rpc {
+    fn ensure_current(&self) -> io::Result<()> {
+        if self.2.load(Ordering::SeqCst) != self.1 {
+            return Err(invalid(
+                "update action or connection changed; prepare again",
+            ));
+        }
+        Ok(())
+    }
     fn call(&self, args: &[&str]) -> io::Result<Value> {
+        self.ensure_current()?;
         let (reply, result) = mpsc::sync_channel(1);
         self.0
             .send(Request {
+                generation: self.1,
                 args: args.iter().map(|s| (*s).into()).collect(),
                 reply,
             })
             .map_err(|_| invalid("update connection closed"))?;
-        result
+        let value = result
             .recv_timeout(Duration::from_secs(1830))
             .map_err(|_| {
                 invalid("update request ended without a result; inspect its retained plan")
-            })?
+            })??;
+        self.ensure_current()?;
+        Ok(value)
     }
 }
 struct Reply {
     id: u64,
+    generation: u64,
     sender: mpsc::SyncSender<io::Result<Value>>,
     length: Option<usize>,
     success: bool,
@@ -112,6 +139,8 @@ pub struct Coordinator {
     reply: Option<Reply>,
     last_frame: Vec<u8>,
     released: Option<Instant>,
+    owner_capable: bool,
+    connected: bool,
 }
 impl Default for Coordinator {
     fn default() -> Self {
@@ -120,17 +149,30 @@ impl Default for Coordinator {
             flow: None,
             last: 0,
             counter: 0,
-            rpc: Rpc(tx),
+            rpc: Rpc(tx, 0, Arc::new(AtomicU64::new(0))),
             requests,
             reply: None,
             last_frame: Vec::new(),
             released: None,
+            owner_capable: false,
+            connected: false,
         }
     }
 }
 fn prepare(connection: &Connection, sources: [String; 2], rpc: &Rpc) -> io::Result<Outcome> {
-    let companion = update::prepare(&sources[1])?;
-    let remote = rpc.call(&["update-prepare", &sources[0]])?;
+    let companion_owner = update::installation_owner()?;
+    companion_owner.require_update()?;
+    let value = rpc.call(&["update-ownership-v1"])?;
+    if serde_json::to_vec(&value).map_err(io::Error::other)?.len() > protocol::OWNERSHIP_LIMIT {
+        return Err(invalid("remote ownership report exceeds bound"));
+    }
+    let owners: protocol::CoreOwners = serde_json::from_value(value).map_err(io::Error::other)?;
+    owners.require_update()?;
+    let companion = update::prepare_guarded(&sources[1], &companion_owner)?;
+    let remote = rpc.call(&["update-prepare-v1", &sources[0]])?;
+    if remote["owners"] != serde_json::to_value(&owners).map_err(io::Error::other)? {
+        return Err(invalid("remote ownership changed during preparation"));
+    }
     let token = remote["token"]
         .as_str()
         .filter(|s| protocol::token(s))
@@ -176,7 +218,7 @@ fn prepare(connection: &Connection, sources: [String; 2], rpc: &Rpc) -> io::Resu
         .filter(|n| *n > 0 && *n <= u32::MAX as u64)
         .ok_or_else(|| invalid("remote PID is invalid"))? as u32;
     let plan = Plan {
-        schema_version: 1,
+        schema_version: 2,
         token: update::nonce()?,
         connection: connection.args(),
         core: Core {
@@ -191,15 +233,29 @@ fn prepare(connection: &Connection, sources: [String; 2], rpc: &Rpc) -> io::Resu
         companion_attempt: None,
         core_attempt: None,
         detail: "Both packages verified; awaiting local Update action".into(),
+        owners,
+        companion_owner,
+        adopt_core: false,
+        adopt_companion: false,
     };
     save(&plan)?;
     Ok(Outcome::Prepared(Box::new(plan)))
 }
 fn apply(mut plan: Plan, rpc: &Rpc) -> io::Result<Outcome> {
+    plan.owners.require_update()?;
+    plan.companion_owner.require_update()?;
+    if plan.schema_version != 2
+        || plan.owners.manual() && !plan.adopt_core
+        || plan.companion_owner.manual() && !plan.adopt_companion
+    {
+        return Err(invalid(
+            "coordinated plan lacks explicit installation adoption confirmation",
+        ));
+    }
     // Never use a remote path as a local executable. The prepared local package
     // is independently verified again by the installer before stable replacement.
     if plan.companion_attempt.is_none() {
-        let remote = rpc.call(&["update-plan", &plan.core.token])?;
+        let remote = rpc.call(&["update-plan-v1", &plan.core.token])?;
         if remote["status"] != "prepared"
             || remote["ready"] != true
             || remote["runtime"]["epoch"] != plan.core.epoch
@@ -207,7 +263,12 @@ fn apply(mut plan: Plan, rpc: &Rpc) -> io::Result<Outcome> {
         {
             return Err(invalid("remote plan changed before companion installation"));
         }
-        let receipt = update::install_prepared(&plan.companion, true)?;
+        let receipt = update::install_prepared_guarded(
+            &plan.companion,
+            plan.adopt_companion,
+            &plan.companion_owner,
+            || rpc.ensure_current(),
+        )?;
         plan.companion_attempt = Some(receipt.attempt);
         plan.phase = "companion_installed".into();
         plan.detail = "Companion installed; reconnecting before updating the remote core".into();
@@ -225,7 +286,11 @@ fn apply(mut plan: Plan, rpc: &Rpc) -> io::Result<Outcome> {
     plan.phase = "applying_core".into();
     plan.detail = "New companion is running; applying the prepared remote core".into();
     save(&plan)?;
-    let receipt = rpc.call(&["update-apply", &plan.core.token])?;
+    let receipt = rpc.call(&[
+        "update-apply-v1",
+        &plan.core.token,
+        if plan.adopt_core { "adopt" } else { "managed" },
+    ])?;
     if receipt["activation"]["supervisor"] != "applied"
         || receipt["activation"]["after"]["epoch"] != plan.core.epoch
         || receipt["activation"]["after"]["pid"] != plan.core.pid
@@ -260,7 +325,12 @@ impl Coordinator {
     pub fn discard_input(&self, received: Instant) -> bool {
         self.released.is_some_and(|released| received <= released)
     }
+    fn invalidate(&mut self) {
+        self.rpc.1 = self.rpc.1.saturating_add(1);
+        self.rpc.2.store(self.rpc.1, Ordering::SeqCst);
+    }
     pub fn failed(&mut self, message: &str) {
+        self.invalidate();
         if let Some(flow) = &mut self.flow {
             flow.phase = Phase::Failed;
             flow.status = clean(message);
@@ -275,7 +345,7 @@ impl Coordinator {
             return Ok(());
         };
         let plan: Plan = update::read_json(&path(&token.to_string_lossy())?)?;
-        if plan.schema_version != 1
+        if plan.schema_version != 2
             || plan.connection != connection.args()
             || !matches!(
                 plan.phase.as_str(),
@@ -314,6 +384,10 @@ impl Coordinator {
         Ok(())
     }
     pub fn connection_ready(&mut self) {
+        self.connected = true;
+        if !self.owner_capable {
+            return;
+        }
         let plan = self
             .flow
             .as_ref()
@@ -340,9 +414,14 @@ impl Coordinator {
             ));
             return Ok(());
         }
+        self.invalidate();
         self.last = packet.id;
+        if !self.owner_capable {
+            queue.push_back(Packet::new(protocol::RESULT, packet.id, serde_json::to_vec(&json!({"message": "Remote endpoint cannot report installation ownership. Upgrade remote Flere manually first, then reconnect."})).unwrap()));
+            return Ok(());
+        }
         self.last_frame.clear();
-        let source = match update::source_default()? {
+        let source = match update::source_default().ok().flatten() {
             Some(update::PackageSource::Public { manifest_url }) => manifest_url,
             _ => String::new(),
         };
@@ -375,6 +454,7 @@ impl Coordinator {
         flow.status = "Applying update; terminal sessions remain alive…".into();
     }
     fn cancel(&mut self, queue: &mut VecDeque<Packet>, size: (u16, u16)) {
+        self.invalidate();
         if let Some(flow) = self.flow.take() {
             self.released = Some(Instant::now());
             queue.push_back(Packet::new(protocol::RESULT, flow.request, serde_json::to_vec(&json!({"message": if flow.phase == Phase::Failed {flow.status} else {"Update cancelled; installed components retained".into()}})).unwrap()));
@@ -489,7 +569,10 @@ impl Coordinator {
         if action == 2 {
             flow.input.clear();
             if flow.phase == Phase::Review {
-                let plan = flow.plan.clone().unwrap();
+                let mut plan = flow.plan.clone().unwrap();
+                plan.adopt_core = plan.owners.manual();
+                plan.adopt_companion = plan.companion_owner.manual();
+                save(&plan)?;
                 self.start_apply(plan);
             } else if flow.phase == Phase::Form {
                 let sources = flow
@@ -524,6 +607,16 @@ impl Coordinator {
         queue: &mut VecDeque<Packet>,
         size: (u16, u16),
     ) -> io::Result<bool> {
+        if packet.tag == crate::protocol::CAPABILITIES
+            && packet.id == 0
+            && packet.data == protocol::OWNERSHIP_CAPABILITY
+        {
+            self.owner_capable = true;
+            if self.connected {
+                self.connection_ready();
+            }
+            return Ok(true);
+        }
         if packet.tag == protocol::ACK {
             if packet.id != 0 || packet.data.len() > 8192 {
                 return Err(invalid("invalid frontend update acknowledgement"));
@@ -599,7 +692,9 @@ impl Coordinator {
                     return Err(invalid("update response was incomplete"));
                 }
                 let reply = self.reply.take().unwrap();
-                let result = if reply.success {
+                let result = if reply.generation != self.rpc.1 {
+                    Err(invalid("update action changed; reply discarded"))
+                } else if reply.success {
                     serde_json::from_slice(&reply.bytes).map_err(io::Error::other)
                 } else {
                     Err(invalid(&clean(&String::from_utf8_lossy(&reply.bytes))))
@@ -616,9 +711,25 @@ impl Coordinator {
         connection: &Connection,
         queue: &mut VecDeque<Packet>,
     ) -> io::Result<bool> {
+        if self.connected
+            && !self.owner_capable
+            && self.flow.as_ref().is_some_and(|f| {
+                f.phase == Phase::Applying
+                    && f.job.is_none()
+                    && f.waiting.elapsed() > Duration::from_secs(3)
+            })
+        {
+            self.failed("Remote endpoint cannot report installation ownership. Upgrade remote Flere manually first, then reconnect.");
+        }
         if self.reply.is_none()
             && let Ok(request) = self.requests.try_recv()
         {
+            if request.generation != self.rpc.1 || !self.owner_capable {
+                let _ = request
+                    .reply
+                    .send(Err(invalid("update connection changed; prepare again")));
+                return Ok(false);
+            }
             self.counter = self
                 .counter
                 .checked_add(1)
@@ -630,6 +741,7 @@ impl Coordinator {
             ));
             self.reply = Some(Reply {
                 id: self.counter,
+                generation: self.rpc.1,
                 sender: request.reply,
                 length: None,
                 success: false,
@@ -696,6 +808,21 @@ impl Coordinator {
         Ok(false)
     }
     pub fn refreshed(&mut self) {
+        self.invalidate();
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.sender.send(Err(invalid(
+                "update connection changed; inspect the retained plan",
+            )));
+        }
+        if self
+            .flow
+            .as_ref()
+            .is_some_and(|f| matches!(f.phase, Phase::Form | Phase::Preparing | Phase::Review))
+        {
+            self.failed("Connection changed during review; close and prepare a fresh update.");
+        }
+        self.owner_capable = false;
+        self.connected = false;
         self.last_frame.clear();
         if !self.active() {
             self.last = 0;
@@ -737,6 +864,12 @@ impl Coordinator {
                 plan.companion.package.manifest.build.build_id
             ));
             lines.push("SHA-256 verified · previous packages retained".into());
+            if plan.owners.manual() {
+                lines.push("Enter also adopts the manual remote core.".into());
+            }
+            if plan.companion_owner.manual() {
+                lines.push("Enter also adopts the manual local companion.".into());
+            }
         } else {
             lines.push(format!(
                 "{} Remote core: {}",
@@ -753,10 +886,34 @@ impl Coordinator {
         }
         let height = usize::from(size.1);
         lines.truncate(height.saturating_sub(4));
-        lines.push(flow.status.clone());
+        // Manager commands and recovery guidance remain passive text. Wrap them
+        // within the modal instead of silently cutting off a custom install root.
+        let mut status = vec![String::new()];
+        for ch in clean(&flow.status).chars() {
+            if !status.last().unwrap().is_empty()
+                && status.last().unwrap().len() + ch.len_utf8() > width.max(1)
+            {
+                status.push(String::new());
+            }
+            status.last_mut().unwrap().push(ch);
+        }
+        let room = height.saturating_sub(lines.len() + 3).max(1);
+        if status.len() <= room {
+            lines.extend(status);
+        } else {
+            lines.push("Enlarge this window to read the complete update guidance.".into());
+        }
         lines.push(
             match flow.phase {
                 Phase::Form => "Tab field · Enter prepare · Ctrl+U clear · Esc cancel",
+                Phase::Review
+                    if flow
+                        .plan
+                        .as_ref()
+                        .is_some_and(|p| p.owners.manual() || p.companion_owner.manual()) =>
+                {
+                    "Enter ADOPTS manual files + updates · Esc cancel"
+                }
                 Phase::Review => "Enter Update now · Esc cancel",
                 Phase::Failed => "Enter / Esc close · receipt retained for recovery",
                 _ => "Update in progress; all input stays in this local view",
@@ -814,6 +971,64 @@ mod tests {
             }),
             ..Coordinator::default()
         }
+    }
+    #[test]
+    fn ownership_capability_is_required_and_never_survives_reconnect() {
+        let mut coordinator = Coordinator::default();
+        let mut queue = VecDeque::new();
+        coordinator
+            .offer(
+                &Packet::new(protocol::REQUEST, 1, []),
+                &connection(),
+                &mut queue,
+            )
+            .unwrap();
+        assert!(!coordinator.active());
+        assert!(String::from_utf8_lossy(&queue[0].data).contains("manually first"));
+        assert!(coordinator.requests.try_recv().is_err());
+        coordinator
+            .packet(
+                &Packet::new(
+                    crate::protocol::CAPABILITIES,
+                    0,
+                    protocol::OWNERSHIP_CAPABILITY,
+                ),
+                &mut queue,
+                (80, 24),
+            )
+            .unwrap();
+        assert!(coordinator.owner_capable);
+        let stale = coordinator.rpc.clone();
+        coordinator.refreshed();
+        assert!(!coordinator.owner_capable);
+        assert!(stale.ensure_current().is_err());
+        assert!(coordinator.requests.try_recv().is_err());
+    }
+    #[test]
+    fn cancelled_generation_cannot_turn_a_late_ready_reply_into_install_permission() {
+        let mut coordinator = form();
+        coordinator.owner_capable = true;
+        let stale = coordinator.rpc.clone();
+        let (sender, result) = mpsc::sync_channel(1);
+        coordinator.reply = Some(Reply {
+            id: 7,
+            generation: stale.1,
+            sender,
+            length: Some(2),
+            success: true,
+            bytes: b"{}".to_vec(),
+        });
+        coordinator.failed("installation changed");
+        coordinator
+            .packet(
+                &Packet::new(protocol::END, 7, []),
+                &mut VecDeque::new(),
+                (80, 24),
+            )
+            .unwrap();
+        assert!(result.try_recv().unwrap().is_err());
+        assert!(stale.ensure_current().is_err());
+        assert!(coordinator.flow.as_ref().unwrap().job.is_none());
     }
     #[test]
     fn remote_request_cannot_supply_local_package_sources() {
@@ -900,6 +1115,7 @@ mod tests {
         let (sender, result) = mpsc::sync_channel(1);
         coordinator.reply = Some(Reply {
             id: 7,
+            generation: coordinator.rpc.1,
             sender,
             length: None,
             success: false,

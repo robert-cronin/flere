@@ -30,7 +30,7 @@ validation and publication requirements.
 | [Cargo / crates.io](../packaging/cargo/README.md) | Core source package | Archive verified; registry publication pending |
 | [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Debian archive/native CLI checks and emulated Ubuntu APT lifecycle passed. Arch makepkg/build/metadata and emulated pacman install/remove/CLI checks passed. Debian asset publication and AUR submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
-| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Draft prepared; Nix parsing, evaluation, builds and runtime validation pending. Not a supported installation method |
+| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory and broader runtime acceptance pending; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
 | Chocolatey | Additional Windows installations | Queued; not validated or published |
 
@@ -86,9 +86,13 @@ Use the original manager for those installations to avoid creating an additional
 The development version checks the running executable's installation receipts or
 system-package ownership before offering a local update. Recognized Homebrew,
 Cargo, Debian and RPM installations show instructions for their manager; Flere
-does not run those commands. This check does not yet cover coordinated remote
-updates. Use `command -v flere` and `flere --build-info` to inspect the command
-your shell selects.
+does not run those commands. Coordinated updates also inspect the selected remote
+frontend and supervisor and the local companion. Manager-owned or unknown copies
+require a manual upgrade through their owner. Verified manual per-user copies
+show an explicit adoption choice in the local review; ownership is checked again
+before replacement. Older endpoints and candidates without this capability require
+one manual upgrade, including older builds with the same package version.
+Use `command -v flere` and `flere --build-info` to inspect the command your shell selects.
 
 Updating package files does not prove a running supervisor or every attached UI
 has loaded them. Inspect `flere build-status` for the selected state; see

@@ -505,12 +505,17 @@ pub(crate) fn coordinated_dir() -> io::Result<PathBuf> {
     Ok(directory)
 }
 
-pub(crate) fn prepare(source: &str) -> io::Result<Prepared> {
-    let store = Store::standard()?;
-    prepare_in(&store, source)
-}
+#[cfg(all(test, unix))]
 fn prepare_in(store: &Store, source: &str) -> io::Result<Prepared> {
+    prepare_checked(store, source, || Ok(()))
+}
+fn prepare_checked(
+    store: &Store,
+    source: &str,
+    guard: impl FnOnce() -> io::Result<()>,
+) -> io::Result<Prepared> {
     let _lock = store.lock()?;
+    guard()?;
     store.recover()?;
     let baseline = store.baseline()?;
     if source == "--rollback" {
@@ -563,16 +568,22 @@ fn prepare_in(store: &Store, source: &str) -> io::Result<Prepared> {
         })
     }
 }
-pub(crate) fn install_prepared(prepared: &Prepared, adopt: bool) -> io::Result<InstallResult> {
-    let store = Store::standard()?;
-    install_prepared_in(&store, prepared, adopt)
-}
+#[cfg(all(test, unix))]
 fn install_prepared_in(
     store: &Store,
     prepared: &Prepared,
     adopt: bool,
 ) -> io::Result<InstallResult> {
+    install_prepared_checked(store, prepared, adopt, || Ok(()))
+}
+fn install_prepared_checked(
+    store: &Store,
+    prepared: &Prepared,
+    adopt: bool,
+    guard: impl FnOnce() -> io::Result<()>,
+) -> io::Result<InstallResult> {
     let _lock = store.lock()?;
+    guard()?;
     store.recover()?;
     if store.baseline()? != prepared.baseline {
         return Err(invalid(
@@ -1099,7 +1110,7 @@ impl Store {
         }
         result
     }
-    fn adopt(&self) -> io::Result<Package> {
+    fn adopt(&self, candidate: &Package) -> io::Result<Package> {
         let path = self.destination();
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() || !owned(&metadata, false) {
@@ -1110,6 +1121,14 @@ impl Store {
         let build = inspect(&path)?;
         if build.component != COMPONENT || build.target != crate::build_info::TARGET {
             return Err(invalid("manual predecessor component/target differs"));
+        }
+        // Preserve exact manual bytes even when the selected candidate already
+        // retains them under a richer manifest (for example download metadata).
+        if build == candidate.manifest.build
+            && metadata.len() == candidate.manifest.payload.bytes
+            && sha256(&path)? == candidate.manifest.payload.sha256
+        {
+            return Ok(candidate.clone());
         }
         let temporary = self.root.join(format!(".adopt-{}", nonce()?));
         private_dir(&temporary)?;
@@ -1168,7 +1187,7 @@ impl Store {
                         "explicit --adopt is required for an existing manual companion",
                     ));
                 }
-                Some(self.adopt()?)
+                Some(self.adopt(&package)?)
             }
             None => None,
         };
@@ -1552,6 +1571,51 @@ pub fn command(args: &[String]) -> io::Result<bool> {
     Ok(true)
 }
 
+#[path = "ownership.rs"]
+mod ownership;
+pub(crate) use ownership::current as installation_owner;
+fn candidate_ownership(package: &Package) -> io::Result<()> {
+    let capability = run(
+        Command::new(&package.executable)
+            .arg("--coordinated-update-info")
+            .stdin(Stdio::null()),
+        128,
+        Duration::from_secs(3),
+    );
+    if !capability.is_ok_and(|bytes| bytes == crate::remote_update::CANDIDATE_CAPABILITY) {
+        return Err(invalid(
+            "Companion candidate cannot prove coordinated ownership support. Upgrade this endpoint manually first.",
+        ));
+    }
+    Ok(())
+}
+pub(crate) fn prepare_guarded(
+    source: &str,
+    owner: &crate::remote_update::InstallationOwner,
+) -> io::Result<Prepared> {
+    let prepared = prepare_checked(&Store::standard()?, source, || ownership::check(owner))?;
+    candidate_ownership(&prepared.package)?;
+    Ok(prepared)
+}
+pub(crate) fn install_prepared_guarded(
+    prepared: &Prepared,
+    adopt: bool,
+    owner: &crate::remote_update::InstallationOwner,
+    active: impl FnOnce() -> io::Result<()>,
+) -> io::Result<InstallResult> {
+    owner.require_update()?;
+    if owner.manual() && !adopt {
+        return Err(invalid(
+            "manual companion requires explicit local adoption confirmation",
+        ));
+    }
+    let store = Store::standard()?;
+    install_prepared_checked(&store, prepared, adopt, || {
+        ownership::check(owner)?;
+        active()
+    })
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -1622,6 +1686,70 @@ mod tests {
                 fs::remove_dir_all(&self.root).unwrap();
             }
         }
+    }
+    #[test]
+    fn coordinated_owner_requires_exact_executable_and_rechecks_under_lock() {
+        let f = Fixture::new();
+        let original = f.package("owned-first");
+        let next = f.package("owned-next");
+        private_dir(&f.store.bin).unwrap();
+        fs::copy(original.join(COMPONENT), f.store.destination()).unwrap();
+        executable(&f.store.destination()).unwrap();
+        let build = serde_json::from_str(crate::build_info::json()).unwrap();
+        let manual = ownership::selected(&f.store, &f.store.destination(), &build).unwrap();
+        assert!(manual.manual());
+        assert_eq!(
+            ownership::selected(&f.store, &original.join(COMPONENT), &build)
+                .unwrap()
+                .kind,
+            crate::remote_update::OwnerKind::Unknown
+        );
+        let prepared = prepare_in(&f.store, next.to_str().unwrap()).unwrap();
+        let cargo = f.store.bin.parent().unwrap().join(".crates2.json");
+        let id = format!(
+            "flere-connect {} (registry+https://github.com/rust-lang/crates.io-index)",
+            env!("CARGO_PKG_VERSION")
+        );
+        write_json(
+            &cargo,
+            &serde_json::json!({"installs":{id:{"bins":["flere-connect"],"profile":"release"}}}),
+        )
+        .unwrap();
+        let manager = ownership::selected(&f.store, &f.store.destination(), &build).unwrap();
+        assert_eq!(manager.kind, crate::remote_update::OwnerKind::Manager);
+        assert!(manager.guidance.contains("flere-connect"));
+        assert!(manager.require_update().is_err());
+        let before = fs::read(f.store.destination()).unwrap();
+        assert!(
+            install_prepared_checked(&f.store, &prepared, true, || {
+                assert!(
+                    f.store.lock().is_err(),
+                    "guard must hold the installation lock"
+                );
+                ownership::selected(&f.store, &f.store.destination(), &build)?.require_update()
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read(f.store.destination()).unwrap(), before);
+        assert!(f.store.status().unwrap().is_none());
+        fs::write(&cargo, b"{broken").unwrap();
+        assert_eq!(
+            ownership::selected(&f.store, &f.store.destination(), &build)
+                .unwrap()
+                .kind,
+            crate::remote_update::OwnerKind::Unknown
+        );
+        fs::remove_file(&cargo).unwrap();
+        let installed = install_prepared_in(&f.store, &prepared, true).unwrap();
+        let managed = ownership::selected(&f.store, &installed.current.executable, &build).unwrap();
+        assert_eq!(managed.kind, crate::remote_update::OwnerKind::Managed);
+        assert_eq!(managed.attempt.as_deref(), Some(installed.attempt.as_str()));
+        assert_eq!(
+            ownership::selected(&f.store, &original.join(COMPONENT), &build)
+                .unwrap()
+                .kind,
+            crate::remote_update::OwnerKind::Unknown
+        );
     }
     #[test]
     fn windows_launcher_names_share_one_receipt_and_stay_stable_through_update_and_rollback() {

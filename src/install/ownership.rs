@@ -70,222 +70,164 @@ fn for_executable(executable: &Path, version: &str) -> Option<ManagerUpgrade> {
     system_package(&executable)
 }
 
+mod manager;
+use manager::{cargo, homebrew, system_package};
+#[cfg(test)]
+use manager::{debian_owner, rpm_owner, rpm_upgrade};
 fn receipt(path: &Path) -> Option<serde_json::Value> {
-    // O_NOFOLLOW and a byte limit also keep malformed receipts passive/bounded.
     read_bounded_json(path, 1024 * 1024).ok()
 }
-
-fn word(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"+_.-".contains(&b))
-        && value.as_bytes()[0].is_ascii_alphanumeric()
-}
-
-fn homebrew(executable: &Path, version: &str) -> Option<ManagerUpgrade> {
-    let bin = executable.parent()?;
-    let keg = bin.parent()?;
-    let formula = keg.parent()?;
-    let cellar = formula.parent()?;
-    if bin.file_name()? != "bin"
-        || formula.file_name()? != "flere"
-        || cellar.file_name()? != "Cellar"
-    {
-        return None;
-    }
-    let keg_version = keg.file_name()?.to_str()?;
-    if keg_version != version
-        && !keg_version.strip_prefix(version).is_some_and(|revision| {
-            revision
-                .strip_prefix('_')
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        })
-    {
-        return None;
-    }
-    let tab = receipt(&keg.join("INSTALL_RECEIPT.json"))?;
-    if tab["homebrew_version"].as_str()?.is_empty()
-        || tab["source"]["spec"].as_str()? != "stable"
-        || tab["source"]["versions"]["stable"].as_str()? != version
-    {
-        return None;
-    }
-    let tap = tab["source"]["tap"].as_str()?;
-    let (owner, repository) = tap.split_once('/')?;
-    if !word(owner) || !word(repository) {
-        return None;
-    }
-    Some(ManagerUpgrade {
-        manager: "Homebrew",
-        command: Some(format!("brew upgrade {tap}/flere")),
-        detail: "Run this in a shell, then reopen Flere. Running sessions stay alive.",
-    })
-}
-
-fn cargo(executable: &Path, version: &str) -> Option<ManagerUpgrade> {
-    let bin = executable.parent()?;
-    if bin.file_name()? != "bin" {
-        return None;
-    }
-    let root = bin.parent()?;
-    let root_text = root.to_str()?;
-    if root_text.chars().any(char::is_control) {
-        return None;
-    }
-    let metadata = receipt(&root.join(".crates2.json"))?;
-    let installs = metadata["installs"].as_object()?;
-    let owners: Vec<_> = installs
-        .iter()
-        .filter(|(_, entry)| {
-            entry["bins"]
-                .as_array()
-                .is_some_and(|bins| bins.iter().any(|bin| bin.as_str() == Some("flere")))
-        })
-        .collect();
-    if owners.is_empty() {
-        return None;
-    }
-    if owners.len() != 1 {
-        return Some(ManagerUpgrade {
-            manager: "Cargo",
-            command: None,
-            detail: "Multiple Cargo receipts claim this executable. Review the Cargo installation and reopen Flere; in-app Apply is disabled.",
-        });
-    }
-    let (id, entry) = owners[0];
-    // Git/path/alternate-registry installs retain their explicit development or
-    // manual update flow; never redirect them to crates.io based on the filename.
-    let recorded_version = [
-        "registry+https://github.com/rust-lang/crates.io-index",
-        "sparse+https://index.crates.io/",
-    ]
-    .into_iter()
-    .find_map(|source| {
-        id.strip_prefix("flere ")?
-            .strip_suffix(&format!(" ({source})"))
-    })?;
-    if !word(recorded_version) || entry["profile"].as_str()? != "release" {
-        return None;
-    }
-    Some(ManagerUpgrade {
-        manager: "Cargo",
-        command: Some(format!(
-            "cargo install --locked --registry crates-io --root {} flere",
-            shell_words::quote(root_text)
-        )),
-        detail: if recorded_version == version {
-            "This command keeps the recorded Cargo install root. Reopen Flere afterward."
-        } else {
-            "Cargo's receipt changed since this process was built. Reopen Flere before another upgrade; the Cargo install root is preserved."
-        },
-    })
-}
-
 #[cfg(target_os = "linux")]
-fn system_package(executable: &Path) -> Option<ManagerUpgrade> {
-    use std::{
-        process::{Command, Stdio},
-        time::Duration,
-    };
-    let query = |program: &str, args: &[&std::ffi::OsStr]| {
-        super::run(
-            Command::new(program)
-                .args(args)
-                .env("LC_ALL", "C")
-                .env_remove("DPKG_ROOT")
-                .env_remove("DPKG_ADMINDIR")
-                .stdin(Stdio::null()),
-            65536,
-            Duration::from_secs(2),
-        )
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-    };
-    if let Some(output) = query(
-        "/usr/bin/dpkg-query",
-        &[
-            "--admindir=/var/lib/dpkg".as_ref(),
-            "--search".as_ref(),
-            "--".as_ref(),
-            executable.as_os_str(),
-        ],
-    ) && let Some(package) = debian_owner(&output, executable)
-        && let Some(status) = query(
-            "/usr/bin/dpkg-query",
-            &[
-                "--admindir=/var/lib/dpkg".as_ref(),
-                "--show".as_ref(),
-                "--showformat=${db:Status-Status}".as_ref(),
-                "--".as_ref(),
-                package.as_ref(),
-            ],
-        )
-        && status == "installed"
+fn query(program: &str, args: &[&std::ffi::OsStr]) -> Option<String> {
+    super::run(
+        std::process::Command::new(program)
+            .args(args)
+            .env("LC_ALL", "C")
+            .env_remove("DPKG_ROOT")
+            .env_remove("DPKG_ADMINDIR")
+            .stdin(std::process::Stdio::null()),
+        65536,
+        std::time::Duration::from_secs(2),
+    )
+    .ok()
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+}
+
+use super::{BuildMetadata, inspect_binary, sha256};
+use crate::remote_update::{CoreOwners, InstallationOwner, OwnerKind};
+use std::{io, os::unix::fs::MetadataExt};
+
+fn selected_executable(
+    store: &Store,
+    executable: &Path,
+    build: &BuildMetadata,
+) -> io::Result<InstallationOwner> {
+    let executable = fs::canonicalize(executable)?;
+    let text = executable
+        .to_str()
+        .filter(|s| !s.chars().any(char::is_control))
+        .ok_or_else(|| io::Error::other("executable path cannot be represented safely"))?
+        .to_owned();
+    let hash = sha256(&executable)?;
+    let managed = store.status()?;
+    let mut owner = InstallationOwner { kind: OwnerKind::Unknown, executable: text, sha256: hash, attempt: None,
+        guidance: "Remote executable ownership is unknown. Upgrade the selected remote command manually, then reconnect.".into() };
+    if let Some(receipt) = &managed
+        && [&receipt.destination, &receipt.current.executable]
+            .into_iter()
+            .any(|p| fs::canonicalize(p).ok().as_ref() == Some(&executable))
+        && receipt.current.manifest.build == *build
+        && receipt.current.manifest.payload.sha256 == owner.sha256
     {
-        return Some(ManagerUpgrade {
-            manager: "Debian package manager",
-            command: Some("sudo apt install ./NEW_FLERE_PACKAGE.deb".into()),
-            detail: "Download the new .deb first and replace NEW_FLERE_PACKAGE.deb. No APT repository is assumed.",
-        });
+        owner.kind = OwnerKind::Managed;
+        owner.attempt = Some(receipt.attempt.clone());
+        owner.guidance.clear();
+        return Ok(owner);
     }
-    if let Some(output) = query(
-        "/usr/bin/rpm",
-        &[
-            "--query".as_ref(),
-            "--file".as_ref(),
-            "--queryformat=%{NAME}\\n".as_ref(),
-            "--".as_ref(),
-            executable.as_os_str(),
-        ],
-    ) && let Some(package) = rpm_owner(&output)
+    if let Some(manager) = for_executable(&executable, &build.package_version) {
+        owner.kind = OwnerKind::Manager;
+        owner.guidance = format!(
+            "Remote {}: {} {}",
+            manager.manager,
+            manager
+                .command
+                .as_deref()
+                .unwrap_or("Review the installation ownership."),
+            manager.detail
+        );
+        return Ok(owner);
+    }
+    // A path is insufficient: require the exact per-user command, no receipt
+    // ambiguity, user ownership, safe modes and the running build's stateless ABI.
+    let metadata = fs::symlink_metadata(store.destination());
+    if managed.is_none()
+        && fs::canonicalize(store.destination()).ok().as_ref() == Some(&executable)
+        && metadata
+            .is_ok_and(|m| m.is_file() && m.uid() == crate::os::uid() && m.mode() & 0o022 == 0)
+        && !manager_metadata_present(&executable)
+        && manager::system_unclaimed(&executable)
+        && inspect_binary(&executable)? == *build
     {
-        return Some(rpm_upgrade(&package, |path| Path::new(path).is_file()));
+        owner.kind = OwnerKind::Manual;
+        owner.guidance =
+            "Adopt the verified manual remote command and retain its previous bytes.".into();
     }
-    None
+    Ok(owner)
 }
 
-#[cfg(not(target_os = "linux"))]
-fn system_package(_: &Path) -> Option<ManagerUpgrade> {
-    None
+fn manager_metadata_present(executable: &Path) -> bool {
+    executable
+        .parent()
+        .and_then(Path::parent)
+        .is_some_and(|root| {
+            [
+                root.join(".crates2.json"),
+                root.join(".crates.toml"),
+                root.join("INSTALL_RECEIPT.json"),
+            ]
+            .iter()
+            .any(|p| !matches!(fs::symlink_metadata(p), Err(e) if e.kind() == io::ErrorKind::NotFound))
+        })
 }
 
-#[cfg(any(target_os = "linux", test))]
-fn debian_owner(output: &str, executable: &Path) -> Option<String> {
-    let mut matches = output.lines().filter_map(|line| {
-        let (package, path) = line.split_once(": ")?;
-        let name = package.split(':').next()?;
-        // Reject diversions, lists of owners and wildcard search near-matches.
-        (Path::new(path) == executable && word(name) && package.split(':').all(word))
-            .then(|| package.to_owned())
-    });
-    let owner = matches.next()?;
-    matches.next().is_none().then_some(owner)
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn rpm_owner(output: &str) -> Option<String> {
-    let package = output.trim();
-    word(package).then(|| package.to_owned())
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn rpm_upgrade(package: &str, available: impl Fn(&str) -> bool) -> ManagerUpgrade {
-    let command = if available("/usr/bin/dnf") {
-        format!("sudo dnf upgrade {package}")
-    } else if available("/usr/bin/zypper") {
-        format!("sudo zypper update {package}")
-    } else if available("/usr/bin/yum") {
-        format!("sudo yum update {package}")
-    } else {
-        "sudo rpm --upgrade ./NEW_FLERE_PACKAGE.rpm".into()
-    };
-    ManagerUpgrade {
-        manager: "RPM package manager",
-        command: Some(command),
-        detail: "Use a configured package source or download the new RPM; reopen Flere afterward.",
+/// The UI supplies its own PID to the isolated worker. No remote field supplies
+/// a PID or path; the live registration must also match this helper build.
+pub(super) fn selected(state: &Path, frontend_pid: u32) -> io::Result<CoreOwners> {
+    let before = super::runtime_identity(state)?;
+    let store = Store::for_user("flere")?;
+    let frontend: BuildMetadata =
+        serde_json::from_str(crate::build_info::json()).map_err(io::Error::other)?;
+    let tracked: serde_json::Value =
+        serde_json::from_slice(&crate::wire::request(state, &["frontends"])?)
+            .map_err(io::Error::other)?;
+    let identity = tracked["tracked"]
+        .as_array()
+        .and_then(|items| {
+            items.iter().find(|v| {
+                v["pid"] == frontend_pid
+                    && v["build"] == serde_json::to_value(&frontend).unwrap_or_default()
+            })
+        })
+        .cloned()
+        .ok_or_else(|| {
+            io::Error::other("selected frontend registration changed; reconnect before updating")
+        })?;
+    let frontend = selected_executable(
+        &store,
+        &crate::os::process_executable(frontend_pid)?,
+        &frontend,
+    )?;
+    let supervisor = selected_executable(
+        &store,
+        &crate::os::process_executable(before.pid)?,
+        &before.build,
+    )?;
+    let after = super::runtime_identity(state)?;
+    let tracked: serde_json::Value =
+        serde_json::from_slice(&crate::wire::request(state, &["frontends"])?)
+            .map_err(io::Error::other)?;
+    if before.epoch != after.epoch
+        || before.pid != after.pid
+        || before.build != after.build
+        || !tracked["tracked"]
+            .as_array()
+            .is_some_and(|items| items.contains(&identity))
+    {
+        return Err(io::Error::other(
+            "selected frontend or supervisor changed during ownership check",
+        ));
     }
+    Ok(CoreOwners {
+        schema_version: 1,
+        epoch: before.epoch,
+        pid: before.pid,
+        frontend,
+        supervisor,
+    })
+}
+
+fn quote(value: &str) -> String {
+    shell_words::quote(value).into_owned()
 }
 
 #[cfg(test)]
@@ -333,6 +275,102 @@ mod tests {
         }
     }
 
+    #[test]
+    fn coordinated_owners_distinguish_manual_manager_unknown_and_verified_store() {
+        let f = Fixture::new();
+        let binary = f.file(
+            ".local/bin/flere",
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' {}\n",
+                shell_words::quote(crate::build_info::json())
+            )
+            .as_bytes(),
+        );
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        let store = Store::new(f.0.join("managed"), f.0.join(".local/bin"), "flere").unwrap();
+        let build = serde_json::from_str(crate::build_info::json()).unwrap();
+        assert_eq!(
+            fs::canonicalize(&binary).unwrap(),
+            fs::canonicalize(store.destination()).unwrap()
+        );
+        assert_eq!(
+            fs::symlink_metadata(&binary).unwrap().uid(),
+            crate::os::uid()
+        );
+        assert_eq!(fs::symlink_metadata(&binary).unwrap().mode() & 0o022, 0);
+        assert!(!manager_metadata_present(&binary));
+        assert_eq!(inspect_binary(&binary).unwrap(), build);
+        let manual = selected_executable(&store, &binary, &build).unwrap();
+        assert_eq!(manual.kind, OwnerKind::Manual);
+        manual.require_update().unwrap();
+        let other = f.file("other/flere", &fs::read(&binary).unwrap());
+        assert_eq!(
+            selected_executable(&store, &other, &build).unwrap().kind,
+            OwnerKind::Unknown
+        );
+        f.cargo_receipt(
+            ".local",
+            &format!(
+                "flere {} (registry+https://github.com/rust-lang/crates.io-index)",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+        let manager = selected_executable(&store, &binary, &build).unwrap();
+        assert_eq!(manager.kind, OwnerKind::Manager);
+        assert!(manager.require_update().is_err());
+        assert!(manager.guidance.contains("cargo install"));
+        f.file(".local/.crates2.json", b"{broken");
+        assert_eq!(
+            selected_executable(&store, &binary, &build).unwrap().kind,
+            OwnerKind::Unknown
+        );
+        fs::remove_file(f.0.join(".local/.crates2.json")).unwrap();
+        let package = f.0.join("package");
+        crate::install::package(&binary, &package, None).unwrap();
+        let staged = store.stage(&package).unwrap();
+        // An ownership change after review is rejected inside the actual install
+        // lock before adoption/replacement, including a candidate no-op.
+        f.cargo_receipt(
+            ".local",
+            &format!(
+                "flere {} (registry+https://github.com/rust-lang/crates.io-index)",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+        let before = fs::read(&binary).unwrap();
+        assert!(
+            store
+                .install_guarded(&staged, crate::install::PackageSource::Local, true, || {
+                    let current = selected_executable(&store, &binary, &build)?;
+                    current.require_update()?;
+                    if current != manual {
+                        return Err(io::Error::other("ownership changed"));
+                    }
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert_eq!(fs::read(&binary).unwrap(), before);
+        assert!(store.status().unwrap().is_none());
+        fs::remove_file(f.0.join(".local/.crates2.json")).unwrap();
+        let installed = store
+            .install(&staged, crate::install::PackageSource::Local, true)
+            .unwrap();
+        f.cargo_receipt(
+            ".local",
+            &format!(
+                "flere {} (registry+https://github.com/rust-lang/crates.io-index)",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+        let managed = selected_executable(&store, &installed.current.executable, &build).unwrap();
+        assert_eq!(managed.kind, OwnerKind::Managed);
+        assert_eq!(managed.attempt.as_deref(), Some(installed.attempt.as_str()));
+        assert_eq!(
+            selected_executable(&store, &other, &build).unwrap().kind,
+            OwnerKind::Unknown
+        );
+    }
     #[test]
     fn homebrew_needs_receipt_version_tap_and_exact_keg_executable() {
         let f = Fixture::new();

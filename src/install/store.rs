@@ -409,7 +409,7 @@ impl Store {
         Ok(())
     }
 
-    fn adopt(&self) -> io::Result<InstalledPackage> {
+    fn adopt(&self, candidate: &InstalledPackage) -> io::Result<InstalledPackage> {
         // A symlink commonly denotes a package manager or another installation
         // owner. Never follow it or silently take ownership of its destination.
         let metadata = fs::symlink_metadata(self.destination())?;
@@ -420,6 +420,15 @@ impl Store {
             return Err(invalid(
                 "existing command is foreign-owned, linked or writable by others; use its installation manager",
             ));
+        }
+        // A hash-addressed candidate may already retain these exact manual
+        // bytes with a richer release manifest. Reuse that verified object;
+        // manufacturing a second manifest would collide with the same payload ID.
+        if metadata.len() == candidate.manifest.payload.bytes
+            && sha256(&self.destination())? == candidate.manifest.payload.sha256
+            && super::inspect_binary(&self.destination())? == candidate.manifest.build
+        {
+            return Ok(candidate.clone());
         }
         let temporary = self.root.join(format!(".adopt-{}", os::nonce()?));
         let result = (|| {
@@ -497,7 +506,7 @@ impl Store {
         source: PackageSource,
         adopt_existing: bool,
     ) -> io::Result<InstallReceipt> {
-        self.install_checked(staged, source, adopt_existing, false)
+        self.install_checked(staged, source, adopt_existing, false, || Ok(()))
     }
 
     /// Bootstrap is permitted only while the destination is still absent. The
@@ -508,7 +517,17 @@ impl Store {
         staged: &StagedPackage,
         source: PackageSource,
     ) -> io::Result<InstallReceipt> {
-        self.install_checked(staged, source, false, true)
+        self.install_checked(staged, source, false, true, || Ok(()))
+    }
+
+    pub(super) fn install_guarded(
+        &self,
+        staged: &StagedPackage,
+        source: PackageSource,
+        adopt: bool,
+        guard: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<InstallReceipt> {
+        self.install_checked(staged, source, adopt, false, guard)
     }
 
     fn install_checked(
@@ -517,8 +536,10 @@ impl Store {
         source: PackageSource,
         adopt_existing: bool,
         if_missing: bool,
+        guard: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<InstallReceipt> {
         let _lock = self.lock()?;
+        guard()?;
         self.recover()?;
         self.validate_package(&staged.package)?;
         self.prepare_bin()?;
@@ -544,7 +565,7 @@ impl Store {
                         "existing command is unmanaged; explicit adoption is required to retain it before replacement",
                     ));
                 }
-                Some(self.adopt()?)
+                Some(self.adopt(&staged.package)?)
             }
             None => None,
         };

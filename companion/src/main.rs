@@ -257,9 +257,13 @@ fn run() -> io::Result<()> {
         );
         return Ok(());
     }
-    if matches!(args[0].as_str(), "--version" | "--build-info") && args.len() != 1 {
+    if matches!(
+        args[0].as_str(),
+        "--version" | "--build-info" | "--coordinated-update-info"
+    ) && args.len() != 1
+    {
         return Err(io::Error::other(
-            "--version and --build-info must be used alone",
+            "stateless inspection flags must be used alone",
         ));
     }
     if args[0] == "--version" {
@@ -269,6 +273,10 @@ fn run() -> io::Result<()> {
             build_info::TARGET,
             build_info::BUILD_ID
         );
+        return Ok(());
+    }
+    if args[0] == "--coordinated-update-info" {
+        io::stdout().write_all(remote_update::CANDIDATE_CAPABILITY)?;
         return Ok(());
     }
     if args[0] == "--build-info" {
@@ -472,6 +480,11 @@ fn run() -> io::Result<()> {
             protocol::NOTICE,
             0,
             remote_services::DROP_PROBE,
+        ));
+        queue.push_back(Packet::new(
+            protocol::NOTICE,
+            0,
+            remote_update::OWNERSHIP_PROBE,
         ));
     }
     let mut screenshots = screenshot_transfer::Receiver::default();
@@ -882,6 +895,11 @@ fn run() -> io::Result<()> {
                                 protocol::NOTICE,
                                 0,
                                 remote_services::DROP_PROBE,
+                            ));
+                            queue.push_back(Packet::new(
+                                protocol::NOTICE,
+                                0,
+                                remote_update::OWNERSHIP_PROBE,
                             ));
                         }
                         if screenshot_protocol {

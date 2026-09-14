@@ -142,7 +142,16 @@ impl Ui {
             && packet.id == 0
             && packet.data == update::CAPABILITY
         {
+            // Legacy capability alone cannot authorize replacement.
+            return Ok(true);
+        }
+        if packet.tag == protocol::NOTICE
+            && packet.id == 0
+            && packet.data == update::OWNERSHIP_PROBE
+        {
             self.remote.as_mut().unwrap().update_capable = true;
+            protocol::Packet::new(protocol::CAPABILITIES, 0, update::OWNERSHIP_CAPABILITY)
+                .write(&mut io::stdout().lock())?;
             return Ok(true);
         }
         if !matches!(packet.tag, update::ACTIVATE | update::RESULT | update::CALL) {
@@ -158,24 +167,17 @@ impl Ui {
                 return Err(wire::invalid("update RPC is already in progress"));
             }
             let args: Vec<String> = serde_json::from_value(value).map_err(io::Error::other)?;
-            if !(args.len() == 2
-                && matches!(
-                    args[0].as_str(),
-                    "update-prepare" | "update-apply" | "update-plan"
-                )
-                || args.len() == 1 && args[0] == "install-status")
-            {
-                return Err(wire::invalid("unsupported update RPC command"));
-            }
             let state = self.state.clone();
             let executable = os::executable_path()?;
+            let frontend = std::process::id().to_string();
+            let request = serde_json::to_string(&args).map_err(io::Error::other)?;
             let (sender, receiver) = mpsc::channel();
             std::thread::spawn(move || {
                 let result = crate::install::run(
                     Command::new(executable)
                         .arg("--state")
                         .arg(state)
-                        .args(args)
+                        .args(["update-coordinated-v1", &frontend, &request])
                         .stdin(std::process::Stdio::null()),
                     update::RESPONSE_LIMIT,
                     Duration::from_secs(1800),
@@ -280,7 +282,7 @@ impl Ui {
         if let Some(remote) = &mut self.remote {
             if !remote.update_capable {
                 self.notice =
-                    "Install the updated flere-connect companion to use coordinated updates".into();
+                    "Upgrade the local companion manually first; coordinated updates require installation ownership reporting".into();
                 return;
             }
             remote.update_counter = remote.update_counter.saturating_add(1);

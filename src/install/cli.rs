@@ -13,6 +13,22 @@ use std::{
 /// No command here bootstraps application state or starts terminal sessions.
 pub fn command(state: Option<&Path>, args: &[String]) -> io::Result<Vec<u8>> {
     let action = args.first().map(String::as_str).unwrap_or("");
+    if action == "update-coordinated-v1" && args.len() == 3 {
+        let frontend = args[1]
+            .parse::<u32>()
+            .ok()
+            .filter(|pid| *pid > 0)
+            .ok_or_else(|| invalid("invalid selected frontend identity"))?;
+        if args[2].len() > 8192 {
+            return Err(invalid("coordinated request exceeds bound"));
+        }
+        let request: Vec<String> = serde_json::from_str(&args[2]).map_err(io::Error::other)?;
+        return super::plan::coordinated_command(
+            state.ok_or_else(|| invalid("coordinated update needs selected state"))?,
+            &request,
+            frontend,
+        );
+    }
     if matches!(action, "update-prepare" | "update-apply" | "update-plan") {
         return super::plan::command(
             state.ok_or_else(|| invalid("prepared update needs selected state"))?,

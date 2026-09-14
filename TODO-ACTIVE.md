@@ -21,6 +21,9 @@
   tests, a release build, stateless CLI checks and an unchanged cached-build stamp
   on macOS arm64. This does not validate the companion crate. Registry publication
   remains pending and must use the matching version/tag without relabeling v0.3.0.
+  Cargo distribution is core-only: the companion's external build script/shared
+  imports are not a standalone Cargo package. Its exact source-package attempt
+  failed before creating a crate; companion downloads and other channels remain separate.
 - [x] Prepare the Linux `.deb` and AUR recipe with the glibc 2.39+ requirement.
   Corrected Debian archive/hash/mode checks and six native stateless CLI checks
   passed; the archive matches an independent Docker reproduction byte for byte.
@@ -37,9 +40,11 @@
 - [ ] Publish the verified `.deb` and submit the AUR recipe. Both remain
   unpublished. Debian dependency downloading and upgrades between different
   Flere runtime versions remain untested.
-- [ ] Validate the prepared [Nix packaging draft](packaging/nix/README.md). No
-  Nix parsing, evaluation or build has run; native runtime and update ownership
-  acceptance also remain pending. Do not claim Nix support.
+- [ ] Finish output inventory for the [Nix packaging draft](packaging/nix/README.md).
+  Native Docker parsing, evaluation, both builds and declared install checks pass
+  after adding the core's zlib dependency. The final inventory script needs a
+  missing-utility fix. Native NixOS runtime and update ownership acceptance remain
+  pending; do not claim supported Nix installation.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
 - [ ] Revalidate the public source on native Windows after incorporating the
@@ -63,23 +68,31 @@
   display the appropriate upgrade command. Ambiguous ownership and removed
   executables keep Apply disabled; a Cargo receipt advancing beyond the running
   version retains manager guidance. Unit and combined core checks pass.
-- [ ] Extend installation-owner checks to coordinated remote updates. The current
-  development checks cover the local updater only; published v0.3.0 still requires
-  the documented package-manager upgrade instructions.
+- [x] Extend installation-owner checks to coordinated remote updates, including
+  explicit manual adoption, stale-action rejection and owner rechecks under the
+  installation lock. Older endpoints/candidates and unknown or manager-owned
+  commands stop before installation. Both strict Clippy/format checks and 49
+  focused Rust tests pass; Linux core/companion and Windows companion cross-target
+  compile checks pass. Published v0.3.0 still requires manual manager upgrades.
+- [ ] Complete integrated validation and install the coordinated-owner update;
+  native Linux manager and Windows runtime acceptance remain pending.
 - [ ] Automate the release process: exact version/commit selection, native builds
   and tests, final-package checksums, publication and per-channel updates. The owner
   selected a **Release button with an explicit version and commit**; ordinary
   pushes must not publish. The Linux workflow includes the complete source
   archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
-  release immutability/environment setup, a hosted run, other targets and channel
-  activation remain open. Selected source
+  approved release immutability and the main-only release environment are enabled.
+  Hosted run `34825445057` stopped before publication: one test assumed GitHub CLI
+  was absent from the runner. Isolate that fixture and validate a corrected source
+  candidate before seeking approval for its changed commit. Other targets and
+  channel activation remain open. Previously selected source
   `f7a77bd` now passes the full native Linux offline serial test suites, both
   components' formatting/strict Clippy checks and both release builds. Final
   artifact hashes, six stateless CLI calls and four ELF inspections passed;
   the binaries meet the glibc 2.39 baseline and left private state unchanged.
   The earlier search-proof race is corrected; earlier failed receipts remain
   retained. The hosted workflow uses this serial baseline; hosted execution and
-  publication still require the final release approval.
+  publication of a corrected source commit still require review and approval.
 - [ ] Investigate six UI test failures observed under parallel/load conditions.
   A private runner error interrupted collection of their panic details; the root
   causes remain unconfirmed. Serial validation does not establish acceptance
@@ -113,9 +126,10 @@
   cleanup, including companions attached to older cores. Focused PTY/bridge and
   hyperlink/output checks passed; this does not establish the cause of the
   reported Ghostty failure.
-- [ ] Confirm physical hyperlink activation in Ghostty and Windows Terminal with
-  the updated build. Ghostty activation still fails in the reported session,
-  including Shift+Command-click. Automated PTY/remote tests verify targets,
+- [ ] Revisit physical hyperlink activation in Ghostty and Windows Terminal when
+  requested; the owner has parked this investigation. Clicking works in plain
+  Ghostty/fish but still fails inside Flere, including Shift+Command-click. Both
+  the screenshot instance's frontend and supervisor now have the updated build. Automated PTY/remote tests verify targets,
   clipping, history, exact-session refresh and local-prompt/disconnect cleanup;
   physical browser interaction remains unresolved. Previously discarded targets
   need child redraw/output.

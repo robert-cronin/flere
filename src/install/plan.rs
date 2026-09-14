@@ -20,6 +20,14 @@ struct Plan {
     source: PackageSource,
     status: String,
     receipt: Option<InstallReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owners: Option<crate::remote_update::CoreOwners>,
+}
+fn valid_schema(plan: &Plan, guarded: bool) -> bool {
+    matches!(
+        (plan.schema_version, plan.owners.is_some(), guarded),
+        (1, false, false) | (2, true, true)
+    )
 }
 fn now() -> u64 {
     SystemTime::now()
@@ -109,6 +117,57 @@ fn source_package(
     }
 }
 pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
+    execute(state, args, None, false)
+}
+pub(super) fn coordinated_command(
+    state: &Path,
+    args: &[String],
+    frontend: u32,
+) -> io::Result<Vec<u8>> {
+    if args == ["update-ownership-v1"] {
+        let owners = super::ownership::selected(state, frontend)?;
+        let bytes = serde_json::to_vec(&owners).map_err(io::Error::other)?;
+        if bytes.len() > crate::remote_update::OWNERSHIP_LIMIT {
+            return Err(invalid("ownership report exceeds bound"));
+        }
+        return Ok(bytes);
+    }
+    let action = args.first().map(String::as_str).unwrap_or("");
+    let (legacy, adopt) = match (action, args.len()) {
+        ("update-prepare-v1", 2) => ("update-prepare", false),
+        ("update-plan-v1", 2) => ("update-plan", false),
+        ("update-apply-v1", 3) if matches!(args[2].as_str(), "adopt" | "managed") => {
+            ("update-apply", args[2] == "adopt")
+        }
+        _ => return Err(invalid("unsupported ownership-checked update command")),
+    };
+    execute(
+        state,
+        &[legacy.into(), args[1].clone()],
+        Some(frontend),
+        adopt,
+    )
+}
+fn check_owners(
+    state: &Path,
+    frontend: u32,
+    expected: &crate::remote_update::CoreOwners,
+) -> io::Result<()> {
+    let current = super::ownership::selected(state, frontend)?;
+    current.require_update()?;
+    if &current != expected {
+        return Err(invalid(
+            "remote installation ownership changed; prepare again",
+        ));
+    }
+    Ok(())
+}
+fn execute(
+    state: &Path,
+    args: &[String],
+    frontend: Option<u32>,
+    adopt: bool,
+) -> io::Result<Vec<u8>> {
     let store = Store::for_user("flere")?;
     let action = args.first().map(String::as_str).unwrap_or("");
     if args.len() != 2 {
@@ -118,8 +177,29 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
     }
     if action == "update-prepare" {
         ensure_update_endpoint(state)?;
+        let owners = if let Some(frontend) = frontend {
+            let owners = super::ownership::selected(state, frontend)?;
+            owners.require_update()?;
+            Some(owners)
+        } else {
+            None
+        };
         let before = runtime_identity(state)?;
         let (staged, source) = source_package(&store, state, &args[1])?;
+        if frontend.is_some() {
+            let capability = run(
+                Command::new(&staged.package.executable)
+                    .arg("--coordinated-update-info")
+                    .stdin(Stdio::null()),
+                128,
+                Duration::from_secs(3),
+            );
+            if !capability.is_ok_and(|bytes| bytes == crate::remote_update::CANDIDATE_CAPABILITY) {
+                return Err(invalid(
+                    "Core candidate cannot prove coordinated ownership support. Upgrade this endpoint manually first.",
+                ));
+            }
+        }
         if !staged.package.manifest.build.accepts_runtime(&before.build) {
             return Err(invalid(
                 "candidate cannot read the selected runtime handoff/state",
@@ -132,9 +212,12 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
                 "supervisor changed while preparing update; installation retained",
             ));
         }
+        if let Some(owners) = &owners {
+            check_owners(state, frontend.unwrap(), owners)?;
+        }
         let token = crate::os::nonce()?;
         let plan = Plan {
-            schema_version: 1,
+            schema_version: if frontend.is_some() { 2 } else { 1 },
             token: token.clone(),
             expires: now() + LIFETIME,
             runtime: actual,
@@ -142,6 +225,7 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
             source,
             status: "prepared".into(),
             receipt: None,
+            owners,
         };
         private_dir(&store.root.join("plans"))?;
         atomic_json(&location(&store, &token)?, &plan)?;
@@ -153,7 +237,10 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
     let path = location(&store, &args[1])?;
     if action == "update-plan" {
         let plan: Plan = read_bounded_json(&path, MAX_RECEIPT)?;
-        if plan.schema_version != 1 || plan.token != args[1] || plan.runtime.state != state {
+        if !valid_schema(&plan, frontend.is_some())
+            || plan.token != args[1]
+            || plan.runtime.state != state
+        {
             return Err(invalid(
                 "prepared update does not belong to the selected state",
             ));
@@ -161,6 +248,15 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
         let readiness = (|| -> io::Result<()> {
             if plan.status != "prepared" || now() > plan.expires {
                 return Err(invalid("plan is expired or no longer awaiting apply"));
+            }
+            if let Some(frontend) = frontend {
+                check_owners(
+                    state,
+                    frontend,
+                    plan.owners.as_ref().ok_or_else(|| {
+                        invalid("legacy plan has no ownership evidence; prepare again")
+                    })?,
+                )?;
             }
             let actual = runtime_identity(state)?;
             if actual.epoch != plan.runtime.epoch
@@ -201,9 +297,22 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
     lock.try_lock()
         .map_err(|_| invalid("prepared update is being applied by another process"))?;
     let mut plan: Plan = read_bounded_json(&path, MAX_RECEIPT)?;
-    if plan.schema_version != 1 || plan.token != args[1] || plan.runtime.state != state {
+    if !valid_schema(&plan, frontend.is_some())
+        || plan.token != args[1]
+        || plan.runtime.state != state
+    {
         return Err(invalid(
             "prepared update does not belong to the selected state",
+        ));
+    }
+    if frontend.is_some() && plan.owners.is_none() {
+        return Err(invalid(
+            "legacy plan has no ownership evidence; prepare again",
+        ));
+    }
+    if frontend.is_none() && plan.owners.is_some() {
+        return Err(invalid(
+            "coordinated plan requires its local ownership confirmation",
         ));
     }
     if let Some(receipt) = &plan.receipt {
@@ -218,6 +327,14 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
         return Err(invalid(
             "prepared update expired; prepare a fresh candidate",
         ));
+    }
+    if let Some(owners) = &plan.owners {
+        check_owners(state, frontend.unwrap(), owners)?;
+        if owners.manual() && !adopt {
+            return Err(invalid(
+                "manual remote installation requires explicit local adoption confirmation",
+            ));
+        }
     }
     ensure_update_endpoint(state)?;
     let before = runtime_identity(state)?;
@@ -242,7 +359,13 @@ pub(super) fn command(state: &Path, args: &[String]) -> io::Result<Vec<u8>> {
     }
     plan.status = "applying".into();
     atomic_json(&path, &plan)?;
-    let receipt = store.install(&staged, plan.source.clone(), true)?;
+    let receipt = if let Some(owners) = &plan.owners {
+        store.install_guarded(&staged, plan.source.clone(), adopt, || {
+            check_owners(state, frontend.unwrap(), owners)
+        })?
+    } else {
+        store.install(&staged, plan.source.clone(), true)?
+    };
     let activation = activate(state, &receipt.current, &before);
     let receipt = if activation.can_restore_installation && receipt.previous.is_some() {
         store.restore_rejected(&receipt.attempt, activation)?

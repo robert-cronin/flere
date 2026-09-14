@@ -113,6 +113,10 @@ fn run() -> io::Result<()> {
         });
     }
     // Package inspection must also work before first use, without HOME or state.
+    if args.len() == 1 && args[0] == "--coordinated-update-info" {
+        io::stdout().write_all(flere::remote_update::CANDIDATE_CAPABILITY)?;
+        return Ok(());
+    }
     if args.len() == 1 && args[0] == "--build-info" {
         println!("{}", flere::build_info::json());
         return Ok(());
@@ -152,6 +156,7 @@ fn run() -> io::Result<()> {
             | "update-prepare"
             | "update-apply"
             | "update-plan"
+            | "update-coordinated-v1"
             | "dev-source"
     ) {
         io::stdout().write_all(&flere::install::command(Some(&state), &args)?)?;
