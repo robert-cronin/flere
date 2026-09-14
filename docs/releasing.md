@@ -189,10 +189,12 @@ package build reproduced the public archive exactly.
 The workflow now fixes both Cargo output directories and compares the archive in
 `target/package/tmp-crate`, as used by the pinned
 [Cargo 1.98 implementation](https://github.com/rust-lang/cargo/blob/rust-1.98.0/src/cargo/ops/cargo_package/mod.rs).
-The correction passed local archive verification and review; a future new-version
-upload will exercise that corrected hosted path. The successful retry exercised
-registry reconciliation. Offline fixtures cover missing, delayed, conflicting
-and matching registry data. No owner API token is needed for future releases.
+[Run 34853838902](https://github.com/robert-cronin/flere/actions/runs/34853838902)
+published v0.3.3 from `ce6bb62`, exercising the corrected upload path successfully
+on its first attempt. All five jobs passed. Independent anonymous checks verified
+the eight schema 2 assets, all 333 source files/modes and all 124 Cargo source
+files. The earlier successful v0.3.2 retry exercised registry reconciliation. Offline fixtures cover missing, delayed,
+conflicting and matching registry data. No owner API token is needed for future releases.
 
 ## Blocked targets and channels
 
@@ -202,8 +204,8 @@ and matching registry data. No owner API token is needed for future releases.
 | macOS x86-64 prebuilt | Native Intel acceptance plus the same signing/notarization requirements. Cross-compilation alone does not qualify. |
 | Windows x86-64 companion | Physical clipboard, SSH, draft, image, resize, held-control and cleanup acceptance tied to final payload hashes. No Windows core claim. |
 | Homebrew source formulas | Exact source archive, real formula install/test/removal and narrowly scoped tap writer. Existing source formulas remain the current strategy. |
-| crates.io | Core v0.3.2 is published through the configured Trusted Publisher and independently verified. Exact version/commit selection and a matching core package layout are required for subsequent releases. |
-| Debian/AUR | New reviewed release lock and real package-manager install/update/removal validation. The checked-in lock still pins v0.3.0. AUR also needs account/credential setup. |
+| crates.io | Core v0.3.3 is published through the configured Trusted Publisher and independently verified. Exact version/commit selection and a matching core package layout are required for subsequent releases. |
+| Debian/AUR | The verified v0.3.3 Debian download is published by schema 2. The standalone checked-in recipe lock still pins v0.3.0; AUR needs its own account setup and submission. No APT repository is configured. |
 | Scoop/WinGet | Physical Windows acceptance, native validators/install tests and catalogue publishing authority. Submission and acceptance remain separate statuses. |
 | Managed latest feed | Target-specific public-download/runtime acceptance and a reviewed pointer update. This workflow keeps the existing latest release. |
 

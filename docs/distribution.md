@@ -19,22 +19,23 @@ pair under `~/.local/bin` and records the chosen update source. It needs Python 
 but no Rust toolchain or source checkout. Follow the
 [installation guide](getting-started.md#install-a-published-package).
 
-[Flere v0.3.1](https://github.com/robert-cronin/flere/releases/tag/v0.3.1) adds the
-verified Linux x86_64 core/companion, complete source, manifests and checksums.
-All seven anonymous downloads matched the sealed release. This Linux release
-keeps v0.3.0 as the default installer release; it does not advance Mac or Windows
-prebuilt channels.
+[Flere v0.3.3](https://github.com/robert-cronin/flere/releases/tag/v0.3.3) provides
+Linux x86_64 core/companion, a Debian package, complete source, manifests and
+checksums. All eight anonymous downloads match the sealed immutable release.
+This Linux release keeps v0.3.0 as the default installer release and does not
+advance Mac or Windows prebuilt channels.
 
 ## Package-manager channels
 
-The Homebrew tap and core Cargo crate are published. Other channels retain their individual
-validation and publication requirements.
+Homebrew, the core Cargo crate and the Debian download are published. Other
+channels retain their individual validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
-| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published; isolated macOS source install/test/revision-upgrade/uninstall passed. Fresh dependency provisioning and native Linux lifecycle checks pending |
-| [Cargo / crates.io](https://crates.io/crates/flere/0.3.1) | Core source package for Linux/macOS | Published v0.3.1; anonymous archive checksum matches the verified upload. Companion excluded |
-| [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Debian archive/native CLI checks and emulated Ubuntu APT lifecycle passed. Arch makepkg/build/metadata and emulated pacman install/remove/CLI checks passed. Debian asset publication and AUR submission pending |
+| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.2; native Linux fresh dependencies and version upgrade passed. Isolated macOS version upgrade passed with cached-dependency limits |
+| [Cargo / crates.io](https://crates.io/crates/flere/0.3.3) | Core source package for Linux/macOS | Published v0.3.3 through Trusted Publishing; public archive and all 124 source files verified. Companion excluded |
+| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
+| [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Arch build/metadata and emulated pacman install/remove/CLI checks passed. Account setup and submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Native Linux Docker parsing, evaluation, both builds, declared install checks and exact output inventory passed. Nix sandbox suites and broader runtime acceptance pending; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
@@ -44,24 +45,27 @@ validation and publication requirements.
 
 With a current Homebrew installation:
 
+Homebrew 7 requires trusting the formula names before installation:
+
 ```sh
+brew trust --formula robert-cronin/flere/flere robert-cronin/flere/flere-connect
 brew install robert-cronin/flere/flere
 flere --version
 brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
 ```
 
-Homebrew builds locally from the pinned v0.3.0 source archive and supplies Rust
+Homebrew builds locally from the pinned v0.3.2 source archive and supplies Rust
 1.98 or newer as a build dependency. Ensure Homebrew's `bin` directory is on PATH.
 Use `brew upgrade robert-cronin/flere/flere` after `brew update`; upgrade the
 companion through Homebrew too if installed. See the
 [tap guide](../packaging/homebrew/README.md) for removal and maintenance.
 
-Isolated macOS arm64 source installation, formula tests, stateless CLI checks,
-a same-source formula revision upgrade, and full removal passed for both
-components. Disposable state and configuration stayed unchanged. Validation used
-a cached Rust toolchain and dependencies with `--ignore-dependencies`; fresh
-Homebrew dependency provisioning, upgrades between release versions, and native
-Linux Homebrew lifecycle checks remain unverified.
+Native Linux and isolated macOS arm64 source installation, formula tests, CLI
+checks, upgrade from v0.3.0 to v0.3.2 and removal passed for both components. Linux
+used fresh dependencies and passed strict linkage checks. macOS used a private
+prefix, cached dependencies, `--ignore-dependencies` and install-driven upgrade;
+fresh macOS provisioning remains unverified. Test state stayed unchanged. See the
+[tap validation record](../packaging/homebrew/README.md#maintain-and-validate).
 
 The source build uses the host's runtime; the prebuilt Linux glibc requirement
 does not apply to these formulas. Intel Macs and Linux ARM are excluded, and older
@@ -76,16 +80,34 @@ intact and require no Apple Developer Program membership from users.
 ### Install with Cargo
 
 ```sh
-cargo install flere --locked --version 0.3.1
+cargo install flere --locked --version 0.3.3
 ```
 
 This builds the core with Rust 1.98+ and a system C linker; macOS needs Xcode
 Command Line Tools. Cargo normally installs into `~/.cargo/bin`. The companion
 is separate. See [Cargo setup](getting-started.md#install-with-cargo).
 
-The published archive records source commit `7f5c5eb` from the matching v0.3.1
-release. Its registry checksum and anonymous download both match the reviewed
-archive: `1c3d9929b201f16255c674b8269760df12d421accf87ad6e2adfcee212f454dd`.
+The published archive records source commit `ce6bb62` from the matching v0.3.3
+release. Its registry checksum and anonymous download match the exact upload:
+`81b184a93ae81cf524a090d17acf7cd58878d1761aee6de64f7ac4e42da11452`.
+
+### Install the Debian package
+
+On Ubuntu 24.04 x86_64, or another compatible Debian-based x86_64 system with
+glibc 2.39 or newer:
+
+```sh
+wget -O flere_0.3.3-1_amd64.deb https://github.com/robert-cronin/flere/releases/download/v0.3.3/flere_0.3.3-1_amd64.deb && \
+  echo 'dbc6bbfb450fcdf0e721660b52b5e4ca2022f7ba254127a6ceacb499585f3efe  flere_0.3.3-1_amd64.deb' | sha256sum --check && \
+  sudo apt install ./flere_0.3.3-1_amd64.deb
+```
+
+The checksum must pass before APT runs. The package
+includes both commands. APT installs missing declared dependencies; there is no
+Flere APT repository or automatic package-feed update. Download a later reviewed
+`.deb` and install it with APT to upgrade. Remove with `sudo apt remove flere`;
+saved workspaces stay separate. Debian 12 and Ubuntu 22.04 have older glibc and
+cannot run these prebuilt binaries. See the [package validation and limits](../packaging/linux/README.md).
 
 ## Upgrade through the installation owner
 
@@ -143,7 +165,7 @@ The existing generators cover different release inputs:
 
 | Output | Verified input and generator |
 | --- | --- |
-| Flat executable/manifests and `SHA256SUMS` | `scripts/release-assets.py` checks prepared component packages; the manual Linux workflow seals its complete seven-file release with `scripts/release-automation.py` |
+| Flat executable/manifests and `SHA256SUMS` | `scripts/release-assets.py` checks prepared component packages; the manual Linux workflow seals eight files including the Debian wrapper (historical schema 1 uses seven) with `scripts/release-automation.py` |
 | Debian, RPM and AUR | `scripts/linux-packages.py --descriptor-sha256 …` derives one lock from the sealed Linux release, including source/license pins; optional native builders preserve the same payloads. See the [Linux generator](../packaging/linux/README.md#prepare-a-later-sealed-linux-release) |
 | Homebrew source formulas | `packaging/homebrew/render.py` checks the full source archive against its reviewed SHA-256 and generates both formulas. See the [tap maintenance instructions](../packaging/homebrew/README.md#maintain-and-validate) |
 | Scoop, WinGet and Chocolatey | `scripts/windows-manifests.py` verifies the Windows companion, builds one deterministic ZIP and shares its exact version/URL/hash among all three recipes. See [Windows preparation](../packaging/windows/README.md) |

@@ -6,7 +6,7 @@ the package builder does not compile a changed checkout or execute either binary
 
 | Format | Current validation |
 | --- | --- |
-| Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; first automated publication is pending. |
+| Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; v0.3.3 is published through the automated release. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
 | Nix | [Source packaging draft](../nix/README.md). Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory passed; sandbox suite and broader runtime/update-ownership acceptance remain pending; not a supported installation method. |
@@ -14,6 +14,20 @@ the package builder does not compile a changed checkout or execute either binary
 Preparation is separate from publishing `.deb`/RPM assets or submitting the
 AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`
 entry on 2026-09-14; availability must be checked again before submission.
+
+## Published Debian download
+
+[Flere v0.3.3](https://github.com/robert-cronin/flere/releases/tag/v0.3.3) includes
+`flere_0.3.3-1_amd64.deb` (3,548,644 bytes), SHA-256
+`dbc6bbfb450fcdf0e721660b52b5e4ca2022f7ba254127a6ceacb499585f3efe`. The Linux workflow passed all jobs, inspected the exact wrapper before
+publication, and verified all eight public assets. Independent anonymous checks
+matched the same bytes and all 333 source files/modes to `ce6bb62`.
+
+Use the [download, checksum and APT commands](../../docs/distribution.md#install-the-debian-package).
+This is a standalone package, not an APT repository. The native cross-version and
+missing-dependency lifecycle receipts below belong to v0.3.2; v0.3.3 adds current
+native build/test and wrapper-integrity evidence. The checked-in AUR/RPM lock
+remains pinned to v0.3.0 until those channels are separately advanced.
 
 ## Compatibility and dependencies
 
@@ -108,7 +122,8 @@ will correctly report drift until they match the selected release.
 
 Without `--descriptor-sha256`, the existing v0.3.0 checked-in lock remains the
 input. Generating a later package does not establish its package-manager
-lifecycle or publication; the evidence below still belongs to v0.3.0.
+lifecycle or publication. The version-specific results below distinguish the
+original v0.3.0 wrapper from later native v0.3.2 acceptance.
 
 ## Validation and publication follow-up
 
@@ -151,8 +166,9 @@ These jobs used cached dependencies, empty APT source lists and disabled contain
 networking. The first test attempt stopped before installation because
 `--no-download` could not acquire the local input into APT's archive cache. The
 successful harness prepopulated that disposable cache with hash-verified candidate
-bytes and retained `--no-download`. Dependency downloading, a public APT repository,
-other distributions and different-version runtime upgrades remain untested.
+bytes and retained `--no-download`. Those emulated jobs did not test dependency
+downloading, a public APT repository, other distributions or different-version
+runtime upgrades; the subsequent native checks are recorded below.
 
 ### Native Ubuntu upgrade and ownership
 
@@ -172,9 +188,21 @@ modal. No shell or native chat was opened. The initial attempt stopped before
 installation because a test parser mistook APT's `[amd64]` annotation for an old
 version; the corrected parser checks the actual prior-version field.
 
-This lifecycle used preinstalled dependencies and disabled networking. It does
-not establish dependency downloading, an APT repository, live-session migration
-or broader desktop behavior. The older emulated receipts remain separate.
+This lifecycle used preinstalled dependencies and disabled networking. A separate
+native Ubuntu check then removed Git, verified that both the installed command
+and cached Git archive were absent, and installed the same exact `0.3.2-1` package
+through normal APT resolution. APT downloaded Git `1:2.43.0-1ubuntu7.3` from the
+signed Ubuntu repositories. The five installed Flere files, manifests, ownership,
+permissions and control checksums matched the tested archive; Flere was removed
+and Git remained installed. Unrelated package records, synthetic state and APT
+source/keyring files stayed unchanged, the final dpkg audit was empty and the
+isolated container was removed. No Flere runtime or native chat ran in this
+additional dependency check.
+
+This proves normal download/resolution of one deliberately missing mandatory
+dependency. Other dependencies were preinstalled; neither check establishes a
+pristine-machine all-dependency install, a Flere APT repository, live-session
+migration or broader desktop behavior. The older emulated receipts remain separate.
 
 ### AUR validation
 

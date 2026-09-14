@@ -20,7 +20,7 @@ brew install robert-cronin/flere/flere-connect
 flere-connect --version
 ```
 
-Homebrew downloads the pinned v0.3.0 full source archive and its Rust build
+Homebrew downloads the pinned v0.3.2 full source archive and its Rust build
 dependencies, then compiles each executable locally. The first install takes
 longer than downloading a prebuilt binary and needs Rust 1.98 or newer, which
 Homebrew supplies as a build dependency. Dependencies follow the checked-in lock
@@ -49,10 +49,10 @@ brew upgrade robert-cronin/flere/flere
 brew upgrade robert-cronin/flere/flere-connect  # if installed
 ```
 
-Use Homebrew for these packages. Flere 0.3.0's in-app Update manages a separate
-`~/.local/bin` installation that can take precedence on PATH. Upgrades and uninstall
-preserve Flere's saved state and do not stop running sessions. An existing process
-uses its current executable until you explicitly refresh or restart it.
+Use Homebrew for these packages. A separate manual `~/.local/bin` installation can
+take precedence on PATH. Upgrades and uninstall preserve Flere's saved state and
+do not stop running sessions. An existing process uses its current executable
+until you explicitly refresh or restart it.
 
 ```sh
 brew uninstall robert-cronin/flere/flere-connect  # if installed
@@ -71,25 +71,25 @@ runtime acceptance.
 
 ## Maintain and validate
 
-An isolated macOS arm64 check completed source installation, formula tests,
-stateless CLI checks, a same-source formula revision upgrade, and full removal
-for both components. Disposable state and configuration stayed unchanged. This
-used a cached Rust toolchain and dependencies with `--ignore-dependencies`;
-fresh macOS dependency provisioning and an upgrade between release versions remain
-unverified.
+Native Linux x86_64 and isolated macOS arm64 checks completed source installation,
+both formula tests, stateless CLI and license checks, upgrade from core `0.3.0_1`
+and companion `0.3.0` to `0.3.2`, and full removal. Both new executables and selected
+kegs were checked; disposable state and configuration stayed unchanged.
 
-Native Linux x86-64 checks now pass with fresh dependencies: source installation,
-both formula tests, stateless CLI and license checks, strict linkage, upgrade and
-removal. One run covered a same-source revision; a separate run upgraded core
-`0.3.0_1` and companion `0.3.0` to `0.3.2` using the exact reviewed new formulas.
-Both new executables and selected kegs were checked, synthetic state stayed
-unchanged, and both isolated containers were removed. The initial missing-zlib
-failure is corrected by the core's Linux `zlib-ng-compat` declaration.
+Linux used the pinned Homebrew 7.0.1 image, fresh dependencies, normal
+`brew upgrade`, and strict linkage checks before and after upgrade. The core's
+Linux `zlib-ng-compat` dependency is declared; the companion does not need it.
+Default security settings remained enabled and the exact isolated container was
+removed. Scoped formula trust preceded a verified Git checkout, so this does not
+establish Homebrew's automatic tap-cloning flow.
 
-These Linux checks used the pinned Homebrew 7.0.1 image, normal dependency
-provisioning and default security settings. Scoped formula trust preceded the
-verified Git checkout. They do not establish Homebrew's automatic tap-cloning
-flow, interactive terminal behavior or preservation of live sessions.
+macOS used a nonstandard private prefix, cached Rust/Cargo dependencies and
+Homebrew's unsupported `--ignore-dependencies` option, with its sandbox enabled. The between-release
+upgrade used `brew install`'s automatic upgrade behavior, not literal
+`brew upgrade`. Fresh macOS dependency provisioning and the default prefix remain
+unvalidated. The retained Rust toolchain emitted an LLVM stripping warning while
+builds succeeded. Neither platform's stateless checks establish interactive
+terminal behavior or preservation of live sessions.
 
 Both formulas intentionally use the full source archive: the companion references
 shared code and build support outside its own directory. Preserve the font licenses

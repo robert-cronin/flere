@@ -50,17 +50,20 @@ for curl, `--core-only`, PATH setup and existing-installation rules.
 With Rust 1.98+ and a system C linker, install the core from crates.io:
 
 ```sh
-cargo install flere --locked --version 0.3.2
+cargo install flere --locked --version 0.3.3
 ```
 
-The [Cargo package](https://crates.io/crates/flere/0.3.2) builds locally on Linux
+The [Cargo package](https://crates.io/crates/flere/0.3.3) builds locally on Linux
 or macOS and excludes the separate SSH/clipboard companion. See
 [Cargo setup](docs/getting-started.md#install-with-cargo) for platform requirements.
 
 Or install from the
 [published Homebrew source tap](https://github.com/robert-cronin/homebrew-flere):
 
+Homebrew 7 requires trusting the formula names before installation:
+
 ```sh
+brew trust --formula robert-cronin/flere/flere robert-cronin/flere/flere-connect
 brew install robert-cronin/flere/flere
 flere --version
 brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
@@ -68,7 +71,7 @@ brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard c
 
 Homebrew compiles the pinned source locally. See
 [installation channels and validation limits](docs/distribution.md) for setup,
-upgrades and the remaining fresh-dependency and native Linux Homebrew checks.
+upgrades and the documented platform limits.
 Prebuilt Linux x86_64 and macOS arm64 downloads are also available from
 [Flere v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0), subject
 to their platform limits. The development workflow follows below.

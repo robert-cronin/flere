@@ -7,8 +7,9 @@
   the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
   required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
-  using the pinned, checksummed v0.3.0 archive. Published tap commit: `3a8c34e`;
-  core revision 1 adds its Linux `zlib-ng-compat` runtime dependency.
+  using the pinned, checksummed v0.3.2 archive. Signed tap commit `97cbcff`
+  advances both formulas after native Linux and isolated macOS validation;
+  the core retains its Linux `zlib-ng-compat` runtime dependency.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
   companion: install, formula tests, stateless CLI checks, same-source revision
   upgrade and full removal. Disposable state/config stayed unchanged. This used
@@ -21,7 +22,11 @@
   both programs, with fresh dependencies, formula/CLI/license/strict-linkage
   checks before and after, exact selected kegs and complete removal. Synthetic
   state stayed unchanged and the isolated container was removed.
-- [ ] Validate the macOS Homebrew source-formula upgrade between releases.
+- [x] Validate the isolated macOS arm64 Homebrew v0.3.0 → v0.3.2 upgrade.
+  Both formula phases, 14 stateless CLI checks, licenses, selected kegs and full
+  removal passed; synthetic state stayed unchanged. This used install-driven
+  upgrade in a cached private prefix with `--ignore-dependencies`, not literal
+  `brew upgrade` or the default prefix.
 - [ ] Validate fresh macOS Homebrew dependency provisioning and older macOS
   acceptance. The completed arm64 lifecycle used `--ignore-dependencies`;
   Intel Macs and Linux ARM remain excluded from this tap.
@@ -33,7 +38,7 @@
   `7f5c5eb`. Normal Cargo publication succeeded; the registry checksum and
   anonymous archive both match the reviewed 124-file package. After the hosted
   release below, the current core command is
-  `cargo install flere --locked --version 0.3.2`. The exact GitHub Trusted
+  `cargo install flere --locked --version 0.3.3`. The exact GitHub Trusted
   Publisher is configured for subsequent releases.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
@@ -56,11 +61,17 @@
   detection and blocked coordinated-update staging passed. Synthetic state and
   unrelated packages stayed unchanged; owned children and the container exited.
   The tested archive was copied back and passed independent release inspection.
-- [ ] Validate normal APT dependency downloading for the Debian package. The
-  completed native lifecycle used preinstalled dependencies and no network.
-- [ ] Publish the verified `.deb` in a future release after native acceptance.
-  The existing immutable releases remain unchanged. The eight-asset release
-  path is enabled; its first hosted publication remains pending.
+- [x] Validate normal APT resolution/download of a missing Git dependency for
+  the exact tested Debian 0.3.2 package. A fresh native Ubuntu container fetched
+  Git from signed Ubuntu repositories, installed and removed Flere, and preserved
+  unrelated packages, synthetic state and repository/keyring files. No Flere
+  runtime ran; other dependencies were preinstalled, so this is not an
+  all-dependency pristine-machine check.
+- [x] Publish the verified `.deb` through the eight-asset v0.3.3 release from
+  `ce6bb62`. Hosted run `34853838902` passed every job on its first attempt,
+  including Cargo OIDC and the corrected upload-archive check. Independent
+  downloads verified all eight assets, 333 source files/modes and all 124 Cargo
+  source files. Existing immutable releases and the v0.3.0 latest pointer stayed unchanged.
 - [ ] Configure the AUR maintainer identity and publishing access.
 - [ ] Check package-name availability and submit the verified AUR recipe.
   Successful Arch package lifecycle checks do not establish publication or
@@ -76,6 +87,9 @@
   isolated Nix/NixOS host or VM. No security settings were weakened.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
+  The unpublished v0.3.4 source is reserved for the next Windows acceptance
+  payload. Do not publish it with the Linux-only workflow before all intended
+  Windows assets are ready: v0.3.3 is immutable and cannot receive extra files.
 - [ ] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. The September 14 handoff tested the earlier private base
   plus that patch, not a fresh public checkout; preserve that evidence distinction.
@@ -126,17 +140,18 @@
   live supervisors applied the update; all six sessions present at installation
   and their selections were preserved. Existing frontends need their normal UI
   reload. The earlier `70083bd` installation receipt remains retained separately.
-- [ ] Complete native Linux manager and Windows runtime ownership acceptance.
+- [ ] Complete remaining native Linux package-manager and Windows runtime
+  ownership acceptance. The native Debian ownership protocol checks above passed.
 - [x] Automate the Linux manual Release path: explicit main version/commit
   selection, native core/companion checks, final payload/source checksums,
   immutable GitHub publication and anonymous download verification. Hosted
-  v0.3.1 and v0.3.2 releases passed; v0.3.2 also completed core Cargo OIDC
-  publication. Retries reconciled the original assets/uploads without rebuilding
-  or publishing twice.
+  v0.3.1 and v0.3.2 releases passed; v0.3.3 passed all jobs on its first attempt,
+  including the Debian package and core Cargo OIDC publication. Earlier retries
+  reconciled the original assets/uploads without rebuilding or publishing twice.
   Ordinary pushes do not publish. Earlier failed receipts remain retained.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Linux manual Release path is complete;
-  v0.3.0 remains latest, and macOS/Windows channels were not advanced by v0.3.2.
+  v0.3.0 remains latest, and macOS/Windows channels were not advanced by v0.3.3.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
   picker now retains a visible result row, and sidebar tests wait for the actual
   click acknowledgement. Both focused tests and the full serial/parallel suites

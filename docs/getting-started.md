@@ -51,7 +51,10 @@ see [platform limits](reference/compatibility.md) and the source build below.
 
 On macOS Apple Silicon or Linux x86_64, with a current Homebrew installation:
 
+Homebrew 7 requires trusting the formula names before installation:
+
 ```sh
+brew trust --formula robert-cronin/flere/flere robert-cronin/flere/flere-connect
 brew install robert-cronin/flere/flere
 flere --version
 ```
@@ -64,23 +67,22 @@ flere-connect --version
 ```
 
 The [published tap](https://github.com/robert-cronin/homebrew-flere) builds the
-pinned v0.3.0 source locally and supplies Rust as a build dependency. Ensure
+pinned v0.3.2 source locally and supplies Rust as a build dependency. Ensure
 Homebrew's `bin` directory is on PATH, then [open a project](#open-a-project).
 Use Homebrew for upgrades and removal. See the
 [tap guide](../packaging/homebrew/README.md) for commands and
-[validation limits](distribution.md#install-with-homebrew): the isolated macOS
-lifecycle passed, while fresh dependency provisioning and native Linux Homebrew
-lifecycle checks remain open.
+[validation limits](distribution.md#install-with-homebrew): Linux and isolated
+macOS upgrades to v0.3.2 passed; fresh macOS dependency provisioning remains open.
 
 ## Install with Cargo
 
-The published [flere 0.3.2 crate](https://crates.io/crates/flere/0.3.2) builds the
+The published [flere 0.3.3 crate](https://crates.io/crates/flere/0.3.3) builds the
 core locally on Linux x86_64 or macOS with **Rust 1.98+** and a system C linker.
 macOS needs Xcode Command Line Tools. Intel macOS has compile-check evidence;
 see [platform limits](reference/compatibility.md).
 
 ```sh
-cargo install flere --locked --version 0.3.2
+cargo install flere --locked --version 0.3.3
 flere --version
 ```
 
