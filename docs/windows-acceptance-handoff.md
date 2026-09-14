@@ -15,36 +15,44 @@ procedure; release availability is separate from source compilation.
 ## 1. Obtain exactly the validated source
 
 Run in an ordinary PowerShell window, outside any Flere child. Replace the
-commit placeholder with the **full reviewed source hash**, not a hash
-copied from this document. Choose a checkout location without overwriting files.
+commit placeholder with the **full reviewed source hash**. This procedure creates
+a fresh private checkout with only local `main`; it never reuses or changes an
+existing checkout. The reviewed commit must be reachable from fetched
+`origin/main`, but may precede later documentation or automation commits.
 
 ```powershell
 $ExpectedCommit = '<FULL_REVIEWED_SOURCE_COMMIT>'
-$Checkout = Join-Path $env:USERPROFILE 'source\flere'
-$RepoUrl = 'https://github.com/robert-cronin/flere.git' # Selected repository
+$Checkout = Join-Path $env:LOCALAPPDATA ('Flere\acceptance-source\' + [guid]::NewGuid().ToString('N'))
+$RepoUrl = 'https://github.com/robert-cronin/flere.git'
 if ($ExpectedCommit -notmatch '^[0-9a-f]{40}$') { throw 'Supply the exact reviewed source commit.' }
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit $LASTEXITCODE" }
 }
-if (-not (Test-Path -LiteralPath $Checkout)) {
-    Invoke-Checked git @('clone', '--branch', 'main', '--single-branch', $RepoUrl, $Checkout)
-}
+# No -Force: an existing path must stop before any Git operation.
+New-Item -ItemType Directory -Path $Checkout -ErrorAction Stop | Out-Null
+Invoke-Checked git @('init', '--initial-branch=main', $Checkout)
 Set-Location -LiteralPath $Checkout
-Invoke-Checked git @('status', '--short')
-if (@(git status --porcelain).Count -ne 0) { throw 'Dirty checkout: preserve it and report; no stash/reset/clean.' }
-if ((git branch --show-current).Trim() -ne 'main') { throw 'Use main only; do not create/switch branches automatically.' }
-if ((git remote get-url origin).Trim() -ne $RepoUrl) { throw 'Unexpected origin; confirm it with the owner.' }
-Invoke-Checked git @('fetch', 'origin', 'main')
-Invoke-Checked git @('merge', '--ff-only', 'origin/main')
-if ((git rev-parse HEAD).Trim() -ne $ExpectedCommit) {
-    throw 'main differs from the approved commit. Report; do not reset or detach to force it.'
+Invoke-Checked git @('remote', 'add', '-t', 'main', 'origin', $RepoUrl)
+Invoke-Checked git @('fetch', '--no-tags', 'origin', 'main')
+Invoke-Checked git @('merge-base', '--is-ancestor', $ExpectedCommit, 'refs/remotes/origin/main')
+# main is still unborn; create it at the reviewed commit without detach or reset.
+Invoke-Checked git @('switch', '--create', 'main', '--no-track', $ExpectedCommit)
+$ActualCommit = (Invoke-Checked git @('rev-parse', 'HEAD')).Trim()
+$Branches = @(Invoke-Checked git @('for-each-ref', '--format=%(refname)', 'refs/heads/'))
+if ($ActualCommit -ne $ExpectedCommit -or $Branches.Count -ne 1 -or $Branches[0] -ne 'refs/heads/main') {
+    throw 'Checkout identity differs from the reviewed source. Preserve it and report.'
+}
+if (@(Invoke-Checked git @('status', '--porcelain')).Count -ne 0) {
+    throw 'Unexpected checkout changes. Preserve them and report; no stash/reset/clean.'
 }
 ```
 
-An existing checkout may use the equivalent SSH Git remote; inspect it and have
-the owner confirm it instead of rewriting `origin`. Read the checked-out
-`AGENTS.md`, this procedure and `docs/acceptance.md` before continuing.
+Keep any existing work and its Git remote untouched. Retain a failed fresh
+checkout as evidence; do not repair it by resetting or cleaning another tree.
+Read the checked-out `AGENTS.md` and `docs/acceptance.md`, then continue at
+section 2 below. If the reviewed commit contains an older copy of this procedure,
+keep the obtain-source step above rather than repeating its checkout commands.
 
 ## 2. Record the machine and validate the companion offline
 
@@ -66,7 +74,7 @@ Invoke-Checked cargo @('--version')
 Invoke-Checked rustup @('show', 'active-toolchain')
 $NativeTarget = ((rustc -vV | Select-String '^host: ').Line -replace '^host: ', '').Trim()
 if ($NativeTarget -notmatch '-pc-windows-(msvc|gnu)$') { throw 'Select an installed native Windows toolchain.' }
-$Common = @('--offline', '--manifest-path', 'companion/Cargo.toml', '--target', $NativeTarget, '--target-dir', $BuildDir)
+$Common = @('--offline', '--locked', '--manifest-path', 'companion/Cargo.toml', '--target', $NativeTarget, '--target-dir', $BuildDir)
 Invoke-Checked cargo @('fmt', '--manifest-path', 'companion/Cargo.toml', '--check')
 Invoke-Checked cargo (@('test') + $Common + @('--', '--test-threads=4'))
 Invoke-Checked cargo (@('clippy') + $Common + @('--all-targets', '--', '-D', 'warnings'))
