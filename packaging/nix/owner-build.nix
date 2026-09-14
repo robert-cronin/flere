@@ -2,6 +2,7 @@
 { pkgs ? import <nixpkgs> { }, source, sourceArchive }:
 let
   version = "0.3.4";
+  previous = import ./default.nix { inherit pkgs; };
   package = pname: subdir: lock:
     pkgs.rustPlatform.buildRustPackage {
       inherit pname version;
@@ -45,6 +46,11 @@ let
       meta.platforms = [ "x86_64-linux" ];
     };
 in {
+  # Separate upgrade fixtures, not substitutes for the recorded full-suite outputs.
+  # Keep the published source/patch, install checks and ordinary package names.
+  previous-flere = previous.flere.overrideAttrs (_: { doCheck = false; });
+  previous-flere-connect = previous.flere-connect.overrideAttrs (_: { doCheck = false; });
+  previous-source = previous.flere.src;
   flere = package "flere" "." "Cargo.lock";
   flere-connect = package "flere-connect" "companion" "companion/Cargo.lock";
 }

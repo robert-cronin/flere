@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prepared native Nix-on-Ubuntu profile/owner acceptance; no real SSH or workspaces."""
 import errno
+from decimal import Decimal, ROUND_CEILING
 import fcntl
 import hashlib
 import json
@@ -33,6 +34,65 @@ def require(value, message):
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+
+
+def profile_inventory(text, version, outputs):
+    rows = [tuple(line.split()) for line in text.splitlines()]
+    expected = {(name + '-' + version, str(path)) for name, path in outputs.items()}
+    require(len(rows) == len(expected) and set(rows) == expected, 'profile inventory/version differs')
+    return dict(rows)
+
+
+def require_upgrade(before, after):
+    require(before['generation'] != after['generation']
+            and before['environment'] != after['environment'], 'profile upgrade was a successful no-op')
+    require(before['packages'] != after['packages'], 'profile upgrade did not replace packages')
+
+
+def build_budget(log, free):
+    """Parse this four-output Nix 2.33 dry-run, refusing unknown plan formats."""
+    units = {'B': 1, 'KiB': 1024, 'MiB': 1024**2, 'GiB': 1024**3}
+    lines = log.splitlines()
+    builds, fetched, unpacked, seen = [], [], 0, set()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if not line or line.startswith('warning:'):
+            continue
+        build = re.fullmatch(r'(?:this derivation|these ([1-9][0-9]*) derivations) will be built:', line)
+        fetch = re.fullmatch(r'(?:this path|these ([1-9][0-9]*) paths) will be fetched '
+                             r'\(([0-9]+(?:\.[0-9]+)?) (B|KiB|MiB|GiB) download, '
+                             r'([0-9]+(?:\.[0-9]+)?) (B|KiB|MiB|GiB) unpacked\):', line)
+        require(build or fetch, 'unparsed complete build/fetch plan')
+        kind = 'build' if build else 'fetch'
+        require(kind not in seen, 'duplicate complete plan section')
+        seen.add(kind)
+        match = build or fetch
+        count = int(match[1] or 1)
+        require(count <= 4096 and i + count <= len(lines), 'incomplete/oversized complete plan')
+        paths = []
+        for line in lines[i:i + count]:
+            value = re.fullmatch(r'  (/nix/store/[0-9a-z]{32}-[^/\s]+)', line)
+            require(value, 'malformed complete plan path')
+            paths.append(value[1])
+        i += count
+        require(len(set(paths)) == count, 'duplicate complete plan path')
+        if build:
+            require(all(path.endswith('.drv') for path in paths), 'non-derivation in build plan')
+            builds = paths
+        else:
+            fetched = paths
+            unpacked = int((Decimal(fetch[4]) * units[fetch[5]]).to_integral_value(rounding=ROUND_CEILING))
+    heavy = [name for name in builds if re.search(r'-(?:linux-[0-9]|qemu[^/]*-[0-9]|rustc?-[0-9]|gcc-[0-9]|llvm-[0-9]|clang-[0-9])', name)]
+    require(isinstance(free, int) and free >= 0, 'invalid free-space observation')
+    required = unpacked + 12 * 1024**3
+    return {'scope': 'both core/companion versions and their complete closure',
+            'missing_unpacked_bytes': unpacked, 'local_derivations': builds,
+            'missing_paths': fetched, 'unexpected_heavy_builds': heavy,
+            'scratch_and_local_output_budget_bytes': 8 * 1024**3,
+            'free_reserve_bytes': 4 * 1024**3, 'required_bytes': required,
+            'free_bytes': free, 'passed': not heavy and free >= required}
 
 def tree(path):
     result = {}
@@ -189,8 +249,9 @@ def main():
     protected = sha(sentinel)
     receipt = {'schema': 'flere-nix-installed-owner-v1', 'status': 'running', **context,
                'source_commit': COMMIT, 'source_version': VERSION, 'root': str(root),
+               'version_upgrade': '0.3.3 plus declared parser patch to unpublished 0.3.4',
                'profile': str(profile), 'steps': [], 'components': {}, 'runtime': {},
-               'limits': ['Native Nix on Ubuntu, not NixOS', 'No version upgrade or physical desktop/SSH acceptance',
+               'limits': ['Native Nix on Ubuntu, not NixOS', 'No live old-process upgrade or physical desktop/SSH acceptance',
                           'Unpublished 0.3.4 development source; not the separate 0.3.3 sandbox proof']}
     supervisor = ui = None
     bridge_fd = None
@@ -231,11 +292,12 @@ def main():
         require(proc.returncode in ok, 'command failed: ' + repr(argv) + ' ' + repr(stderr[-4096:]))
         return stdout, stderr
 
-    outputs = {}
-    for component in ('flere', 'flere-connect'):
-        lines = (proof / f'{component}.out').read_text().splitlines()
-        require(len(lines) == 1 and re.fullmatch(r'/nix/store/[0-9a-z]{32}-[^/]+', lines[0]), 'bad output path')
-        outputs[component] = Path(lines[0])
+    outputs, previous_outputs = {}, {}
+    for prefix_name, selected in [('', outputs), ('previous-', previous_outputs)]:
+        for component in ('flere', 'flere-connect'):
+            lines = (proof / f'{prefix_name}{component}.out').read_text().splitlines()
+            require(len(lines) == 1 and re.fullmatch(r'/nix/store/[0-9a-z]{32}-[^/]+', lines[0]), 'bad output path')
+            selected[component] = Path(lines[0])
     core = profile / 'bin/flere'
     companion = profile / 'bin/flere-connect'
     prefix = [str(core), '--state', str(state)]
@@ -270,18 +332,11 @@ def main():
     def installations():
         return {str(path): tree(path) for path in installer_paths}
 
-    try:
-        require(hasattr(os, 'pidfd_open') and hasattr(signal, 'pidfd_send_signal'), 'owned bridge pidfd support required')
-        receipt['nix_trust_metadata'] = nix_trust_metadata()
-        trust = receipt['nix_trust_metadata']
-        require(trust['socket']['trusted'] and any(row['trusted'] for row in trust['programs']), 'fixed Nix trust preflight failed')
-        profile_installed = True
-        run([NIX + '/nix-env', '--profile', str(profile), '--install',
-             str(outputs['flere']), str(outputs['flere-connect'])], timeout=180)
+    def installed(selected, version):
         query = run([NIX + '/nix-env', '--profile', str(profile), '--query', '--out-path'])[0].decode()
-        require({tuple(line.split()) for line in query.splitlines()} ==
-                {(name + '-' + VERSION, str(path)) for name, path in outputs.items()}, 'profile inventory differs')
-        for component, output in outputs.items():
+        packages = profile_inventory(query, version, selected)
+        result = {}
+        for component, output in selected.items():
             binary = profile / 'bin' / component
             actual = output / 'bin' / component
             require(binary.resolve() == actual and actual.stat().st_uid == 0, 'profile does not select real Nix output')
@@ -292,11 +347,34 @@ def main():
                 stdout, _ = run([str(binary), flag])
                 if flag == '--build-info':
                     build = json.loads(stdout)
-                    require(build['component'] == component and build['package_version'] == VERSION
+                    require(build['component'] == component and build['package_version'] == version
                             and build['target'] == 'x86_64-unknown-linux-gnu' and build['profile'] == 'release', 'binary metadata differs')
             require(tree(user) == before, 'stateless flags changed synthetic user state')
-            receipt['components'][component] = {'output': str(output), 'executable': str(actual),
+            result[component] = {'output': str(output), 'executable': str(actual),
                                                  'sha256': sha(actual), 'mode': 0o555, 'build': build}
+        require(profile.is_symlink(), 'ordinary profile generation link missing')
+        return result, {'generation': os.readlink(profile), 'environment': str(profile.resolve(strict=True)),
+                        'packages': packages}
+
+    try:
+        require(hasattr(os, 'pidfd_open') and hasattr(signal, 'pidfd_send_signal'), 'owned bridge pidfd support required')
+        receipt['nix_trust_metadata'] = nix_trust_metadata()
+        trust = receipt['nix_trust_metadata']
+        require(trust['socket']['trusted'] and any(row['trusted'] for row in trust['programs']), 'fixed Nix trust preflight failed')
+        profile_installed = True
+        run([NIX + '/nix-env', '--profile', str(profile), '--install',
+             str(previous_outputs['flere']), str(previous_outputs['flere-connect'])], timeout=180)
+        receipt['previous_components'], before_profile = installed(previous_outputs, '0.3.3')
+        preserved = [state, user / 'config', user / 'state', user / 'data', user / '.local/bin', user / 'cache/flere']
+        saved_state = {str(path): tree(path) for path in preserved}
+        # Literal version upgrade, not reinstall/replace or a mutable channel lookup.
+        run([NIX + '/nix-env', '--profile', str(profile), '--upgrade', '--lt',
+             str(outputs['flere']), str(outputs['flere-connect'])], timeout=180)
+        receipt['components'], after_profile = installed(outputs, VERSION)
+        require_upgrade(before_profile, after_profile)
+        require({str(path): tree(path) for path in preserved} == saved_state, 'profile upgrade changed synthetic Flere/user state')
+        receipt['profile_upgrade'] = {'from_version': '0.3.3', 'to_version': VERSION,
+                                      'before': before_profile, 'after': after_profile, 'state_unchanged': True}
         log = (proof / 'supervisor.log').open('wb')
         supervisor = subprocess.Popen(prefix + ['serve'], env=env, cwd=user, stdin=subprocess.DEVNULL,
                                       stdout=log, stderr=subprocess.STDOUT)
@@ -394,8 +472,9 @@ def main():
         os.close(bridge_fd)
         bridge_fd = None
         require(registered(0)[0] == epoch, 'companion detach changed empty supervisor')
-        for component, output in outputs.items():
-            require(sha(output / 'bin' / component) == receipt['components'][component]['sha256'], 'installed bytes changed')
+        for selected, records in [(outputs, receipt['components']), (previous_outputs, receipt['previous_components'])]:
+            for component, output in selected.items():
+                require(sha(output / 'bin' / component) == records[component]['sha256'], 'installed bytes changed')
         receipt['runtime'].update(empty_workspaces=True, core_prepare_blocked_before_staging=True,
                                   companion_prepare_blocked_before_staging=True,
                                   rendered_guidance_bytes_checked=True, physical_terminal_checked=False)

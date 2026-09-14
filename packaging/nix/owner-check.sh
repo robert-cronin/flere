@@ -97,6 +97,38 @@ assert config['sandbox-fallback']['value'] is False, config['sandbox-fallback']
 assert config['require-sigs']['value'] is True, config['require-sigs']
 assert {'nix-command', 'flakes'} <= set(config['experimental-features']['value'])
 PY
+# Evaluate all four exact package derivations before realizing their closure.
+stage=complete-closure-budget
+args=(--option allow-import-from-derivation false
+      --argstr source "$PWD/product" --argstr sourceArchive "$FLERE_NIX_PROOF/work/source.tar")
+derivations=()
+for component in previous-flere previous-flere-connect flere flere-connect; do
+  export FLERE_NIX_LOG="$FLERE_NIX_PROOF/$component.eval.log"
+  timeout --signal=TERM --kill-after=15s 120s \
+    nix-instantiate packaging/nix/owner-build.nix -A "$component" "${args[@]}" \
+    > "$FLERE_NIX_PROOF/$component.drv" 2> "$FLERE_NIX_LOG"
+  derivation=$(cat "$FLERE_NIX_PROOF/$component.drv")
+  [[ "$derivation" =~ ^/nix/store/[0-9a-z]{32}-[^/[:space:]]+\.drv$ ]]
+  derivations+=("$derivation")
+done
+export FLERE_NIX_LOG="$FLERE_NIX_PROOF/complete-dry-run.log"
+timeout --signal=TERM --kill-after=15s 300s \
+  nix-store --realise --dry-run "${derivations[@]}" \
+  > "$FLERE_NIX_PROOF/complete-dry-run.out" 2> "$FLERE_NIX_LOG"
+python3 - <<'PY_BUDGET'
+import importlib.util, json, os, shutil
+from pathlib import Path
+p = Path(os.environ['FLERE_NIX_PROOF'])
+spec = importlib.util.spec_from_file_location('owner', 'packaging/nix/owner-probe.py')
+owner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(owner)
+budget = owner.build_budget((p/'complete-dry-run.log').read_text(), shutil.disk_usage('/nix/store').free)
+budget['selected_derivations'] = {name:(p/f'{name}.drv').read_text().strip()
+    for name in ('previous-flere','previous-flere-connect','flere','flere-connect')}
+assert len(set(budget['selected_derivations'].values())) == 4, 'expected four distinct version/component derivations'
+(p/'budget.json').write_text(json.dumps(budget,indent=2,sort_keys=True)+'\n')
+assert budget['passed'], 'complete closure exceeds reviewed disk/build budget'
+PY_BUDGET
 # A fresh input prevents an earlier probe result from standing in for this VM.
 # Normal derivations must use a private network namespace; fixed-output fetches
 # may use networking only for checksum-pinned source/dependency inputs.
@@ -105,25 +137,51 @@ export FLERE_NIX_LOG="$FLERE_NIX_PROOF/sandbox.log"
 nix-build packaging/nix/sandbox-probe.nix --no-out-link \
   --argstr hostNetworkNamespace "$(readlink /proc/self/ns/net)" \
   > "$FLERE_NIX_PROOF/sandbox.out" 2> "$FLERE_NIX_LOG"
-for component in flere flere-connect; do
+for component in previous-flere previous-flere-connect flere flere-connect; do
   stage="$component"
-  export FLERE_NIX_LOG="$FLERE_NIX_PROOF/$component.eval.log"
-  nix-instantiate packaging/nix/owner-build.nix -A "$component" \
-    --argstr source "$PWD/product" --argstr sourceArchive "$FLERE_NIX_PROOF/work/source.tar" \
-    > "$FLERE_NIX_PROOF/$component.drv" 2> "$FLERE_NIX_LOG"
   export FLERE_NIX_LOG="$FLERE_NIX_PROOF/$component.log"
-  nix-build packaging/nix/owner-build.nix -A "$component" --no-out-link \
-    --argstr source "$PWD/product" --argstr sourceArchive "$FLERE_NIX_PROOF/work/source.tar" \
+  nix-store --realise "$(cat "$FLERE_NIX_PROOF/$component.drv")" \
     > "$FLERE_NIX_PROOF/$component.out" 2> "$FLERE_NIX_LOG"
 done
+# The previous source is already a dependency of both previous packages.
+stage=previous-source
+export FLERE_NIX_LOG="$FLERE_NIX_PROOF/previous-source.log"
+nix-build packaging/nix/owner-build.nix -A previous-source --no-out-link "${args[@]}" \
+  > "$FLERE_NIX_PROOF/previous-source.out" 2> "$FLERE_NIX_LOG"
 stage=inventory
 python3 - <<'PY_INVENTORY'
-import hashlib, json, os, re, stat, subprocess
+import hashlib, importlib.util, json, os, re, stat, subprocess, tarfile
 from pathlib import Path
 proof = Path(os.environ['FLERE_NIX_PROOF'])
+source_lines = (proof/'previous-source.out').read_text().splitlines()
+assert len(source_lines) == 1 and re.fullmatch('/nix/store/[0-9a-z]{32}-[^/]+', source_lines[0])
+source_output = Path(source_lines[0])
+assert source_output.is_file() and not source_output.is_symlink()
+with source_output.open('rb') as stream:
+    source_bytes = stream.read(64*1024*1024 + 1)
+assert len(source_bytes) <= 64*1024*1024
+assert hashlib.sha256(source_bytes).hexdigest() == '461bbe1e3fa88027c2ea7191c34adbd7eceaadbf6f091a270769b1cdc0ad6a9e'
+# The shared release inspector requires the original public archive basename.
+previous_archive = proof/'work/flere-0.3.3-source.tar.gz'
+previous_archive.write_bytes(source_bytes)
+spec = importlib.util.spec_from_file_location('release_source', 'scripts/release-source.py')
+source_helper = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(source_helper)
+previous_source = source_helper.inspect(previous_archive, '0.3.3', '4ceafa043b2c79b862d1ca1dd56715055b9447968411045c69ee0c1c85673801')
+assert previous_source['sha256'] == '461bbe1e3fa88027c2ea7191c34adbd7eceaadbf6f091a270769b1cdc0ad6a9e'
+previous_source['commit'] = 'ce6bb62ca6051d8bfc385c2df16bc62cbd65c738'
+previous_source['parser_patch_sha256'] = hashlib.sha256(Path('packaging/nix/patches/wrapped-path-delimiter.patch').read_bytes()).hexdigest()
+assert previous_source['parser_patch_sha256'] == '3e1bcd7b259d047974a85f2ff0cd8aae965e90207ceba1253e9637e8ef701275'
+previous_source['full_suites_repeated'] = False
+previous_source['fixture_build_override'] = 'doCheck=false; original install checks retained'
+(proof/'previous-source.json').write_text(json.dumps(previous_source,indent=2,sort_keys=True)+'\n')
+licenses = [('LICENSE','LICENSE'),('OFL.txt','src/assets/fonts/OFL.txt'),('LICENSE-Nerd-Fonts','src/assets/fonts/LICENSE-Nerd-Fonts')]
+with tarfile.open(previous_archive,'r:gz') as archive:
+    previous_licenses = {name:archive.extractfile('flere-0.3.3/'+original).read() for name,original in licenses}
 outputs = {}
-for component in ('flere','flere-connect'):
-    lines = (proof/f'{component}.out').read_text().splitlines()
+for selection in ('previous-flere','previous-flere-connect','flere','flere-connect'):
+    component = selection.removeprefix('previous-')
+    lines = (proof/f'{selection}.out').read_text().splitlines()
     assert len(lines) == 1 and re.fullmatch(r'/nix/store/[0-9a-z]{32}-[^/]+',lines[0])
     root = Path(lines[0])
     expected = {f'bin/{component}',*(f'share/licenses/{component}/{n}' for n in ('LICENSE','OFL.txt','LICENSE-Nerd-Fonts'))}
@@ -136,12 +194,13 @@ for component in ('flere','flere-connect'):
         assert stat.S_ISREG(info.st_mode) and info.st_uid == 0
         assert mode == (0o555 if name.startswith('bin/') else 0o444)
         entries[name] = {'bytes':info.st_size,'mode':mode,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
-    for name, original in [('LICENSE','LICENSE'),('OFL.txt','src/assets/fonts/OFL.txt'),('LICENSE-Nerd-Fonts','src/assets/fonts/LICENSE-Nerd-Fonts')]:
-        assert (root/f'share/licenses/{component}/{name}').read_bytes() == (Path('product')/original).read_bytes()
+    for name, original in licenses:
+        expected_license = previous_licenses[name] if selection.startswith('previous-') else (Path('product')/original).read_bytes()
+        assert (root/f'share/licenses/{component}/{name}').read_bytes() == expected_license
     closure = subprocess.check_output(['nix-store','--query','--requisites',str(root)],timeout=30)
     assert len(closure) <= 1048576
-    (proof/f'{component}.closure').write_bytes(closure)
-    outputs[component] = {'output':str(root),'derivation':(proof/f'{component}.drv').read_text().strip(),
+    (proof/f'{selection}.closure').write_bytes(closure)
+    outputs[selection] = {'output':str(root),'derivation':(proof/f'{selection}.drv').read_text().strip(),
                           'files':entries,'closure_sha256':hashlib.sha256(closure).hexdigest()}
 (proof/'builds.json').write_text(json.dumps(outputs,indent=2,sort_keys=True)+'\n')
 PY_INVENTORY
@@ -165,13 +224,25 @@ archive = (proof/'work/source.tar').read_bytes()
 assert len(archive) == source['source_archive_bytes'] and hashlib.sha256(archive).hexdigest() == source['source_archive_sha256']
 owner = json.loads((proof/'owner-receipt.json').read_text())
 assert owner['status'] == 'passed' and owner['profile_removed']
+assert owner['profile_upgrade']['from_version'] == '0.3.3' and owner['profile_upgrade']['to_version'] == '0.3.4'
+assert owner['profile_upgrade']['state_unchanged']
+assert owner['profile_upgrade']['before']['generation'] != owner['profile_upgrade']['after']['generation']
+assert owner['profile_upgrade']['before']['environment'] != owner['profile_upgrade']['after']['environment']
+assert len(owner['previous_components']) == len(owner['components']) == 2
+builds = json.loads((proof/'builds.json').read_text())
+for label, rows in [('previous-', owner['previous_components']), ('', owner['components'])]:
+    for name, info in rows.items():
+        assert info['output'] == builds[label+name]['output']
+        assert info['sha256'] == builds[label+name]['files']['bin/'+name]['sha256']
 receipt = {'schema':'flere-nix-installed-owner-build-v1','status':'passed',
            **json.loads((proof/'context.json').read_text()),
            'source':json.loads((proof/'source.json').read_text()),
-           'builds':json.loads((proof/'builds.json').read_text()),
+           'builds':builds,'previous_source':json.loads((proof/'previous-source.json').read_text()),
+           'budget':json.loads((proof/'budget.json').read_text()),
            'owner_receipt_sha256':hashlib.sha256((proof/'owner-receipt.json').read_bytes()).hexdigest(),
            'sandbox':True,'sandbox_fallback':False,'cargo_offline':True,'full_suites_repeated':False,
-           'packaging_changes':['Three declared /usr/bin/sha256sum replacements only'],
+           'packaging_changes':['0.3.4: three declared /usr/bin/sha256sum replacements only',
+                                '0.3.3: existing pinned recipe/patch, doCheck=false for separate upgrade fixture'],
            'limits':owner['limits']}
 (proof/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
 PY_FINAL

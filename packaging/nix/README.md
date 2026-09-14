@@ -134,6 +134,19 @@ profile removal preserved synthetic Flere and unrelated user state. No process
 needed a forced kill. UI evidence is retained terminal output; the companion used
 an exact local SSH stand-in, not an external connection.
 
+The same installed-owner workflow now prepares a separate real-version profile
+upgrade check; execution remains pending. It builds a fresh v0.3.3 pair from the
+pinned archive and declared parser patch, then uses ordinary
+`nix-env --profile … --upgrade --lt` with the exact v0.3.4 output paths. Both package
+versions, profile generations, selected paths/hashes and synthetic state must
+match before the existing v0.3.4 ownership/UI/removal acceptance runs once.
+A successful no-op is rejected. The previous pair disables full suites only for
+this separate fixture and retains install checks; these new bytes are not the
+recorded 485-test outputs. The default recipe and full-suite workflow are unchanged.
+All four derivations undergo a complete download/build and measured disk gate
+before realization, with the existing strict sandbox and job limits. This does
+not test a live old-process refresh or publish/repin a channel.
+
 The initial [run 34874043087](https://github.com/robert-cronin/flere/actions/runs/34874043087)
 remains a failed pre-compilation check: the verified archive was referenced by
 its host filename instead of a store input. Importing both the archive and locks

@@ -75,7 +75,7 @@ let
               machine.succeed("test $(stat -c %s /home/tester/.cache/flere/tmp/runtime.json) -le 65536")
               guest_receipt = json.loads(machine.succeed("cat /home/tester/.cache/flere/tmp/runtime.json"))
               print(json.dumps({"guest_receipt": guest_receipt}, sort_keys=True))
-              machine.copy_from_vm("/home/tester/.cache/flere/tmp/runtime.json")
+              machine.copy_from_machine("/home/tester/.cache/flere/tmp/runtime.json")
       machine.shutdown()
       assert machine.process.poll() == 0
       acceleration["qemu_exit"] = machine.process.returncode
