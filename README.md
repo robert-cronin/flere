@@ -35,10 +35,21 @@ Git, your editor, shells, and agent CLIs run as external programs.
 
 ## Start in a project directory
 
-Get the tested Linux x86_64 or macOS arm64 downloads from
-[Flere v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0).
-See [installation channels and package-manager status](docs/distribution.md) for
-setup, upgrades and platform limits. The source-build workflow follows below.
+On macOS Apple Silicon or Linux x86_64, install from the
+[published Homebrew source tap](https://github.com/robert-cronin/homebrew-flere):
+
+```sh
+brew install robert-cronin/flere/flere
+flere --version
+brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
+```
+
+Homebrew compiles the pinned source locally. See
+[installation channels and validation limits](docs/distribution.md) for setup,
+upgrades and the remaining fresh-dependency and native Linux Homebrew checks.
+Prebuilt Linux x86_64 and macOS arm64 downloads are also available from
+[Flere v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0), subject
+to their platform limits. The development workflow follows below.
 
 From this checkout, with **Rust 1.98+**, Python 3, a system C linker and cached
 dependencies:

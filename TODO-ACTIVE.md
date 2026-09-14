@@ -2,16 +2,24 @@
 
 ## Distribution
 
-- [ ] Publish and validate a Homebrew tap using versioned, checksummed releases.
-  Source formulas and the isolated Mac build/CLI are verified; the curated tap
-  is prepared. Publication and final package lifecycle acceptance remain open.
+- [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
+  using the pinned, checksummed v0.3.0 archive. Published tap commit: `754e4de`.
+- [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
+  companion: install, formula tests, stateless CLI checks, same-source revision
+  upgrade and full removal. Disposable state/config stayed unchanged. This used
+  cached Rust dependencies with `--ignore-dependencies`.
+- [ ] Validate fresh Homebrew dependency provisioning, upgrades between release
+  versions, and the native Linux x86_64 Homebrew lifecycle. Older macOS acceptance
+  remains pending; Intel Macs and Linux ARM are excluded from this tap.
 - [ ] Prepare and validate Cargo source packages; publish after registry access
   and package-name availability are established.
   Core archive verification passed at `677971d`; first registry publication must
   use a new matching version/tag rather than relabel the original release source.
 - [ ] Prepare Linux native packages and an AUR recipe; validate each supported
   platform and state the prebuilt Linux glibc requirement.
-- [ ] Add Nix packaging and validate it with Nix before claiming support.
+- [ ] Validate the prepared [Nix packaging draft](packaging/nix/README.md). No
+  Nix parsing, evaluation or build has run; native runtime and update ownership
+  acceptance also remain pending. Do not claim Nix support.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
 - [ ] Revalidate the public source on native Windows after incorporating the
@@ -48,13 +56,16 @@
   name from Git remote metadata, with a local directory-name fallback for offline
   folders or projects without a remote. Real PTY tests cover browsing, completion,
   cancellation, automatic naming and literal paths; inherited Git selectors cannot
-  redirect the selected checkout. Installation/publication of this change is pending.
+  redirect the selected checkout. Published on `main` at `8e7b34a`; installation
+  into the local running setup remains pending.
 
 ## Branding and link audit
 
 - [ ] Clean up obsolete local Railhand files and installation references after
   the move to Flere. Identify live dependencies before relocating state; preserve
-  private history separately from the clean public repository.
+  private history separately from the clean public repository. The development
+  source reference and stale test-fixture connection entries are corrected;
+  live legacy state and active working directories remain retained.
 
 - [ ] Replace remaining rendered Railhand branding with Flere in current terminal
   captures, illustrations, intro/screensaver frames and documentation art. Inspect

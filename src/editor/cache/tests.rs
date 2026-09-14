@@ -54,6 +54,33 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn transaction_release_does_not_wait_for_inherited_descriptors() {
+    let f = Fixture::new();
+    let (paths, ui) = f.entry("inherited-lock");
+    drop(ui);
+    let lock_path = paths[0].parent().unwrap().join(".lock");
+    let guard = lock(&lock_path, false).unwrap();
+    // A duplicate shares the file description inherited by a concurrently
+    // spawned child before exec, without process-global mutation or timing.
+    let inherited = guard.file.try_clone().unwrap();
+    assert_eq!(
+        reserve_open(&f.state, &paths[0]).err().unwrap().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    drop(guard);
+    let reservation = reserve_open(&f.state, &paths[0]).unwrap().unwrap();
+    let next = lock(&lock_path, false).unwrap();
+    drop(inherited);
+    assert_eq!(
+        reserve_open(&f.state, &paths[0]).err().unwrap().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    drop(next);
+    assert_eq!(f.sweep(&paths[0], now()).unwrap().reserved, 1);
+    reservation.release();
+}
+
+#[test]
 fn complete_pairs_follow_last_saved_reference_and_full_unused_deadline() {
     let f = Fixture::new();
     let (paths, lease) = f.entry("pair");

@@ -115,7 +115,19 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path, max: u64) -> io::Resul
 fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
     crate::workspace::atomic_write(path, &serde_json::to_vec(value).map_err(io::Error::other)?)
 }
-fn lock(path: &Path, create: bool) -> io::Result<File> {
+struct CacheLock {
+    file: File,
+}
+impl Drop for CacheLock {
+    fn drop(&mut self) {
+        // A concurrent child can briefly inherit this file description before
+        // exec. Release the transaction explicitly so its copy cannot prolong
+        // cache ownership after our guard ends.
+        let _ = self.file.unlock();
+    }
+}
+
+fn lock(path: &Path, create: bool) -> io::Result<CacheLock> {
     let f = OpenOptions::new()
         .read(true)
         .write(true)
@@ -129,9 +141,9 @@ fn lock(path: &Path, create: bool) -> io::Result<File> {
         return Err(invalid("Git cache lock is not a private owned file"));
     }
     os::lock(f.as_raw_fd())?;
-    Ok(f)
+    Ok(CacheLock { file: f })
 }
-fn worker_lock(path: &Path, create: bool) -> io::Result<File> {
+fn worker_lock(path: &Path, create: bool) -> io::Result<CacheLock> {
     let end = Instant::now() + Duration::from_secs(3);
     loop {
         match lock(path, create) {

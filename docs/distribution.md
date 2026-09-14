@@ -21,20 +21,44 @@ but no Rust toolchain or source checkout. Follow the
 
 ## Package-manager channels
 
-The initial channels are being prepared. An entry below does not imply an
-installation command is already available in a public catalogue.
+The Homebrew tap is published. Other channels below retain their individual
+validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
-| [Homebrew tap](../packaging/homebrew/README.md) | Source builds for macOS arm64 and Linux x86_64 | Source archive/formulas and isolated Mac build checked; publication pending |
+| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published; isolated macOS source install/test/revision-upgrade/uninstall passed. Fresh dependency provisioning and native Linux lifecycle checks pending |
 | [Cargo / crates.io](../packaging/cargo/README.md) | Core source package | Archive verified; registry publication pending |
 | [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Corrected Debian package built; final artifact review pending. AUR submission and full Arch installation pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
-| Nix / RPM / Chocolatey | Additional installations | Queued; not validated or published |
+| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Draft prepared; Nix parsing, evaluation, builds and runtime validation pending. Not a supported installation method |
+| RPM / Chocolatey | Additional installations | Queued; not validated or published |
 
-Homebrew currently builds from the pinned source archive. Its native binaries
-use the build host's runtime; the prebuilt Linux glibc requirement does not apply
-to those source formulas. Building successfully is still distinct from validating
+### Install with Homebrew
+
+With a current Homebrew installation:
+
+```sh
+brew install robert-cronin/flere/flere
+flere --version
+brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
+```
+
+Homebrew builds locally from the pinned v0.3.0 source archive and supplies Rust
+1.98 or newer as a build dependency. Ensure Homebrew's `bin` directory is on PATH.
+Use `brew upgrade robert-cronin/flere/flere` after `brew update`; upgrade the
+companion through Homebrew too if installed. See the
+[tap guide](../packaging/homebrew/README.md) for removal and maintenance.
+
+Isolated macOS arm64 source installation, formula tests, stateless CLI checks,
+a same-source formula revision upgrade, and full removal passed for both
+components. Disposable state and configuration stayed unchanged. Validation used
+a cached Rust toolchain and dependencies with `--ignore-dependencies`; fresh
+Homebrew dependency provisioning, upgrades between release versions, and native
+Linux Homebrew lifecycle checks remain unverified.
+
+The source build uses the host's runtime; the prebuilt Linux glibc requirement
+does not apply to these formulas. Intel Macs and Linux ARM are excluded, and older
+macOS runtime acceptance remains pending. Building successfully does not establish
 all runtime features on a new OS/version.
 
 The [prepared binary casks](../packaging/homebrew-prebuilt/README.md) remain

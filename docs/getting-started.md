@@ -5,9 +5,34 @@
 Flere 0.3.0 is a clean rename. Commands, package IDs, hooks, environment markers
 and new private folders use `flere`; old Railhand installations are separate.
 
-For prebuilt downloads and package-manager availability, start with
-[installation channels](distribution.md). The source-build workflow below is
-for development and platforms without an accepted prebuilt package.
+Choose Homebrew below or see [installation channels](distribution.md) for
+prebuilt downloads and other package-manager status. The development workflow
+uses a source checkout.
+
+## Install with Homebrew
+
+On macOS Apple Silicon or Linux x86_64, with a current Homebrew installation:
+
+```sh
+brew install robert-cronin/flere/flere
+flere --version
+```
+
+For the optional local SSH and clipboard companion:
+
+```sh
+brew install robert-cronin/flere/flere-connect
+flere-connect --version
+```
+
+The [published tap](https://github.com/robert-cronin/homebrew-flere) builds the
+pinned v0.3.0 source locally and supplies Rust as a build dependency. Ensure
+Homebrew's `bin` directory is on PATH, then [open a project](#open-a-project).
+Use Homebrew for upgrades and removal. See the
+[tap guide](../packaging/homebrew/README.md) for commands and
+[validation limits](distribution.md#install-with-homebrew): the isolated macOS
+lifecycle passed, while fresh dependency provisioning and native Linux Homebrew
+lifecycle checks remain open.
 
 ## Build and install
 

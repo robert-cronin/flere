@@ -1,12 +1,10 @@
 # Flere Homebrew tap
 
-Source-built formulas for [Flere](https://github.com/robert-cronin/flere). These
-files are prepared for `robert-cronin/homebrew-flere`; their presence in the Flere
-source checkout does not establish that the tap has been published.
+Source-built formulas for [Flere](https://github.com/robert-cronin/flere).
 
 ## Install
 
-After this tap is published, with a current Homebrew installation:
+With a current Homebrew installation:
 
 ```sh
 brew install robert-cronin/flere/flere
@@ -68,6 +66,13 @@ signature. A future macOS binary channel needs signing, notarization and fresh
 runtime acceptance.
 
 ## Maintain and validate
+
+An isolated macOS arm64 check completed source installation, formula tests,
+stateless CLI checks, a same-source formula revision upgrade, and full removal
+for both components. Disposable state and configuration stayed unchanged. This
+used a cached Rust toolchain and dependencies with `--ignore-dependencies`;
+fresh Homebrew dependency provisioning, an upgrade between release versions,
+and native Linux Homebrew lifecycle checks remain unverified.
 
 Both formulas intentionally use the full source archive: the companion references
 shared code and build support outside its own directory. Preserve the font licenses
