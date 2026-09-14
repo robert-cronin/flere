@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import tomllib
 import urllib.error
 import urllib.parse
@@ -284,10 +285,19 @@ def release_body(version, commit, run_id, descriptor_sha):
             "Package-manager channels and the latest-release pointer are not advanced by this workflow.\n")
 
 
-def verify_tag(api, version, commit, *, missing=False):
-    ref = api.get(f"git/ref/tags/v{version}", missing=missing)
-    if ref is None:
-        return
+def verify_tag(api, version, commit, *, missing=False, wait_for_visibility=False):
+    attempts = 6 if wait_for_visibility else 1
+    for attempt in range(attempts):
+        # Only a 404 becomes None. Other API failures and mismatched visible
+        # tags still fail immediately; this loop never repeats a mutation.
+        ref = api.get(f"git/ref/tags/v{version}", missing=missing or wait_for_visibility)
+        if ref is not None:
+            break
+        if not wait_for_visibility:
+            return
+        if attempt == attempts - 1:
+            raise ValueError("published version tag remained unavailable after 6 checks; reconcile before retry")
+        time.sleep(2)
     # This publisher creates lightweight tags only; never reinterpret a foreign
     # annotated tag or rewrite a tag to make an existing draft fit this run.
     if ref["object"] != {"type": "commit", "sha": commit, "url": f"https://api.github.com/repos/{REPOSITORY}/git/commits/{commit}"}:
@@ -340,7 +350,7 @@ def publish(directory, version, commit, run_id, workflow_sha, expected_digest, a
     # release; it never rebuilds, replaces assets, or moves the tag/latest pointer.
     if release["draft"] or release.get("immutable") is not True:
         raise ValueError("publication did not return an immutable release; stop and inspect repository settings")
-    verify_tag(api, version, commit)
+    verify_tag(api, version, commit, wait_for_visibility=True)
     remote_assets(api, release["id"], expected, complete=True)
     return {"release_id": release["id"], "descriptor_sha256": expected_digest, "status": "published_immutable"}
 

@@ -71,6 +71,40 @@ checksums, mixed release identities, incompatible core/companion protocols and
 symlinked inputs are rejected before output is created. Checksums establish
 byte identity with the reviewed release; they are not a publisher signature.
 
+### Prepare a later sealed Linux release
+
+The manual release workflow emits seven files: both executables and manifests,
+the full source archive, `release.json` and `SHA256SUMS`. With Python 3.11 or newer,
+the same package generator can derive a new lock from those verified files:
+
+```sh
+python3 scripts/linux-packages.py \
+  --assets "$VERIFIED_LINUX_RELEASE" \
+  --descriptor-sha256 "$REVIEWED_DESCRIPTOR_SHA256" \
+  --output "$HOME/.cache/flere/tmp/linux-packages-new-release"
+```
+
+Use the descriptor digest recorded by the reviewed release workflow or retained
+verification receipt. The tool reuses the release validator to check that pin,
+the exact seven-file inventory, manifests, full source fingerprint, checksums and
+recorded Linux acceptance before creating output. It reads the three license
+files from that archive and takes the package timestamp from the normalized
+source archive. It does not download files, install packages or execute the
+release payloads.
+
+This mode emits `release-lock.json` alongside the existing AUR/RPM recipes,
+provenance and generated checksums. All three package formats use that same lock;
+add `--deb` or `--rpm` only on a host with the corresponding build prerequisites.
+`--revision N` changes the distribution package revision, starting at 1, without
+changing the upstream version or payloads. The provenance records the trusted
+descriptor digest. Review the generated lock and recipes before updating the
+checked-in definitions; this command does not change them. `--check-recipes`
+will correctly report drift until they match the selected release.
+
+Without `--descriptor-sha256`, the existing v0.3.0 checked-in lock remains the
+input. Generating a later package does not establish its package-manager
+lifecycle or publication; the evidence below still belongs to v0.3.0.
+
 ## Validation and publication follow-up
 
 On 2026-09-14, the corrected `flere_0.3.0-1_amd64.deb` passed archive and

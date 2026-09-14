@@ -47,6 +47,16 @@ No Rust or source checkout is required. The bootstrap verifies the published
 installer before running it. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
 for curl, `--core-only`, PATH setup and existing-installation rules.
 
+With Rust 1.98+ and a system C linker, install the core from crates.io:
+
+```sh
+cargo install flere --locked --version 0.3.1
+```
+
+The [Cargo package](https://crates.io/crates/flere/0.3.1) builds locally on Linux
+or macOS and excludes the separate SSH/clipboard companion. See
+[Cargo setup](docs/getting-started.md#install-with-cargo) for platform requirements.
+
 Or install from the
 [published Homebrew source tap](https://github.com/robert-cronin/homebrew-flere):
 

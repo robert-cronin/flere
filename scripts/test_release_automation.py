@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Offline adversarial release-boundary tests; no real GitHub writes or payload execution."""
 import copy
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 from test_release_source import sample_files, source_digest, write_archive
@@ -19,6 +23,9 @@ spec.loader.exec_module(release)
 ci_spec = importlib.util.spec_from_file_location("release_linux_ci", Path(__file__).with_name("release-linux-ci.py"))
 ci = importlib.util.module_from_spec(ci_spec)
 ci_spec.loader.exec_module(ci)
+packages_spec = importlib.util.spec_from_file_location("linux_packages", Path(__file__).with_name("linux-packages.py"))
+packages = importlib.util.module_from_spec(packages_spec)
+packages_spec.loader.exec_module(packages)
 
 VERSION = "0.4.0"
 COMMIT = "a" * 40
@@ -111,6 +118,76 @@ class ReleaseAutomation(unittest.TestCase):
         item = json.loads(path.read_bytes())
         change(item)
         path.write_bytes(release.json_bytes(item))
+
+    def linux_output(self):
+        output = self.directory.with_name(self.directory.name + "-linux-packages")
+        self.addCleanup(shutil.rmtree, output, True)
+        return output
+
+    def test_verified_release_drives_linux_recipes_lock_and_checksums(self):
+        descriptor_digest = self.seal()
+        checked_in_lock = (packages.ROOT / "packaging/linux/release.json").read_bytes()
+        output = self.linux_output()
+        with contextlib.redirect_stdout(io.StringIO()):
+            packages.main(["--assets", str(self.directory), "--output", str(output),
+                           "--descriptor-sha256", descriptor_digest, "--revision", "2"])
+        lock = json.loads((output / "release-lock.json").read_bytes())
+        descriptor = json.loads((self.directory / "release.json").read_bytes())
+        self.assertEqual((lock["version"], lock["revision"], lock["source_commit"], lock["source_sha256"]),
+                         (VERSION, 2, COMMIT, self.source_digest))
+        self.assertEqual(lock["assets"], descriptor["assets"])
+        self.assertEqual(lock["source_date_epoch"], 1700000000)
+        for name in packages.LICENSES:
+            self.assertEqual(lock["licenses"][name], {"bytes": 8, "sha256": release.sha(b"fixture\n")})
+        inputs, licenses = packages.load_inputs(self.directory, lock)
+        for component in packages.COMPONENTS:
+            self.assertEqual(packages.deb_files(inputs, licenses)[f"usr/bin/{component}"][0],
+                             (self.directory / f"{component}-{packages.TARGET}").read_bytes())
+        for recipe in ("aur/flere-bin/PKGBUILD", "aur/flere-bin/.SRCINFO", "rpm/flere.spec"):
+            text = (output / recipe).read_text()
+            self.assertIn(f"/releases/download/v{VERSION}/", text)
+            self.assertIn(f"/flere/{COMMIT}/LICENSE", text)
+            for name, asset in lock["assets"].items():
+                if not name.endswith(".tar.gz"):
+                    self.assertIn(asset["sha256"], text)
+        provenance = json.loads((output / "package-provenance.json").read_bytes())
+        self.assertEqual(provenance["release_descriptor_sha256"], descriptor_digest)
+        self.assertEqual(provenance["release"], lock)
+        self.assertEqual(provenance["status"], "prepared_not_published")
+        expected = {"aur/flere-bin/PKGBUILD", "aur/flere-bin/.SRCINFO", "rpm/flere.spec",
+                    "release-lock.json", "package-provenance.json"}
+        self.assertEqual({p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()},
+                         expected | {"SHA256SUMS"})
+        checksums = dict(line.split("  ", 1)[::-1] for line in (output / "SHA256SUMS").read_text().splitlines())
+        self.assertEqual(checksums, {name: release.sha((output / name).read_bytes()) for name in expected})
+        self.assertEqual((packages.ROOT / "packaging/linux/release.json").read_bytes(), checked_in_lock)
+
+    def test_linux_derivation_rejects_substituted_assets_before_output(self):
+        descriptor_digest = self.seal()
+        output = self.linux_output()
+        for name in ("release.json", "SHA256SUMS", self.source_archive.name,
+                     f"flere-{packages.TARGET}"):
+            path = self.directory / name
+            original = path.read_bytes()
+            with self.subTest(name=name):
+                path.write_bytes(original + b"changed")
+                with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+                    packages.main(["--assets", str(self.directory), "--output", str(output),
+                                   "--descriptor-sha256", descriptor_digest])
+                self.assertFalse(output.exists())
+            path.write_bytes(original)
+
+    def test_linux_derivation_requires_explicit_valid_pin_and_revision(self):
+        descriptor_digest = self.seal()
+        for pin, revision in (("0" * 64, 1), (descriptor_digest + "\n", 1),
+                              (descriptor_digest, 0), (descriptor_digest, -1),
+                              (descriptor_digest, True)):
+            with self.subTest(pin=pin, revision=revision), self.assertRaises(ValueError):
+                packages.lock_from_release(self.directory, pin, revision)
+        output = self.linux_output()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            packages.main(["--assets", str(self.directory), "--output", str(output), "--revision", "2"])
+        self.assertFalse(output.exists())
 
     def test_input_injection_and_ambiguous_identities_are_rejected(self):
         for version in ("v0.4.0", "0.04.0", "0.4.0;echo bad", "0.4.0\nother=evil", "0.4.0-rc1", "../0.4.0"):
@@ -214,6 +291,32 @@ class ReleaseAutomation(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "another candidate"):
             self.publish(digest)
         self.assertEqual(self.api.writes, writes)
+
+    def test_post_publication_tag_visibility_retries_only_reads(self):
+        digest = self.seal()
+        original_get = self.api.get
+        visibility_reads = []
+
+        def get(path, **kwargs):
+            if path == f"git/ref/tags/v{VERSION}" and self.api.release and not self.api.release["draft"]:
+                visibility_reads.append(path)
+                if len(visibility_reads) <= 2:
+                    return None
+            return original_get(path, **kwargs)
+
+        with mock.patch.object(self.api, "get", side_effect=get), mock.patch.object(release.time, "sleep") as sleep:
+            self.assertEqual(self.publish(digest)["status"], "published_immutable")
+        self.assertEqual(len(visibility_reads), 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(2), mock.call(2)])
+        expected_writes = [("POST", "releases")]
+        expected_writes += [("POST", f"releases/1/assets?name={name}") for name in sorted(release.allowlist(VERSION))]
+        expected_writes += [("PATCH", "releases/1")]
+        self.assertEqual(self.api.writes, expected_writes)
+        self.assertFalse(self.api.release["draft"])
+        self.assertTrue(self.api.release["immutable"])
+        self.assertEqual(self.api.release["make_latest"], "false")
+        self.publish(digest)
+        self.assertEqual(self.api.writes, expected_writes)
 
     def test_tag_race_is_detected_without_overwrite(self):
         digest = self.seal()
@@ -338,6 +441,65 @@ class ReleaseAutomation(unittest.TestCase):
         self.evidence["elf_needed"]["flere"] = ["libc.so.6", "libmystery.so.1"]
         with self.assertRaisesRegex(ValueError, "required ELF libraries"):
             self.seal()
+
+
+class PublishedTagVisibility(unittest.TestCase):
+    def setUp(self):
+        self.api = release.GitHub("fixture-token")
+        self.url = f"https://api.github.com/repos/{release.REPOSITORY}/git/ref/tags/v{VERSION}"
+        self.ref = {"object": {"type": "commit", "sha": COMMIT,
+                               "url": f"https://api.github.com/repos/{release.REPOSITORY}/git/commits/{COMMIT}"}}
+
+    def response(self, value):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps(value).encode()
+        return response
+
+    def error(self, status):
+        error = urllib.error.HTTPError(self.url, status, "fixture", {}, None)
+        self.addCleanup(error.close)
+        return error
+
+    def test_matching_tag_succeeds_immediately_or_after_404_visibility_delay(self):
+        for missing in (0, 2):
+            with self.subTest(missing=missing), mock.patch.object(release.urllib.request, "build_opener") as build, \
+                    mock.patch.object(release.time, "sleep") as sleep:
+                build.return_value.open.side_effect = [self.error(404) for _ in range(missing)] + [self.response(self.ref)]
+                release.verify_tag(self.api, VERSION, COMMIT, wait_for_visibility=True)
+                self.assertEqual(build.return_value.open.call_count, missing + 1)
+                self.assertEqual(sleep.call_args_list, [mock.call(2)] * missing)
+                self.assertTrue(all(call.args[0].method == "GET" and call.args[0].full_url == self.url
+                                    for call in build.return_value.open.call_args_list))
+
+    def test_missing_tag_fails_after_six_reads_and_five_waits(self):
+        with mock.patch.object(release.urllib.request, "build_opener") as build, \
+                mock.patch.object(release.time, "sleep") as sleep:
+            build.return_value.open.side_effect = self.error(404)
+            with self.assertRaisesRegex(ValueError, "unavailable after 6 checks"):
+                release.verify_tag(self.api, VERSION, COMMIT, wait_for_visibility=True)
+            self.assertEqual(build.return_value.open.call_count, 6)
+            self.assertEqual(sleep.call_args_list, [mock.call(2)] * 5)
+
+    def test_wrong_visible_tag_fails_without_wait_or_retry(self):
+        wrong = copy.deepcopy(self.ref)
+        wrong["object"]["sha"] = "d" * 40
+        with mock.patch.object(release.urllib.request, "build_opener") as build, \
+                mock.patch.object(release.time, "sleep") as sleep:
+            build.return_value.open.return_value = self.response(wrong)
+            with self.assertRaisesRegex(ValueError, "exact selected source commit"):
+                release.verify_tag(self.api, VERSION, COMMIT, wait_for_visibility=True)
+            self.assertEqual(build.return_value.open.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_non404_api_errors_fail_without_wait_or_retry(self):
+        for status in (403, 429, 500):
+            with self.subTest(status=status), mock.patch.object(release.urllib.request, "build_opener") as build, \
+                    mock.patch.object(release.time, "sleep") as sleep:
+                build.return_value.open.side_effect = self.error(status)
+                with self.assertRaisesRegex(ValueError, f"HTTP {status}"):
+                    release.verify_tag(self.api, VERSION, COMMIT, wait_for_visibility=True)
+                self.assertEqual(build.return_value.open.call_count, 1)
+                sleep.assert_not_called()
 
 
 if __name__ == "__main__":

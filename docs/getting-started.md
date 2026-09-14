@@ -5,7 +5,7 @@
 Flere 0.3.0 is a clean rename. Commands, package IDs, hooks, environment markers
 and new private folders use `flere`; old Railhand installations are separate.
 
-Choose the prebuilt terminal installer or Homebrew below. See
+Choose the prebuilt terminal installer, Homebrew or Cargo below. See
 [installation channels](distribution.md) for other package-manager status.
 The development workflow uses a source checkout.
 
@@ -71,6 +71,27 @@ Use Homebrew for upgrades and removal. See the
 [validation limits](distribution.md#install-with-homebrew): the isolated macOS
 lifecycle passed, while fresh dependency provisioning and native Linux Homebrew
 lifecycle checks remain open.
+
+## Install with Cargo
+
+The published [flere 0.3.1 crate](https://crates.io/crates/flere/0.3.1) builds the
+core locally on Linux x86_64 or macOS with **Rust 1.98+** and a system C linker.
+macOS needs Xcode Command Line Tools. Intel macOS has compile-check evidence;
+see [platform limits](reference/compatibility.md).
+
+```sh
+cargo install flere --locked --version 0.3.1
+flere --version
+```
+
+Put Cargo's installation directory, normally `~/.cargo/bin`, on PATH. Git and
+Vim/Neovim are needed for their respective features. The crate excludes the
+separate `flere-connect` SSH/clipboard companion and does not build a Windows
+workbench. No crates.io login is needed to install it.
+
+Use Cargo to install a later published version, and `cargo uninstall flere` to
+remove this copy. Cargo owns the executable; saved Flere workspaces remain
+separate. See the [source-package guide](../packaging/cargo/README.md).
 
 ## Build and install
 

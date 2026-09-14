@@ -19,15 +19,21 @@ pair under `~/.local/bin` and records the chosen update source. It needs Python 
 but no Rust toolchain or source checkout. Follow the
 [installation guide](getting-started.md#install-a-published-package).
 
+[Flere v0.3.1](https://github.com/robert-cronin/flere/releases/tag/v0.3.1) adds the
+verified Linux x86_64 core/companion, complete source, manifests and checksums.
+All seven anonymous downloads matched the sealed release. This Linux release
+keeps v0.3.0 as the default installer release; it does not advance Mac or Windows
+prebuilt channels.
+
 ## Package-manager channels
 
-The Homebrew tap is published. Other channels below retain their individual
+The Homebrew tap and core Cargo crate are published. Other channels retain their individual
 validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
 | [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published; isolated macOS source install/test/revision-upgrade/uninstall passed. Fresh dependency provisioning and native Linux lifecycle checks pending |
-| [Cargo / crates.io](../packaging/cargo/README.md) | Core source package | Archive verified; registry publication pending |
+| [Cargo / crates.io](https://crates.io/crates/flere/0.3.1) | Core source package for Linux/macOS | Published v0.3.1; anonymous archive checksum matches the verified upload. Companion excluded |
 | [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Debian archive/native CLI checks and emulated Ubuntu APT lifecycle passed. Arch makepkg/build/metadata and emulated pacman install/remove/CLI checks passed. Debian asset publication and AUR submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Native Linux Docker parsing, evaluation, both builds, declared install checks and exact output inventory passed. Nix sandbox suites and broader runtime acceptance pending; not a supported installation method |
@@ -67,10 +73,19 @@ unpublished: normal macOS Gatekeeper blocked execution of the unnotarized downlo
 during an isolated install test. The source formulas keep macOS security checks
 intact and require no Apple Developer Program membership from users.
 
-The verified Cargo archive comes from a later packaging commit than the v0.3.0
-prebuilt binaries. It is not attached to the original release as if it shared that
-source identity. Choose a new matching version/tag when enabling registry
-publication; the current archive is preparation evidence only.
+### Install with Cargo
+
+```sh
+cargo install flere --locked --version 0.3.1
+```
+
+This builds the core with Rust 1.98+ and a system C linker; macOS needs Xcode
+Command Line Tools. Cargo normally installs into `~/.cargo/bin`. The companion
+is separate. See [Cargo setup](getting-started.md#install-with-cargo).
+
+The published archive records source commit `7f5c5eb` from the matching v0.3.1
+release. Its registry checksum and anonymous download both match the reviewed
+archive: `1c3d9929b201f16255c674b8269760df12d421accf87ad6e2adfcee212f454dd`.
 
 ## Upgrade through the installation owner
 
@@ -78,12 +93,29 @@ Use the package manager that installed Flere to upgrade or remove that copy.
 Package recipes do not invoke Flere's per-user installer, create application
 state, start sessions, alter SSH settings or approve native agent prompts.
 
+| Installation method | Owner of upgrades and removal |
+| --- | --- |
+| Unix installer / Flere managed installation | Flere's verified install/update flow and its managed receipt; inspect the exact selected state before applying a running update |
+| Homebrew source formulas | Homebrew, separately for `flere` and `flere-connect`; use `brew upgrade` and `brew uninstall` |
+| Cargo registry or `cargo install --path` | Cargo; install the chosen verified version/source with Cargo and remove with `cargo uninstall flere`. The core crate excludes the companion |
+| Debian package | APT/dpkg, using the reviewed `.deb` or configured package repository |
+| RPM package | The owning RPM package manager, using the reviewed RPM; Flere does not replace its `/usr/bin` files |
+| AUR package | Rebuild the reviewed AUR recipe and upgrade/remove the resulting package through pacman |
+| Scoop / WinGet / Chocolatey companion | The chosen Windows manager owns both command aliases; use that same manager for upgrade/removal once its channel is available |
+| Manual source/binary copy | The owner explicitly rebuilds/replaces that copy, or reviews adoption into Flere's managed installation; unknown copies are not adopted automatically |
+| Nix draft | Update the pinned expression and rebuild through the owning Nix configuration. Draft validation does not establish a supported installation or in-app upgrade path |
+
+This table describes ownership, not additional published channels. Avoid mixing
+managers that provide the same command aliases. Detach the Windows companion
+before manager upgrades/removal; the recipes do not kill a process to unlock its
+executable. Existing user state and SSH configuration remain outside the packages.
+
 The published v0.3.0 **Update Flere** action manages a separate per-user
 installation and does not automatically identify a package-manager installation.
 Use the original manager for those installations to avoid creating an additional
 `~/.local/bin/flere` that takes precedence on PATH.
 
-The development version checks the running executable's installation receipts or
+Version 0.3.1 checks the running executable's installation receipts or
 system-package ownership before offering a local update. Recognized Homebrew,
 Cargo, Debian and RPM installations show instructions for their manager; Flere
 does not run those commands. Coordinated updates also inspect the selected remote
@@ -107,6 +139,19 @@ Generate catalogue recipes from verified manifests and payload hashes, using
 versioned `/releases/download/vVERSION/` URLs. Do not use a moving `latest` URL in
 a version-pinned package or manually edit a checksum to silence a mismatch.
 
+The existing generators cover different release inputs:
+
+| Output | Verified input and generator |
+| --- | --- |
+| Flat executable/manifests and `SHA256SUMS` | `scripts/release-assets.py` checks prepared component packages; the manual Linux workflow seals its complete seven-file release with `scripts/release-automation.py` |
+| Debian, RPM and AUR | `scripts/linux-packages.py --descriptor-sha256 …` derives one lock from the sealed Linux release, including source/license pins; optional native builders preserve the same payloads. See the [Linux generator](../packaging/linux/README.md#prepare-a-later-sealed-linux-release) |
+| Homebrew source formulas | `packaging/homebrew/render.py` checks the full source archive against its reviewed SHA-256 and generates both formulas. See the [tap maintenance instructions](../packaging/homebrew/README.md#maintain-and-validate) |
+| Scoop, WinGet and Chocolatey | `scripts/windows-manifests.py` verifies the Windows companion, builds one deterministic ZIP and shares its exact version/URL/hash among all three recipes. See [Windows preparation](../packaging/windows/README.md) |
+
+A Linux release cannot supply an absent Windows payload, and Windows recipes do
+not package the core. The unnotarized Homebrew binary casks remain separate from
+the source tap. These generators do not update Nix pins or publish a channel.
+
 The packaging tools prepare local output only. Review the exact allowlisted files,
 test installation/upgrade/removal on their real platform, and publish downloads
 before any manifest that references them. Verify each anonymous download after
@@ -119,4 +164,4 @@ explicit set of distributable files; retain operational receipts privately.
 
 See [active work](../TODO-ACTIVE.md) for remaining channels and branding/link
 follow-up. The [release process](releasing.md) describes the implemented manual
-Linux workflow, its pending hosted validation, and remaining signing/channel setup.
+Linux workflow, its completed hosted publication, and remaining signing/channel setup.

@@ -9,6 +9,17 @@ macOS arm64/x86_64. It requires Rust 1.98 or newer and a system C linker. macOS
 builds need Xcode Command Line Tools. Git and your configured Vim/Neovim are
 external programs; agent CLIs are optional and run only when explicitly opened.
 
+## Install from crates.io
+
+```sh
+cargo install flere --locked --version 0.3.1
+```
+
+[Version 0.3.1](https://crates.io/crates/flere/0.3.1) is published from the matching
+GitHub release at `7f5c5eb`. Its public registry checksum and anonymous archive
+match the verified upload. Installation needs no crates.io account and normally
+places `flere` in `~/.cargo/bin`; use Cargo for upgrades and removal.
+
 ## Build from the source package
 
 After extracting `flere-0.3.1.crate`, enter its `flere-0.3.1` directory:
@@ -24,9 +35,8 @@ extracted source with Cargo, run `cargo install --path . --locked`. Cargo owns
 that installation, normally in `~/.cargo/bin`; this does not register a Flere
 managed-update receipt or development source.
 
-The packaging workflow prepares and verifies a registry archive. A successful
-local verification is not evidence that a version has been published to
-crates.io.
+The packaging verifier prepares and checks an archive without publishing it.
+Each later registry version needs its own upload and public-download verification.
 
 Run `flere` in an ordinary terminal to open the workbench. **Ctrl+Space** enters
 navigation, **Space** shows actions, and **q** in navigation detaches while

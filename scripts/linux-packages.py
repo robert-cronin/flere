@@ -7,6 +7,7 @@ No executable is run, no network is accessed, and no source checkout is bundled.
 """
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -57,6 +58,42 @@ def read_file(path, maximum):
 def verify(data, expected, name):
     if len(data) != expected["bytes"] or digest(data) != expected["sha256"]:
         raise ValueError(f"input differs from pinned release: {name}")
+
+
+def lock_from_release(directory, descriptor_sha256, revision=1):
+    """Derive package pins only after validating an independently pinned release."""
+    if (not isinstance(descriptor_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", descriptor_sha256)
+            or type(revision) is not int or revision < 1):
+        raise ValueError("need a trusted release descriptor SHA-256 and positive package revision")
+    raw = read_file(directory / "release.json", 65536)
+    if digest(raw) != descriptor_sha256:
+        raise ValueError("release descriptor differs from trusted SHA-256")
+    descriptor = json.loads(raw)
+    # Reuse the publication boundary: fixed inputs, source archive bounds,
+    # payload/source identities, checksum list and recorded Linux acceptance.
+    spec = importlib.util.spec_from_file_location("release_automation", ROOT / "scripts/release-automation.py")
+    release = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(release)
+    release.validate(directory, descriptor["version"], descriptor["commit"],
+                     descriptor["run_id"], descriptor["workflow_sha"], descriptor_sha256)
+    source_name = release.source_archive.name(descriptor["version"])
+    archive_bytes = read_file(directory / source_name, release.source_archive.MAX_ARCHIVE)
+    verify(archive_bytes, descriptor["assets"][source_name], source_name)
+    licenses = {}
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
+        for name in LICENSES:
+            member = archive.getmember(f"flere-{descriptor['version']}/{name}")
+            if not member.isfile() or not 0 < member.size <= 65536:
+                raise ValueError(f"invalid source license member: {name}")
+            data = archive.extractfile(member).read()
+            licenses[name] = {"bytes": len(data), "sha256": digest(data)}
+    return {"schema_version": 1, "version": descriptor["version"], "revision": revision,
+            "target": TARGET, "source_commit": descriptor["commit"],
+            "source_sha256": descriptor["source_sha256"],
+            "source_date_epoch": descriptor["source_archive"]["mtime"],
+            "minimum_glibc": descriptor["minimum_glibc"],
+            "assets": descriptor["assets"], "licenses": licenses}
 
 
 def load_inputs(directory, lock):
@@ -350,6 +387,8 @@ def main(argv=None):
     parser.add_argument("--deb", action="store_true", help="also build .deb with installed dpkg-deb >= 1.19")
     parser.add_argument("--rpm", action="store_true", help="also build .rpm with installed rpmbuild")
     parser.add_argument("--check-recipes", action="store_true", help="verify checked-in AUR/RPM recipes match the lock")
+    parser.add_argument("--descriptor-sha256", help="derive pins from this trusted SHA-256 of the assets' release.json")
+    parser.add_argument("--revision", type=int, help="package revision for a descriptor-derived release (default: 1)")
     args = parser.parse_args(argv)
     if args.output.exists() or args.output.is_symlink():
         parser.error("output already exists")
@@ -357,7 +396,11 @@ def main(argv=None):
         parser.error("--deb requires installed dpkg-deb; no system tools are installed automatically")
     if args.rpm and shutil.which("rpmbuild") is None:
         parser.error("--rpm requires installed rpmbuild; no system tools are installed automatically")
-    lock = load_lock()
+    if args.revision is not None and args.descriptor_sha256 is None:
+        parser.error("--revision requires --descriptor-sha256")
+    derived = args.descriptor_sha256 is not None
+    lock = (lock_from_release(args.assets, args.descriptor_sha256,
+                              1 if args.revision is None else args.revision) if derived else load_lock())
     inputs, licenses = load_inputs(args.assets, lock)
     recipes = aur_files(lock)
     rpm_recipes = rpm_files(lock)
@@ -386,6 +429,9 @@ def main(argv=None):
     provenance = {"schema_version": 1, "status": "prepared_not_published", "release": lock,
                   "upstream_release": f"{UPSTREAM}/releases/tag/v{lock['version']}",
                   "trust": "Pinned SHA-256 verifies reviewed bytes; not an independent signature"}
+    if derived:
+        provenance["release_descriptor_sha256"] = args.descriptor_sha256
+        (args.output / "release-lock.json").write_text(json.dumps(lock, indent=2) + "\n")
     (args.output / "package-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     artifacts = sorted(path for path in args.output.rglob("*") if path.is_file())
     (args.output / "SHA256SUMS").write_text("".join(

@@ -99,14 +99,17 @@ Choose **Actions → Release → Run workflow**, select `main`, and enter the un
 workflow revision must both be ancestors of the fetched `main`. The run summary
 shows the sealed descriptor digest and target/channel readiness. Dispatch requests
 publication of the currently supported Linux assets once these checks pass; it
-is not an ordinary build button. No fresh release was dispatched when adding this
-automation.
+is not an ordinary build button.
 
 The workflow's actions are pinned to exact official implementation commits. The
 runner label is `ubuntu-24.04`, whose image can change; the receipt records the
-actual image version. The pipeline has not yet been exercised on a hosted release
-run. Local fixture tests cover its validation and promotion behavior without
-network writes or native chat launches.
+actual image version. [Run 34837935289](https://github.com/robert-cronin/flere/actions/runs/34837935289)
+published immutable v0.3.1 from `7f5c5eb`. Its first attempt completed builds and
+publication, then an immediate tag lookup returned HTTP 404. Rerunning only the
+failed jobs verified the same tag/assets and passed every anonymous public-download
+check; no rebuild, asset replacement or latest-pointer change occurred. Independent
+anonymous downloads also matched all seven sealed checksums. Earlier failed runs
+remain recorded separately.
 
 ## Retry and recovery
 
@@ -138,7 +141,7 @@ frozen release descriptor.
 | macOS x86-64 prebuilt | Native Intel acceptance plus the same signing/notarization requirements. Cross-compilation alone does not qualify. |
 | Windows x86-64 companion | Physical clipboard, SSH, draft, image, resize, held-control and cleanup acceptance tied to final payload hashes. No Windows core claim. |
 | Homebrew source formulas | Exact source archive, real formula install/test/removal and narrowly scoped tap writer. Existing source formulas remain the current strategy. |
-| crates.io | First publication, publisher ownership setup, then Trusted Publishing enrollment. |
+| crates.io | Core v0.3.1 is published and its public archive verified. The owner configured `robert-cronin/flere`, workflow `release.yml`, environment `release` for Trusted Publishing; workflow integration and its first hosted execution remain separate checks. |
 | Debian/AUR | New reviewed release lock and real package-manager install/update/removal validation. The checked-in lock still pins v0.3.0. AUR also needs account/credential setup. |
 | Scoop/WinGet | Physical Windows acceptance, native validators/install tests and catalogue publishing authority. Submission and acceptance remain separate statuses. |
 | Managed latest feed | Target-specific public-download/runtime acceptance and a reviewed pointer update. This workflow keeps the existing latest release. |

@@ -19,10 +19,11 @@
   extracted-package verification, all 186 library tests, a release build,
   stateless CLI checks and an unchanged cached-build stamp passed on macOS arm64.
   The archive contains 124 reviewed files and matches the exact clean source.
-- [ ] Publish the verified core Cargo package after registry access and
-  package-name availability are established. The name is currently unoccupied,
-  and the owner has completed local Cargo login. The first upload remains pending
-  and must use the matching version/tag without relabeling v0.3.0.
+- [x] Publish the verified core Cargo package as v0.3.1 from matching source
+  `7f5c5eb`. Normal Cargo publication succeeded; the registry checksum and
+  anonymous archive both match the reviewed 124-file package. Installation is
+  `cargo install flere --locked --version 0.3.1`. The owner has configured the
+  exact GitHub Trusted Publisher for subsequent releases.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
   failed before creating a crate; companion downloads and other channels remain separate.
@@ -70,8 +71,14 @@
 - [ ] Run native `choco pack`, package inventory and Windows install/upgrade/remove
   checks before publishing Chocolatey. Additional channels require their own
   package/runtime checks and publisher access.
-- [ ] Automate manifest/checksum generation from verified release assets and
-  document upgrade ownership for each installation method.
+- [x] Automate manifest/checksum generation from verified release assets and
+  document upgrade ownership for each installation method. The Linux generator
+  now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
+  Homebrew and Windows generators retain their own verified inputs. Generated
+  recipes remain local until their channel's lifecycle/publication checks pass.
+- [ ] Connect the configured crates.io Trusted Publisher to the manual Release
+  workflow and complete its first hosted execution; local API-token publication
+  does not establish OIDC workflow acceptance.
 - [x] Make the local in-app updater identify package-manager installations and
   display the appropriate upgrade command. Ambiguous ownership and removed
   executables keep Apply disabled; a Cargo receipt advancing beyond the running
@@ -108,10 +115,14 @@
   check is corrected while retaining all RPM payload assertions. All 78 Python
   cases complete on macOS (74 passed, four platform/tool skips); actual Fedora
   queries confirm both provider-present and missing-provider behavior. The owner
-  has authorized routine release/distribution decisions; publication and final
-  public-download verification remain pending. Other targets and channel
-  activation remain open, and earlier failed receipts remain retained. The
-  hosted workflow uses the serial test baseline.
+  has authorized routine release/distribution decisions. Run `34837935289`
+  published immutable v0.3.1 from `7f5c5eb`; its first attempt stopped on a
+  transient post-publication tag lookup. The failed-job retry passed, preserving
+  the same tested assets. All seven public downloads also matched independent
+  checksum/source validation. Version 0.3.0 stays latest. The Linux release path
+  has completed its hosted run; other targets and automatic channel activation
+  remain open. Earlier failed receipts are retained; the hosted workflow uses
+  the serial test baseline.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
   picker now retains a visible result row, and sidebar tests wait for the actual
   click acknowledgement. Both focused tests and the full serial/parallel suites
