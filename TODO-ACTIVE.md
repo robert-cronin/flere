@@ -15,8 +15,13 @@
   and package-name availability are established.
   Core archive verification passed at `677971d`; first registry publication must
   use a new matching version/tag rather than relabel the original release source.
-- [ ] Prepare Linux native packages and an AUR recipe; validate each supported
-  platform and state the prebuilt Linux glibc requirement.
+- [x] Prepare the Linux `.deb` and AUR recipe with the glibc 2.39+ requirement.
+  Corrected Debian archive/hash/mode checks and six native stateless CLI checks
+  passed; the archive matches an independent Docker reproduction byte for byte.
+  See [package validation](packaging/linux/README.md#validation-and-publication-follow-up).
+- [ ] Validate Debian system installation and APT upgrade/removal, complete Arch
+  `makepkg`/pacman checks, and publish the `.deb`/submit the AUR recipe. Both remain
+  unpublished; extraction and stateless CLI checks do not establish these lifecycles.
 - [ ] Validate the prepared [Nix packaging draft](packaging/nix/README.md). No
   Nix parsing, evaluation or build has run; native runtime and update ownership
   acceptance also remain pending. Do not claim Nix support.
@@ -59,6 +64,14 @@
   redirect the selected checkout. Published on `main` at `8e7b34a`; the verified
   local packages at `f9335c7` are installed and the selected supervisor has applied
   them. An already-open older frontend still needs its normal UI reload.
+
+## Terminal hyperlinks
+
+- [ ] Make terminal hyperlinks clickable. The emulator currently discards OSC 8
+  targets; retain bounded, validated link metadata through rendered panes and
+  scrollback/history, and activate links only on an explicit user gesture. Never
+  replay raw child escape sequences. Cover malformed/unsafe targets, pane clipping,
+  scrolling, refresh/snapshot and remote protocol compatibility with tests.
 
 ## Branding and link audit
 

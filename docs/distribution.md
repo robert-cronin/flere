@@ -28,7 +28,7 @@ validation and publication requirements.
 | --- | --- | --- |
 | [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published; isolated macOS source install/test/revision-upgrade/uninstall passed. Fresh dependency provisioning and native Linux lifecycle checks pending |
 | [Cargo / crates.io](../packaging/cargo/README.md) | Core source package | Archive verified; registry publication pending |
-| [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Corrected Debian package built; final artifact review pending. AUR submission and full Arch installation pending |
+| [Linux `.deb` and AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Debian archive/hash/mode review and six native stateless CLI checks passed; system package lifecycle untested, unpublished. AUR submission and full Arch validation pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | Draft prepared; Nix parsing, evaluation, builds and runtime validation pending. Not a supported installation method |
 | RPM / Chocolatey | Additional installations | Queued; not validated or published |

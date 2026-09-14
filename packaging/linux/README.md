@@ -6,10 +6,10 @@ the package builder does not compile a changed checkout or execute either binary
 
 | Format | Current validation |
 | --- | --- |
-| Debian `.deb` | Corrected package built with `dpkg-deb` on Ubuntu 24.04 x86-64; directory-mode and cross-umask reproducibility regressions pass. Final corrected-artifact review and extraction receipt remain pending. No system installation performed. |
+| Debian `.deb` | Corrected archive, hashes and modes verified; independent Docker reproduction is byte-identical. Six native stateless CLI checks passed on the extracted binaries. System installation and APT upgrade/removal remain untested; unpublished. |
 | AUR `flere-bin` | Recipe and `.SRCINFO` prepared; source checksum arrays and `package()` checked using Bash/coreutils on Linux. Full Arch `makepkg` build and pacman installation remain pending. Not submitted to AUR. |
 | RPM | Queued until `rpmbuild` and an RPM-based validation environment are available. No untested RPM artifact is offered. |
-| Nix | Queued until a Nix environment can validate loader/library handling and runtime behavior. No untested expression is offered. |
+| Nix | [Source expression prepared as an unvalidated draft](../nix/README.md). Nix parsing, evaluation, builds, runtime and update ownership remain untested; not a supported installation method. |
 
 Preparation is separate from publishing the new `.deb` asset or submitting the
 AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`
@@ -71,6 +71,26 @@ symlinked inputs are rejected before output is created. Checksums establish
 byte identity with the reviewed release; they are not a publisher signature.
 
 ## Validation and publication follow-up
+
+On 2026-09-14, the corrected `flere_0.3.0-1_amd64.deb` passed archive and
+extraction review. Its SHA-256 is:
+
+```text
+2cbfdce3edc269fd92ab3a9ef951cf3f3615639878885270c83c3d257dbbd997
+```
+
+The archive was byte-identical across umasks `0002` and `0077` and to an
+independent Docker reproduction. Its exact five data files and two control
+files were verified: directories and executables use mode `0755`; documentation,
+manifests and control files use `0644`; all archive entries belong to root.
+No links or package hooks were present. Payload SHA-256, the output checksum
+manifest and Debian control `md5sums` checks passed.
+
+A fresh native Linux check ran `--build-info`, `--help` and `--version` on each
+extracted executable: all six commands succeeded, and embedded build metadata
+matched the original release manifests. No application state or native chat was
+created. This did not install the package, exercise APT install/upgrade/removal,
+or rebuild the release binaries. The package remains unpublished.
 
 ```sh
 python3 scripts/test_linux_packages.py
