@@ -7,7 +7,7 @@ the package builder does not compile a changed checkout or execute either binary
 | Format | Current validation |
 | --- | --- |
 | Debian `.deb` | Archive and independent reproduction verified; six native extracted CLI checks passed. Offline APT install, same-payload revision upgrade, removal and purge passed in emulated amd64 Ubuntu containers; unpublished. |
-| AUR `flere-bin` | Recipe and `.SRCINFO` prepared; source checksum arrays and `package()` checked using Bash/coreutils on Linux. Full Arch `makepkg` build and pacman installation remain pending. Not submitted to AUR. |
+| AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | RPM | Queued until `rpmbuild` and an RPM-based validation environment are available. No untested RPM artifact is offered. |
 | Nix | [Source expression prepared as an unvalidated draft](../nix/README.md). Nix parsing, evaluation, builds, runtime and update ownership remain untested; not a supported installation method. |
 
@@ -114,6 +114,43 @@ successful harness prepopulated that disposable cache with hash-verified candida
 bytes and retained `--no-download`. Dependency downloading, a public APT repository,
 other distributions and different-version runtime upgrades remain untested.
 
+The AUR recipe also passed real Arch validation on 2026-09-14 in a disposable
+amd64 container under Docker Desktop on macOS arm64. The official
+`archlinux:base-devel-20260906.0.587075` image was pinned to:
+
+```text
+sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5
+```
+
+All seven fixed-URL inputs matched their reviewed hashes. `makepkg
+--verifysource`, an unprivileged `makepkg` build, and `makepkg --printsrcinfo`
+passed; generated `.SRCINFO` matched the checked-in file byte for byte. Archive
+inspection verified the two original binaries, two manifests and three license
+files, their modes and root ownership, with only makepkg's three metadata files
+in addition. No links or install hooks were present. The private package's
+SHA-256 is:
+
+```text
+97da8be5020503b4ad5f1bcf3244bff0042219b511c4cc4b6ceac6bc4a79126e
+```
+
+With container networking disabled, pacman installation, installed-file checks
+and removal passed. All six installed `--build-info`, `--help` and `--version`
+checks passed; embedded build metadata matched the v0.3.0 manifests. Synthetic
+user state and all 175 unrelated package records remained unchanged, and removed
+payloads were absent. The container was removed; no real user state or host
+installation was mounted.
+
+Dependency provisioning used Arch's documented HTTPS `XferCommand` after the
+emulator rejected the built-in downloader's seccomp syscall. Package signatures
+remained enforced, and the original pacman configuration was restored before
+the offline lifecycle checks. An initial harness attempt stopped before install
+when Rosetta created an empty cache directory; the completed run used separate
+builder and stateless homes with that emulator directory present beforehand.
+This validates an emulated Arch package lifecycle, not native Arch hardware,
+interactive terminal features, or upgrades between Flere runtime versions. AUR
+submission remains pending.
+
 ```sh
 python3 scripts/test_linux_packages.py
 ```
@@ -124,14 +161,14 @@ archive contents with `dpkg-deb`; Linux Bash/coreutils checks the AUR source
 arrays and install function. Platform-specific checks report skips when tools
 are absent. They never execute the inert test payloads.
 
-Before an AUR submission, run `makepkg --verifysource`, `makepkg`, and
-`makepkg --printsrcinfo` in an Arch environment, comparing the resulting metadata
-with `.SRCINFO`; inspect the package and perform an isolated installation check.
+Repeat the Arch checks when changing the recipe or release payload. Before an
+AUR submission, refresh package-name availability and review the final recipe.
 An AUR maintainer identity must be supplied by the actual submitter. Publishing
 the `.deb` likewise follows review of its checksum and provenance, with package
 installation/removal validation tracked separately from extraction checks.
 
 The formats follow the official [PKGBUILD reference](https://wiki.archlinux.org/title/PKGBUILD),
 [makepkg manual](https://man.archlinux.org/man/makepkg.8.en),
+[pacman configuration manual](https://man.archlinux.org/man/pacman.conf.5.en),
 [Debian binary control policy](https://www.debian.org/doc/debian-policy/ch-controlfields.html),
 and [dpkg-deb manual](https://manpages.debian.org/bookworm/dpkg/dpkg-deb.1.en.html).

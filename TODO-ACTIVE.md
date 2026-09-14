@@ -2,6 +2,10 @@
 
 ## Distribution
 
+- [x] Publish the verified [shell installer](scripts/install.sh) for `wget | sh`
+  and `curl | sh` (also Bash). Source `83237c4` is public; its raw URL matches
+  the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
+  required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
   using the pinned, checksummed v0.3.0 archive. Published tap commit: `754e4de`.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
@@ -25,9 +29,14 @@
   upgrade, removal and purge using real APT/dpkg in disposable emulated amd64
   Ubuntu 24.04 containers. Both jobs passed their six installed CLI checks;
   synthetic state and all 222 unrelated package records were preserved.
-- [ ] Publish the verified `.deb`, complete Arch `makepkg`/pacman checks and submit
-  the AUR recipe. Both remain unpublished. Debian dependency downloading and
-  upgrades between different Flere runtime versions remain untested.
+- [x] Validate the AUR recipe with real Arch `makepkg` source verification/build,
+  exact `.SRCINFO` comparison and offline pacman installation/removal in a
+  disposable emulated amd64 container. Six installed stateless CLI checks passed;
+  synthetic state and all 175 unrelated package records were preserved. Native
+  Arch hardware and interactive terminal features were not tested.
+- [ ] Publish the verified `.deb` and submit the AUR recipe. Both remain
+  unpublished. Debian dependency downloading and upgrades between different
+  Flere runtime versions remain untested.
 - [ ] Validate the prepared [Nix packaging draft](packaging/nix/README.md). No
   Nix parsing, evaluation or build has run; native runtime and update ownership
   acceptance also remain pending. Do not claim Nix support.
@@ -55,15 +64,15 @@
   selected a **Release button with an explicit version and commit**; ordinary
   pushes must not publish. The Linux workflow includes the complete source
   archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
-  final candidate validation, release immutability/environment setup, a hosted
-  run, other targets and channel activation remain open. The latest native Linux
-  serial run passed 180 core unit tests and 209 of 210 live tests, both components'
-  strict Clippy checks, companion tests and both release builds. The remaining
-  live failure observed an empty search-cursor proof file before its write
-  completed; the retained file contains the expected value. The fixture fix is
-  prepared and awaits validation.
-  The hosted workflow is configured for the same serial baseline; full native
-  serial acceptance has not passed.
+  release immutability/environment setup, a hosted run, other targets and channel
+  activation remain open. Selected source
+  `f7a77bd` now passes the full native Linux offline serial test suites, both
+  components' formatting/strict Clippy checks and both release builds. Final
+  artifact hashes, six stateless CLI calls and four ELF inspections passed;
+  the binaries meet the glibc 2.39 baseline and left private state unchanged.
+  The earlier search-proof race is corrected; earlier failed receipts remain
+  retained. The hosted workflow uses this serial baseline; hosted execution and
+  publication still require the final release approval.
 - [ ] Investigate six UI test failures observed under parallel/load conditions.
   A private runner error interrupted collection of their panic details; the root
   causes remain unconfirmed. Serial validation does not establish acceptance
@@ -88,10 +97,11 @@
 - [x] Preserve bounded HTTP(S) hyperlink metadata through terminal rendering,
   both panes, styled history and supervisor refresh. Older clients retain their
   text/style protocol; raw child escapes are never replayed. The outer terminal
-  owns explicit link activation. Source `80bc6c2` passed all 476 tests, core and
-  companion strict Clippy, formatting and release builds, plus Linux core and
-  Windows companion all-target compile checks. The approved update from
-  `80bc6c2` is installed; physical link activation remains unchecked.
+  owns explicit link activation. The current local update from `2788f64` passed
+  all 477 tests, both components' strict Clippy, formatting and release builds on
+  macOS arm64. It is installed and applied with three exact session identities
+  and selections preserved; the frontend has loaded the same build. Physical
+  link activation remains unresolved.
 - [x] Request host Shift mouse gestures before capture and during core/companion
   cleanup, including companions attached to older cores. Focused PTY/bridge and
   hyperlink/output checks passed; this does not establish the cause of the
