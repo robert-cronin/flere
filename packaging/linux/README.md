@@ -9,11 +9,14 @@ the package builder does not compile a changed checkout or execute either binary
 | Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; v0.3.3 is published through the automated release. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 install/upgrade/remove, 12 CLI checks, core/companion ownership refusal and state/package preservation passed. The tested v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0. |
-| Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Separately, native Nix-on-Ubuntu core/companion ownership, UI refusal and normal profile removal passed for unpublished v0.3.4 source `2d52985`. NixOS, actual version upgrades, physical clipboard and external SSH remain unverified. |
+| Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Separately, native Nix-on-Ubuntu core/companion ownership, UI refusal and normal profile removal passed for unpublished v0.3.4 source `2d52985`. Actual 0.3.3 → 0.3.4 profile upgrades and emulated NixOS core runtime also passed. Physical clipboard and external SSH remain unverified. |
 
 Preparation is separate from publishing `.deb`/RPM assets or submitting the
-AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`
-entry on 2026-09-14; availability must be checked again before submission.
+AUR recipe. Official [AUR name search](https://aur.archlinux.org/rpc/v5/search/flere?by=name),
+exact-info and Arch package queries returned no matching `flere-bin` package on
+2026-09-14 at 19:00 UTC. This does not reserve a name; recheck before submission.
+The intended package base is `flere-bin`, containing both commands. Maintainer
+identity and account SSH publishing access remain pending.
 
 ## Published Debian download
 

@@ -78,7 +78,10 @@
   downloads verified all eight assets, 333 source files/modes and all 124 Cargo
   source files. Existing immutable releases and the v0.3.0 latest pointer stayed unchanged.
 - [ ] Configure the AUR maintainer identity and publishing access.
-- [ ] Check package-name availability and submit the verified AUR recipe.
+- [x] Check the intended AUR package name: official AUR exact-info/name-search
+  and Arch package APIs returned no matching `flere-bin` package on 2026-09-14
+  at 19:00 UTC. This does not reserve the name; recheck before submission.
+- [ ] Submit the verified AUR recipe after maintainer/publisher access is ready.
   Successful Arch package lifecycle checks do not establish publication or
   account setup.
 - [x] Finish output inventory for the [Nix packaging draft](packaging/nix/README.md).
@@ -98,10 +101,22 @@
   Both actual update UIs showed verified Nix guidance and refused preparation
   before staging; six stateless flags, exact empty runtime identities, clean
   detach/exit and profile removal preserving synthetic state passed.
-- [ ] Complete interactive NixOS runtime, actual Nix version-upgrade, physical
-  desktop clipboard and external companion SSH acceptance before promoting the
-  packaging draft to supported status. The pinned v0.3.3 recipe plus its explicit
-  parser patch still lacks the newer ownership code; it was not repinned.
+- [x] Validate the core in an explicitly emulated NixOS guest. Run `34883876197`
+  at workflow `c8107ad` tested product `2d52985`: shell, Vim edit/save, Git
+  inspector and detach/reattach with exact identities and a retained draft passed.
+  TCG with KVM disabled was confirmed; frontends, sessions, supervisor and QEMU
+  exited normally. The earlier deprecated-driver-call failure is retained.
+- [x] Validate actual Nix v0.3.3 → v0.3.4 private-profile upgrade. Run
+  `34883927251` at `c8107ad` built both component/version pairs and verified the
+  literal `nix-env --upgrade --lt` changed the generation and exact outputs.
+  All 12 stateless checks, both owner/refusal UIs and normal cleanup passed;
+  synthetic state stayed unchanged. The previous pair used the declared parser
+  patch; fresh outputs are separate from the earlier 485-test binaries.
+- [ ] Complete physical desktop clipboard and external companion SSH acceptance
+  before promoting the Nix draft to supported status. TCG is emulated core
+  runtime evidence; native Nix-on-Ubuntu profile upgrades do not establish
+  NixOS/Home Manager activation. The pinned v0.3.3 recipe still lacks the newer
+  ownership code and was not repinned.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The unpublished v0.3.4 source is reserved for the next Windows acceptance

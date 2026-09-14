@@ -6,8 +6,10 @@ both output inventories passed in hosted run
 [34869221522](https://github.com/robert-cronin/flere/actions/runs/34869221522)
 at workflow commit `2d52985845ed322b1c6c0f3018eaedf38d6bcead`. Separate native
 Nix-on-Ubuntu ownership/profile acceptance passed for the newer v0.3.4 development
-source, as described below. Interactive NixOS and actual version-upgrade checks
-remain open; this is not a Nixpkgs submission or a supported installation method yet.
+source, as described below. Actual private-profile version upgrades and emulated
+NixOS core runtime checks also passed. Physical clipboard and external companion
+SSH acceptance remain open; this is not a Nixpkgs submission or a supported
+installation method yet.
 
 The [manual workflow](../../.github/workflows/nix-acceptance.yml) used a disposable
 native x86_64 Ubuntu 24.04.5 GitHub VM. The 485 passing tests comprise 183 core
@@ -134,18 +136,21 @@ profile removal preserved synthetic Flere and unrelated user state. No process
 needed a forced kill. UI evidence is retained terminal output; the companion used
 an exact local SSH stand-in, not an external connection.
 
-The same installed-owner workflow now prepares a separate real-version profile
-upgrade check; execution remains pending. It builds a fresh v0.3.3 pair from the
-pinned archive and declared parser patch, then uses ordinary
-`nix-env --profile … --upgrade --lt` with the exact v0.3.4 output paths. Both package
-versions, profile generations, selected paths/hashes and synthetic state must
-match before the existing v0.3.4 ownership/UI/removal acceptance runs once.
-A successful no-op is rejected. The previous pair disables full suites only for
-this separate fixture and retains install checks; these new bytes are not the
-recorded 485-test outputs. The default recipe and full-suite workflow are unchanged.
-All four derivations undergo a complete download/build and measured disk gate
-before realization, with the existing strict sandbox and job limits. This does
-not test a live old-process refresh or publish/repin a channel.
+The same workflow passed the real-version profile upgrade in
+[run 34883927251](https://github.com/robert-cronin/flere/actions/runs/34883927251)
+at `c8107ad`. It built a fresh v0.3.3 pair from the pinned archive and declared
+parser patch, then used literal `nix-env --profile … --upgrade --lt` with both
+exact v0.3.4 outputs. The profile changed from generation 1 to 2; both selected
+package names, paths, hashes and versions matched. All 12 stateless checks and
+both upgraded owner/refusal UIs passed. Normal profile removal and exact process
+cleanup preserved synthetic state. A successful no-op is rejected by the checks.
+
+All four derivations passed a complete closure/disk gate before realization and
+built under the same strict sandbox and limits. The previous pair skipped full
+suites only for this separate fixture and retained install checks; its fresh
+bytes are not the recorded 485-test outputs. The default recipe and full-suite
+workflow remain unchanged. This is native Nix-on-Ubuntu profile acceptance,
+not live old-process refresh or NixOS/Home Manager activation; no channel was repinned.
 
 The initial [run 34874043087](https://github.com/robert-cronin/flere/actions/runs/34874043087)
 remains a failed pre-compilation check: the verified archive was referenced by
@@ -153,9 +158,23 @@ its host filename instead of a store input. Importing both the archive and locks
 into the store corrected the harness without weakening sandboxing or changing
 product code.
 
-Interactive NixOS shell/detach/editor/Git, actual version upgrades, physical
-desktop clipboard and external companion SSH acceptance remain open. Neither
-macOS nor cross compilation is covered by these runs. The pinned v0.3.3 recipe
+The separate [emulated runtime workflow](../../.github/workflows/nixos-tcg-runtime.yml)
+passed [run 34883876197](https://github.com/robert-cronin/flere/actions/runs/34883876197)
+at `c8107ad`, testing exact core source `2d52985` in a headless NixOS guest.
+Real shell output, a configured Vim edit/save, Git inspection and detach/reattach
+with the exact session identities and an unsubmitted draft passed. Frontends,
+owned editor/shell sessions, supervisor and QEMU exited normally. Actual QEMU
+arguments selected TCG and its monitor confirmed KVM disabled. This is emulated
+NixOS filesystem/terminal evidence, separate from the native profile checks.
+
+The first runtime attempt failed before boot because the maintained driver
+rejected a deprecated API call. Replacing it with the equivalent current method
+retained type checks and all runtime assertions. The separate hosted KVM probe
+remains blocked by device permissions; no permissions or security settings changed.
+
+Physical desktop clipboard and external companion SSH acceptance remain open.
+The emulated guest tested the core only. Neither macOS nor cross compilation is
+covered by these runs. The pinned v0.3.3 recipe
 still lacks proof-based Nix update ownership: do not use its installation controls
 to replace Nix-owned files. No profile or NixOS/Home Manager upgrade command can
 be inferred safely from a store path alone. The published recipe remains

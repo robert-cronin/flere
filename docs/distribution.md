@@ -37,7 +37,7 @@ channels retain their individual validation and publication requirements.
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Arch build/metadata and emulated pacman install/remove/CLI checks passed. Account setup and submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
-| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and both strict-sandbox builds/inventories. Separate v0.3.4 development core/companion ownership, UI and profile checks passed on native Nix-on-Ubuntu. NixOS and version-upgrade acceptance remain pending; not a supported installation method |
+| [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Physical clipboard/external SSH remain open; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
 | [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Recipe generation and nine offline checks pass; native packing, install/upgrade/remove and publication pending |
 
@@ -159,8 +159,13 @@ paths remain unknown. Exact source `2d52985` passed native Nix-on-Ubuntu
 both real update UIs refused preparation before staging, six stateless flags
 passed, and normal private profile install/remove preserved synthetic user state
 with clean runtime exits. This does not repin the separate v0.3.3 packaging draft.
-Interactive NixOS, actual version upgrades, physical clipboard and external
-companion SSH remain unverified.
+The later [actual profile upgrade](https://github.com/robert-cronin/flere/actions/runs/34883927251)
+passed the literal 0.3.3 → 0.3.4 transition for both packages, all 12 stateless
+checks and upgraded ownership/refusal UIs, preserving synthetic state through
+normal removal. The separate [emulated NixOS run](https://github.com/robert-cronin/flere/actions/runs/34883876197)
+passed core shell/editor/Git/detach and draft checks with normal application/VM
+exits. It used TCG with KVM disabled. Physical clipboard and external companion
+SSH remain unverified; these runs do not establish NixOS/Home Manager upgrades.
 
 Use `command -v flere` and `flere --build-info` to inspect the command your shell selects.
 
