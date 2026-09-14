@@ -13,18 +13,26 @@
   companion: install, formula tests, stateless CLI checks, same-source revision
   upgrade and full removal. Disposable state/config stayed unchanged. This used
   cached Rust dependencies with `--ignore-dependencies`.
-- [ ] Validate fresh Homebrew dependency provisioning, upgrades between release
-  versions, and the native Linux x86_64 Homebrew lifecycle. Older macOS acceptance
-  remains pending; Intel Macs and Linux ARM are excluded from this tap.
+- [x] Validate the native Linux x86_64 Homebrew lifecycle with fresh dependencies:
+  scoped tap trust, source integrity, installation, formula tests, stateless CLI
+  checks, strict linkage, same-source revision upgrade and uninstall. Disposable
+  state stayed unchanged; the isolated container was removed.
+- [ ] Validate Homebrew upgrades between release versions. Native Linux
+  v0.3.0 → v0.3.2 acceptance is running; a same-source revision pass does not
+  establish this result.
+- [ ] Validate fresh macOS Homebrew dependency provisioning and older macOS
+  acceptance. The completed arm64 lifecycle used `--ignore-dependencies`;
+  Intel Macs and Linux ARM remain excluded from this tap.
 - [x] Prepare and validate the core Cargo source package at `19637da`: normal
   extracted-package verification, all 186 library tests, a release build,
   stateless CLI checks and an unchanged cached-build stamp passed on macOS arm64.
   The archive contains 124 reviewed files and matches the exact clean source.
 - [x] Publish the verified core Cargo package as v0.3.1 from matching source
   `7f5c5eb`. Normal Cargo publication succeeded; the registry checksum and
-  anonymous archive both match the reviewed 124-file package. Installation is
-  `cargo install flere --locked --version 0.3.1`. The owner has configured the
-  exact GitHub Trusted Publisher for subsequent releases.
+  anonymous archive both match the reviewed 124-file package. After the hosted
+  release below, the current core command is
+  `cargo install flere --locked --version 0.3.2`. The exact GitHub Trusted
+  Publisher is configured for subsequent releases.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
   failed before creating a crate; companion downloads and other channels remain separate.
@@ -41,9 +49,17 @@
   disposable emulated amd64 container. Six installed stateless CLI checks passed;
   synthetic state and all 175 unrelated package records were preserved. Native
   Arch hardware and interactive terminal features were not tested.
-- [ ] Publish the verified `.deb` and submit the AUR recipe. Both remain
-  unpublished. Debian dependency downloading and upgrades between different
-  Flere runtime versions remain untested.
+- [ ] Complete native Debian dependency, v0.3.0 → v0.3.2 runtime upgrade and
+  installed manager-ownership acceptance. Dependency-image provisioning passed;
+  the initial lifecycle capsule stopped at parser validation and its retry is
+  pending. The earlier emulated same-payload revision checks remain separate.
+- [ ] Publish the verified `.deb` in a future release after native acceptance.
+  The existing immutable releases remain unchanged; the prepared eight-asset
+  release path is not yet activated.
+- [ ] Configure the AUR maintainer identity and publishing access.
+- [ ] Check package-name availability and submit the verified AUR recipe.
+  Successful Arch package lifecycle checks do not establish publication or
+  account setup.
 - [x] Finish output inventory for the [Nix packaging draft](packaging/nix/README.md).
   All 15 native x86_64 Linux Docker phases passed: parsing, evaluation, both builds,
   declared install checks and exact output files/modes/ownership/hashes. The core's
@@ -106,33 +122,16 @@
   and their selections were preserved. Existing frontends need their normal UI
   reload. The earlier `70083bd` installation receipt remains retained separately.
 - [ ] Complete native Linux manager and Windows runtime ownership acceptance.
-- [ ] Automate the release process: exact version/commit selection, native builds
-  and tests, final-package checksums, publication and per-channel updates. The owner
-  selected a **Release button with an explicit version and commit**; ordinary
-  pushes must not publish. The Linux workflow includes the complete source
-  archive and has 32 source/promotion tests. Version 0.3.1 is prepared locally;
-  approved release immutability and the main-only release environment are enabled.
-  Hosted run `34825445057` stopped before publication: one test assumed GitHub CLI
-  was absent from the runner. The corrected candidate `19637da` passes all
-  485 macOS and 482 native Linux tests in the serial baseline, both components'
-  formatting/strict Clippy checks and both release builds. All 213 native Linux
-  live tests also pass with four test threads. Final Linux artifact hashes, six
-  stateless CLI calls and four ELF inspections passed; the binaries meet the
-  glibc 2.39 baseline and left private state unchanged. The signed source is
-  public on main. Hosted run `34835313350` passed all Rust checks but stopped
-  before publication because an optional packaging test assumed Ubuntu's
-  `rpmbuild` implied an RPM database with its build dependencies. The prerequisite
-  check is corrected while retaining all RPM payload assertions. All 78 Python
-  cases complete on macOS (74 passed, four platform/tool skips); actual Fedora
-  queries confirm both provider-present and missing-provider behavior. The owner
-  has authorized routine release/distribution decisions. Run `34837935289`
-  published immutable v0.3.1 from `7f5c5eb`; its first attempt stopped on a
-  transient post-publication tag lookup. The failed-job retry passed, preserving
-  the same tested assets. All seven public downloads also matched independent
-  checksum/source validation. Version 0.3.0 stays latest. The Linux release path
-  has completed its hosted run; other targets and automatic channel activation
-  remain open. Earlier failed receipts are retained; the hosted workflow uses
-  the serial test baseline.
+- [x] Automate the Linux manual Release path: explicit main version/commit
+  selection, native core/companion checks, final payload/source checksums,
+  immutable GitHub publication and anonymous download verification. Hosted
+  v0.3.1 and v0.3.2 releases passed; v0.3.2 also completed core Cargo OIDC
+  publication. Retries reconciled the original assets/uploads without rebuilding
+  or publishing twice.
+  Ordinary pushes do not publish. Earlier failed receipts remain retained.
+- [ ] Extend release automation to the remaining targets and package channels
+  after their own acceptance checks. The Linux manual Release path is complete;
+  v0.3.0 remains latest, and macOS/Windows channels were not advanced by v0.3.2.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
   picker now retains a visible result row, and sidebar tests wait for the actual
   click acknowledgement. Both focused tests and the full serial/parallel suites

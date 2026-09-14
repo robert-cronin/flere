@@ -9,7 +9,7 @@ the package builder does not compile a changed checkout or execute either binary
 | Debian `.deb` | Archive and independent reproduction verified; six native extracted CLI checks passed. Offline APT install, same-payload revision upgrade, removal and purge passed in emulated amd64 Ubuntu containers; unpublished. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
 | [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
-| Nix | [Source packaging draft](../nix/README.md). Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory and broader runtime/update-ownership acceptance remain pending; not a supported installation method. |
+| Nix | [Source packaging draft](../nix/README.md). Native Docker parsing, evaluation, both builds and declared install checks passed. Final inventory passed; sandbox suite and broader runtime/update-ownership acceptance remain pending; not a supported installation method. |
 
 Preparation is separate from publishing `.deb`/RPM assets or submitting the
 AUR recipe. AUR's read-only package-info check returned no `flere` or `flere-bin`
@@ -73,9 +73,10 @@ byte identity with the reviewed release; they are not a publisher signature.
 
 ### Prepare a later sealed Linux release
 
-The manual release workflow emits seven files: both executables and manifests,
-the full source archive, `release.json` and `SHA256SUMS`. With Python 3.11 or newer,
-the same package generator can derive a new lock from those verified files:
+Schema 1 releases contain seven files: both executables and manifests, the full
+source archive, `release.json` and `SHA256SUMS`. Schema 2 support adds a verified
+`.deb`; its workflow activation is pending native lifecycle acceptance. With
+Python 3.11 or newer, the package generator derives a lock from either format:
 
 ```sh
 python3 scripts/linux-packages.py \
@@ -86,11 +87,15 @@ python3 scripts/linux-packages.py \
 
 Use the descriptor digest recorded by the reviewed release workflow or retained
 verification receipt. The tool reuses the release validator to check that pin,
-the exact seven-file inventory, manifests, full source fingerprint, checksums and
+the exact seven- or eight-file inventory, manifests, full source fingerprint, checksums and
 recorded Linux acceptance before creating output. It reads the three license
 files from that archive and takes the package timestamp from the normalized
 source archive. It does not download files, install packages or execute the
 release payloads.
+
+The derived lock includes only the five base source inputs; a schema 2 Debian
+wrapper is an output, never an input to another wrapper. Ordered input pins keep
+the generated lock and recipes deterministic across processes.
 
 This mode emits `release-lock.json` alongside the existing AUR/RPM recipes,
 provenance and generated checksums. All three package formats use that same lock;

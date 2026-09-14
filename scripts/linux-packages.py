@@ -77,23 +77,36 @@ def lock_from_release(directory, descriptor_sha256, revision=1):
     spec.loader.exec_module(release)
     release.validate(directory, descriptor["version"], descriptor["commit"],
                      descriptor["run_id"], descriptor["workflow_sha"], descriptor_sha256)
-    source_name = release.source_archive.name(descriptor["version"])
-    archive_bytes = read_file(directory / source_name, release.source_archive.MAX_ARCHIVE)
-    verify(archive_bytes, descriptor["assets"][source_name], source_name)
+    # The Debian wrapper is an output, never an input to another package wrapper.
+    assets = {name: descriptor["assets"][name] for name in sorted(release.candidate_names(descriptor["version"]))}
+    return candidate_lock(directory, descriptor["version"], descriptor["commit"],
+                          descriptor["source_sha256"], descriptor["source_archive"], assets, revision)
+
+
+def candidate_lock(directory, version, commit, source_sha256, source_archive, assets, revision=1):
+    """Pins for already-validated base inputs; no enclosing descriptor/hash cycle."""
+    source_name = f"flere-{version}-source.tar.gz"
+    expected = {f"{component}-{TARGET}{suffix}" for component in COMPONENTS
+                for suffix in ("", ".manifest.json")} | {source_name}
+    if (set(assets) != expected or type(revision) is not int or revision < 1
+            or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version)
+            or not re.fullmatch(r"[0-9a-f]{40}", commit)
+            or not re.fullmatch(r"[0-9a-f]{64}", source_sha256)):
+        raise ValueError("candidate package inputs have invalid identity/inventory")
+    archive_bytes = read_file(directory / source_name, 64 * 1024 * 1024)
+    verify(archive_bytes, assets[source_name], source_name)
     licenses = {}
     with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
         for name in LICENSES:
-            member = archive.getmember(f"flere-{descriptor['version']}/{name}")
-            if not member.isfile() or not 0 < member.size <= 65536:
+            members = [member for member in archive if member.name == f"flere-{version}/{name}"]
+            if len(members) != 1 or not members[0].isfile() or not 0 < members[0].size <= 65536:
                 raise ValueError(f"invalid source license member: {name}")
-            data = archive.extractfile(member).read()
+            data = archive.extractfile(members[0]).read()
             licenses[name] = {"bytes": len(data), "sha256": digest(data)}
-    return {"schema_version": 1, "version": descriptor["version"], "revision": revision,
-            "target": TARGET, "source_commit": descriptor["commit"],
-            "source_sha256": descriptor["source_sha256"],
-            "source_date_epoch": descriptor["source_archive"]["mtime"],
-            "minimum_glibc": descriptor["minimum_glibc"],
-            "assets": descriptor["assets"], "licenses": licenses}
+    return {"schema_version": 1, "version": version, "revision": revision,
+            "target": TARGET, "source_commit": commit, "source_sha256": source_sha256,
+            "source_date_epoch": source_archive["mtime"], "minimum_glibc": "2.39",
+            "assets": assets, "licenses": licenses}
 
 
 def load_inputs(directory, lock):
@@ -104,12 +117,18 @@ def load_inputs(directory, lock):
         if not match or match[2] in sums:
             raise ValueError("malformed or duplicate SHA256SUMS entry")
         sums[match[2]] = match[1]
+    for name, expected in lock["assets"].items():
+        if sums.get(name) != expected["sha256"]:
+            raise ValueError(f"SHA256SUMS does not match pinned asset: {name}")
+    return pinned_inputs(directory, lock)
+
+
+def pinned_inputs(directory, lock):
+    """Read exact pins; pre-seal callers have no enclosing SHA256SUMS yet."""
     inputs = {}
     for name, expected in lock["assets"].items():
         data = read_file(directory / name, 256 * 1024 * 1024)
         verify(data, expected, name)
-        if sums.get(name) != expected["sha256"]:
-            raise ValueError(f"SHA256SUMS does not match pinned asset: {name}")
         inputs[name] = data
 
     manifests = {}
@@ -321,22 +340,10 @@ def deb_files(inputs, licenses):
     return files
 
 
-def build_deb(output, inputs, licenses, lock):
-    staging = output / ".deb-staging"
-    scratch = output / ".deb-tmp"
-    staging.mkdir(mode=0o755)
-    scratch.mkdir(mode=0o700)
-    try:
-        files = deb_files(inputs, licenses)
-        for name, (data, mode) in files.items():
-            path = staging / name
-            path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-            path.write_bytes(data)
-            path.chmod(mode)
-        control = staging / "DEBIAN"
-        control.mkdir(mode=0o755)
-        size = sum((len(data) + 1023) // 1024 for data, _ in files.values())
-        (control / "control").write_text(f"""Package: flere
+def deb_control_files(files, lock):
+    """Exact package metadata; no maintainer scripts or enclosing release digest."""
+    size = sum((len(data) + 1023) // 1024 for data, _ in files.values())
+    control = f"""Package: flere
 Version: {lock['version']}-{lock['revision']}
 Section: devel
 Priority: optional
@@ -353,10 +360,30 @@ Description: terminal workbench and SSH companion
  Flere provides a custom terminal UI for project workspaces and peer agents.
  Includes the SSH companion. Native shells, editors and agents remain external.
  This prebuilt x86-64 release requires glibc 2.39 or newer.
-""")
-        (control / "md5sums").write_text("".join(
-            f"{hashlib.md5(data, usedforsecurity=False).hexdigest()}  {name}\n"
-            for name, (data, _) in sorted(files.items())))
+"""
+    md5sums = "".join(
+        f"{hashlib.md5(data, usedforsecurity=False).hexdigest()}  {name}\n"
+        for name, (data, _) in sorted(files.items()))
+    return {"control": (control.encode(), 0o644), "md5sums": (md5sums.encode(), 0o644)}
+
+
+def build_deb(output, inputs, licenses, lock):
+    staging = output / ".deb-staging"
+    scratch = output / ".deb-tmp"
+    staging.mkdir(mode=0o755)
+    scratch.mkdir(mode=0o700)
+    try:
+        files = deb_files(inputs, licenses)
+        for name, (data, mode) in files.items():
+            path = staging / name
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+            path.write_bytes(data)
+            path.chmod(mode)
+        control = staging / "DEBIAN"
+        control.mkdir(mode=0o755)
+        for name, (data, mode) in deb_control_files(files, lock).items():
+            (control / name).write_bytes(data)
+            (control / name).chmod(mode)
         for path in control.iterdir():
             path.chmod(0o644)
         epoch = lock["source_date_epoch"]

@@ -34,7 +34,8 @@ RUN = "1234"
 
 
 class FakeGitHub:
-    def __init__(self):
+    def __init__(self, schema=1):
+        self.schema = schema
         self.release = None
         self.tag = None
         self.files = {}
@@ -68,7 +69,7 @@ class FakeGitHub:
             self.files[name] = data
             return {"name": name}
         if method == "PATCH" and path == "releases/1":
-            if set(self.files) != release.allowlist(VERSION):
+            if set(self.files) != release.allowlist(VERSION, self.schema):
                 raise AssertionError("publication before complete asset upload")
             self.release.update(data, immutable=self.immutable)
             self.tag = {"object": {"type": "commit", "sha": COMMIT,

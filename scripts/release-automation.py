@@ -23,6 +23,9 @@ sys.dont_write_bytecode = True
 source_spec = importlib.util.spec_from_file_location("release_source", Path(__file__).with_name("release-source.py"))
 source_archive = importlib.util.module_from_spec(source_spec)
 source_spec.loader.exec_module(source_archive)
+debian_spec = importlib.util.spec_from_file_location("release_debian", Path(__file__).with_name("release-debian.py"))
+debian = importlib.util.module_from_spec(debian_spec)
+debian_spec.loader.exec_module(debian)
 
 REPOSITORY = "robert-cronin/flere"
 TARGET = "x86_64-unknown-linux-gnu"
@@ -48,6 +51,8 @@ LEGACY_CHANNELS = {
 
 CHANNELS = {**LEGACY_CHANNELS,
     "crates_io": "pending: separate core Cargo job follows verified GitHub publication"}
+DEBIAN_CHANNELS = {**CHANNELS,
+    "debian_aur": "Debian wrapper integrity accepted; AUR submission remains separate"}
 
 
 def identity(version, commit, run_id):
@@ -81,12 +86,21 @@ def payload_names():
             for suffix in ("", ".manifest.json")}
 
 
-def candidate_names(version):
-    return payload_names() | {source_archive.name(version)}
+def candidate_names(version, schema=1):
+    if type(schema) is not int or schema not in (1, 2):
+        raise ValueError("unsupported release descriptor schema")
+    files = payload_names() | {source_archive.name(version)}
+    return files | ({debian.name(version)} if schema == 2 else set())
 
 
-def allowlist(version):
-    return candidate_names(version) | {"release.json", "SHA256SUMS"}
+def allowlist(version, schema=1):
+    return candidate_names(version, schema) | {"release.json", "SHA256SUMS"}
+
+
+def debian_inputs(directory, version, commit, source, archive):
+    pins = {name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
+            for name in sorted(candidate_names(version))}
+    return debian.inputs(directory, version, commit, source, archive, pins)
 
 
 def git(checkout, *args):
@@ -161,41 +175,47 @@ def acceptance(evidence, pinned):
             raise ValueError("native acceptance has unsupported required ELF libraries")
 
 
-def seal(directory, version, commit, run_id, workflow_sha, evidence):
+def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     identity(version, commit, run_id)
     identity(version, workflow_sha, run_id)
-    if {p.name for p in directory.iterdir()} != candidate_names(version):
+    if {p.name for p in directory.iterdir()} != candidate_names(version, schema):
         raise ValueError("candidate must contain exactly the Linux pair, manifests and full source archive")
     source = manifests(directory, version, commit)
     archive = source_archive.inspect(directory / source_archive.name(version), version, source)
     pinned = {name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
-              for name in sorted(candidate_names(version))}
+              for name in sorted(candidate_names(version, schema))}
     acceptance(evidence, pinned)
-    descriptor = {"schema_version": 1, "repository": REPOSITORY, "version": version,
+    descriptor = {"schema_version": schema, "repository": REPOSITORY, "version": version,
                   "commit": commit, "workflow_sha": workflow_sha, "run_id": run_id,
                   "source_sha256": source, "source_archive": archive, "assets": pinned, "evidence": evidence,
                   "targets": {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED},
-                  "channels": CHANNELS, "minimum_glibc": "2.39"}
+                  "channels": DEBIAN_CHANNELS if schema == 2 else CHANNELS, "minimum_glibc": "2.39"}
+    if schema == 2:
+        lock, binaries, licenses = debian_inputs(directory, version, commit, source, archive)
+        descriptor["debian"] = debian.inspect(directory / debian.name(version), lock, binaries, licenses)
     (directory / "release.json").write_bytes(json_bytes(descriptor))
     (directory / "SHA256SUMS").write_text("".join(
-        f"{sha(read(directory / name))}  {name}\n" for name in sorted(candidate_names(version) | {"release.json"})))
+        f"{sha(read(directory / name))}  {name}\n" for name in sorted(candidate_names(version, schema) | {"release.json"})))
     return validate(directory, version, commit, run_id, workflow_sha)
 
 
 def validate(directory, version, commit, run_id, workflow_sha, expected_digest=None):
     identity(version, commit, run_id)
     identity(version, workflow_sha, run_id)
-    if directory.is_symlink() or {p.name for p in directory.iterdir()} != allowlist(version):
-        raise ValueError("release asset allowlist differs: no extra files, paths or targets are allowed")
+    if directory.is_symlink():
+        raise ValueError("release asset directory is a symlink")
     raw = read(directory / "release.json", 65536)
     if expected_digest is not None and sha(raw) != expected_digest:
         raise ValueError("release descriptor digest differs from this run's sealed candidate")
     descriptor = json.loads(raw)
-    for key, value in {"schema_version": 1, "repository": REPOSITORY, "version": version,
+    schema = descriptor.get("schema_version")
+    if {p.name for p in directory.iterdir()} != allowlist(version, schema):
+        raise ValueError("release asset allowlist differs: no extra files, paths or targets are allowed")
+    for key, value in {"schema_version": schema, "repository": REPOSITORY, "version": version,
                        "commit": commit, "run_id": run_id, "workflow_sha": workflow_sha}.items():
         if descriptor.get(key) != value:
             raise ValueError("release provenance differs from selected commit/workflow/run/version")
-    if set(descriptor["assets"]) != candidate_names(version) or descriptor["minimum_glibc"] != "2.39":
+    if set(descriptor["assets"]) != candidate_names(version, schema) or descriptor["minimum_glibc"] != "2.39":
         raise ValueError("descriptor asset allowlist or Linux support contract differs")
     if descriptor["source_sha256"] != manifests(directory, version, commit):
         raise ValueError("descriptor source differs from manifests")
@@ -207,18 +227,26 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
     if descriptor.get("source_archive") != archive:
         raise ValueError("source archive provenance differs from sealed descriptor")
     expected_sums = "".join(f"{sha(read(directory / name))}  {name}\n"
-                            for name in sorted(candidate_names(version) | {"release.json"}))
+                            for name in sorted(candidate_names(version, schema) | {"release.json"}))
     if read(directory / "SHA256SUMS", 65536).decode() != expected_sums:
         raise ValueError("SHA256SUMS differs from final release bytes")
     acceptance(descriptor["evidence"], descriptor["assets"])
+    if schema == 2:
+        lock, binaries, licenses = debian_inputs(directory, version, commit, descriptor["source_sha256"], archive)
+        proof = debian.inspect(directory / debian.name(version), lock, binaries, licenses)
+        if descriptor.get("debian") != proof:
+            raise ValueError("Debian wrapper provenance differs from verified package")
+    elif "debian" in descriptor:
+        raise ValueError("schema 1 cannot claim Debian wrapper acceptance")
     # Historical snapshots are accepted only with the caller's exact digest.
-    channels = (CHANNELS, LEGACY_CHANNELS) if expected_digest is not None else (CHANNELS,)
+    channels = ((DEBIAN_CHANNELS,) if schema == 2 else
+                ((CHANNELS, LEGACY_CHANNELS) if expected_digest is not None else (CHANNELS,)))
     if (descriptor["targets"] != {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED}
             or descriptor["channels"] not in channels):
         raise ValueError("missing target acceptance or unexpected channel readiness")
     return {"descriptor_sha256": sha(raw), "files": {
         name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
-        for name in sorted(allowlist(version))}}
+        for name in sorted(allowlist(version, schema))}}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -282,14 +310,17 @@ class GitHub:
         return self.request("GET", path, **kwargs)
 
 
-def release_body(version, commit, run_id, descriptor_sha):
+def release_body(version, commit, run_id, descriptor_sha, schema=1):
     return (f"Flere {version}\n\nSource commit: `{commit}`\n"
             f"Release descriptor SHA-256: `{descriptor_sha}`\n"
             f"Build run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n"
             "Linux x86-64 core and companion plus the complete reviewed source archive; glibc 2.39 or newer for these binaries. Native CI checks are recorded in release.json. "
             "Interactive desktop acceptance is not claimed. macOS signed binaries and Windows companion distribution remain blocked. "
-            "Linux asset publication does not advance package-manager channels or the latest-release pointer. "
-            "The separate core Cargo job follows public verification.\n")
+            + ("Linux asset publication does not update external package catalogues or the latest-release pointer. "
+               if schema == 2 else "Linux asset publication does not advance package-manager channels or the latest-release pointer. ")
+            + "The separate core Cargo job follows public verification.\n"
+            + ("The Debian wrapper contains the same verified Linux executables, manifests and licenses. "
+               "This release records wrapper integrity, not new interactive or cross-version package-manager acceptance.\n" if schema == 2 else ""))
 
 
 def verify_tag(api, version, commit, *, missing=False, wait_for_visibility=False):
@@ -331,7 +362,8 @@ def publish(directory, version, commit, run_id, workflow_sha, expected_digest, a
     # executed in this job, and every retry consumes the same retained artifact.
     candidate = validate(directory, version, commit, run_id, workflow_sha, expected_digest)
     expected = candidate["files"]
-    body = release_body(version, commit, run_id, expected_digest)
+    schema = json.loads(read(directory / "release.json", 65536))["schema_version"]
+    body = release_body(version, commit, run_id, expected_digest, schema)
     release = api.get(f"releases/tags/v{version}", missing=True)
     if release is None:
         if api.get(f"git/ref/tags/v{version}", missing=True) is not None:
@@ -368,7 +400,8 @@ def verify_public(directory, version, commit, run_id, workflow_sha, expected_dig
         data = public_download(f"https://github.com/{REPOSITORY}/releases/download/v{version}/{name}")
         if {"bytes": len(data), "sha256": sha(data)} != expected:
             raise ValueError("anonymous public download differs from the accepted bytes")
-    return {"status": "public_bytes_verified", "descriptor_sha256": expected_digest, "channels": CHANNELS}
+    return {"status": "public_bytes_verified", "descriptor_sha256": expected_digest,
+            "channels": json.loads(read(directory / "release.json", 65536))["channels"]}
 
 
 def main(argv=None):
@@ -382,6 +415,7 @@ def main(argv=None):
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--descriptor-sha256")
+    parser.add_argument("--schema", type=int, choices=(1, 2), default=1, help="seal format; schema 2 also requires the verified Debian wrapper")
     args = parser.parse_args(argv)
     values = (args.version, args.commit, args.run_id, args.workflow_sha)
     if args.action == "select":
@@ -394,7 +428,7 @@ def main(argv=None):
         if args.action == "seal":
             if args.evidence is None:
                 parser.error("seal requires --evidence")
-            result = seal(args.directory, *values, json.loads(read(args.evidence, 65536)))
+            result = seal(args.directory, *values, json.loads(read(args.evidence, 65536)), args.schema)
         elif args.action == "validate":
             result = validate(args.directory, *values, args.descriptor_sha256)
         else:

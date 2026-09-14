@@ -34,7 +34,7 @@ it does not establish interactive desktop behavior, physical clipboard/SSH
 acceptance, upgrades from another release or package-manager installation tests.
 The temporary installation is removed with its disposable directory.
 
-Only seven allowlisted files can be published:
+The current workflow uses schema 1 with seven allowlisted files:
 
 - `flere-x86_64-unknown-linux-gnu`
 - `flere-x86_64-unknown-linux-gnu.manifest.json`
@@ -76,6 +76,26 @@ the completed draft is published. A separate job downloads every exact version U
 without authentication and checks the same hashes. The workflow explicitly leaves
 the `latest` designation unchanged, so the existing managed installer feed does
 not silently advance to this narrower platform release.
+
+## Debian wrapper support
+
+Schema 2 adds `flere_X.Y.Z-1_amd64.deb` to the seven files above. The optional
+`--with-debian` candidate step builds it from the five already verified base
+inputs: both executables, their manifests and the source archive. It uses the
+same maintained Debian builder as the standalone packaging command. No enclosing
+release-descriptor digest is embedded in the package, avoiding a checksum cycle.
+
+The [Debian inspector](../scripts/release-debian.py) reads the archive as bounded
+data without extraction or execution. It verifies exact payload/control files,
+licenses, ownership, modes and source timestamps; links, install hooks, extra
+members and changed bytes are rejected. Sealing and publication each repeat this
+inspection. Schema 2's final checksum list, immutable retry and anonymous download
+checks cover all eight files. Historical schema 1 releases retain their exact
+seven-file validation and release text.
+
+Workflow activation remains pending native Debian lifecycle acceptance. Adding
+a `.deb` to a future release does not submit AUR recipes, create an APT repository
+or change the latest-release pointer. Published immutable releases remain unchanged.
 
 ## Enable and run
 

@@ -119,6 +119,7 @@ def main():
     parser.add_argument("--commit", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--workflow-sha", required=True)
+    parser.add_argument("--with-debian", action="store_true", help="activate only after native Debian lifecycle acceptance")
     args = parser.parse_args()
     checkout = args.checkout.resolve()
     release.identity(args.version, args.commit, args.run_id)
@@ -146,7 +147,7 @@ def main():
         "os": "ubuntu-24.04", "architecture": platform.machine(),
         "image": os.environ["ImageOS"], "image_version": os.environ["ImageVersion"],
         "rustc": rustc, "linker": run(["ld", "--version"], checkout).splitlines()[0], "glibc": "2.39"}}
-    # Only these seven final public files are uploaded. Build logs, local paths and
+    # Only the format's seven/eight final public files are uploaded. Build logs, local paths and
     # package receipts outside the two public manifests remain private to the job.
     with tempfile.TemporaryDirectory(prefix="release-install-", dir=cache) as isolated:
         acceptance_home = Path(isolated)
@@ -188,7 +189,17 @@ def main():
         raise ValueError("validation changed selected source or a lockfile")
     release.source_archive.create(checkout, assets / release.source_archive.name(args.version),
                                   args.version, args.commit, result["source"]["source_sha256"])
-    sealed = release.seal(assets, args.version, args.commit, args.run_id, args.workflow_sha, evidence)
+    schema = 1
+    if args.with_debian:
+        source = release.manifests(assets, args.version, args.commit)
+        archive = release.source_archive.inspect(assets / release.source_archive.name(args.version), args.version, source)
+        lock, binaries, licenses = release.debian_inputs(assets, args.version, args.commit, source, archive)
+        package = release.debian.packages.build_deb(assets, binaries, licenses, lock)
+        release.debian.inspect(package, lock, binaries, licenses)
+        schema = 2
+    # Sealing repeats Debian inspection independently before binding its digest.
+    sealed = release.seal(assets, args.version, args.commit, args.run_id, args.workflow_sha, evidence, schema)
+
     if os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write(f"asset_directory={assets}\ndescriptor_sha256={sealed['descriptor_sha256']}\n")
@@ -198,7 +209,8 @@ def main():
             summary.write(f"Release descriptor SHA-256: `{sealed['descriptor_sha256']}`\n\n")
             summary.write("Native CI covers build identity and managed install/reinstall. It does not establish interactive desktop or cross-version upgrade acceptance.\n\n")
             summary.write("| Target/channel | Status |\n| --- | --- |\n")
-            for name, status in {**release.BLOCKED, **release.CHANNELS}.items():
+            channels = release.DEBIAN_CHANNELS if schema == 2 else release.CHANNELS
+            for name, status in {**release.BLOCKED, **channels}.items():
                 summary.write(f"| {name} | {status} |\n")
     print(json.dumps(sealed, indent=2))
 
