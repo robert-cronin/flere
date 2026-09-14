@@ -56,8 +56,9 @@
   name from Git remote metadata, with a local directory-name fallback for offline
   folders or projects without a remote. Real PTY tests cover browsing, completion,
   cancellation, automatic naming and literal paths; inherited Git selectors cannot
-  redirect the selected checkout. Published on `main` at `8e7b34a`; installation
-  into the local running setup remains pending.
+  redirect the selected checkout. Published on `main` at `8e7b34a`; the verified
+  local packages at `f9335c7` are installed and the selected supervisor has applied
+  them. An already-open older frontend still needs its normal UI reload.
 
 ## Branding and link audit
 
@@ -67,12 +68,14 @@
   source reference and stale test-fixture connection entries are corrected;
   live legacy state and active working directories remain retained.
 
-- [ ] Replace remaining rendered Railhand branding with Flere in current terminal
-  captures, illustrations, intro/screensaver frames and documentation art. Inspect
-  actual images as well as text; keep historical evidence accurately labeled.
-- [ ] Use parallel subagents to audit source, docs, generated assets and public
-  GitHub links for stale references, missing targets and dead links; fix current
-  product references without rewriting truthful historical records.
+- [x] Audit current rendered branding and use Flere captures in the product tour.
+  Current workbench/intro images and capture cells are verified; old recordings
+  and measurements remain clearly labeled historical evidence.
+- [x] Run the parallel source/docs/assets and product-link audit. The final checks
+  passed 259 handbook links and a broader 323 local links/anchors; all five
+  checked public product URLs returned HTTP 200. Legacy isolation tests and
+  truthful historical records remain intact. This was a bounded product audit,
+  not an exhaustive crawl of every external site.
 
 An unchecked channel is not a claim that its installation command is available.
 Published downloads and platform limits are documented in the installation guide.
