@@ -118,10 +118,21 @@
   passed in emulated amd64 Fedora 44; six installed stateless CLI checks and
   synthetic-state preservation passed. The historical comparison of 220 unrelated
   package headers is unproven: its unsupported `HDRID` query printed diagnostics
-  with exit status 0. Corrected native header-preservation proof remains pending.
-- [ ] Sign/publish the RPM after reviewing its checksum and provenance. Native
-  Fedora hardware, interactive features and runtime-version upgrades remain
-  untested; this is an upstream wrapper, not a Fedora repository submission.
+  with exit status 0. The original receipt remains invalid for that assertion;
+  corrected native proof is recorded below.
+- [x] Validate native Fedora 44 container-on-Linux v0.3.0 → v0.3.3 RPM install,
+  literal DNF upgrade and removal. All 63 lifecycle checks passed, including 12
+  stateless CLI checks. Exact core/companion payloads, licenses and real owner UIs passed;
+  both guards refused replacement before staging and detached normally. All 223
+  unrelated real SHA256-header records, synthetic state and repository/keyring
+  configuration were preserved. Exact container cleanup was independently checked.
+  The tested unsigned v0.3.3 RPM has SHA-256
+  `85993e02bd4ecca190bcb91b954313a44bb84b723764bec35643373b1fcbd5f8`;
+  the checked-in recipe remains v0.3.0. No physical desktop or external SSH claim.
+- [ ] Set up RPM signing, then sign/publish the reviewed wrapper with its checksum
+  and provenance. The tested v0.3.3 RPM remains unsigned and unpublished. Fedora
+  desktop/physical terminal and other RPM-distribution acceptance remain open;
+  this is an upstream wrapper, not a Fedora repository submission.
 - [x] Prepare Chocolatey companion recipes from the same verified Windows ZIP,
   version and checksum as Scoop/WinGet. Nine offline generator tests pass, covering
   package inventory, provenance, escaping and AMD64 selection. No Windows core is
@@ -202,8 +213,9 @@
   companion, rendered-modal and active-session behavior were not part of this check.
 - [ ] Complete remaining native Linux package-manager and Windows runtime
   ownership acceptance. Native Debian, Cargo core and Homebrew core protocol
-  checks and Nix core/companion UI/profile checks passed; other manager and
-  Windows runtime checks remain open.
+  checks, native Fedora-container RPM core/companion UI/refusal checks and Nix
+  core/companion UI/profile checks passed; other manager and Windows runtime
+  checks remain open.
 - [x] Automate the Linux manual Release path: explicit main version/commit
   selection, native core/companion checks, final payload/source checksums,
   immutable GitHub publication and anonymous download verification. Hosted

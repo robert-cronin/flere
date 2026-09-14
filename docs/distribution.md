@@ -38,7 +38,7 @@ channels retain their individual validation and publication requirements.
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Arch build/metadata and emulated pacman install/remove/CLI checks passed. Account setup and submission pending |
 | [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and both strict-sandbox builds/inventories. Separate v0.3.4 development core/companion ownership, UI and profile checks passed on native Nix-on-Ubuntu. NixOS and version-upgrade acceptance remain pending; not a supported installation method |
-| [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Build, payload/ownership checks, offline install/remove and six stateless CLI checks passed in emulated Fedora 44. Unsigned and unpublished |
+| [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
 | [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Recipe generation and nine offline checks pass; native packing, install/upgrade/remove and publication pending |
 
 ### Install with Homebrew

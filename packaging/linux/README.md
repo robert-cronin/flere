@@ -1,6 +1,6 @@
 # Linux distribution packages
 
-These definitions wrap the tested **v0.3.0 Linux x86-64 GNU release**. Both
+The checked-in definitions wrap the tested **v0.3.0 Linux x86-64 GNU release**. Both
 `flere` and `flere-connect` travel together. The original binaries are preserved;
 the package builder does not compile a changed checkout or execute either binary.
 
@@ -8,7 +8,7 @@ the package builder does not compile a changed checkout or execute either binary
 | --- | --- |
 | Debian `.deb` | Native Ubuntu install, v0.3.0 → v0.3.2 upgrade, 12 CLI checks, ownership detection, removal and purge passed. The tested package passed independent inspection; v0.3.3 is published through the automated release. |
 | AUR `flere-bin` | Real Arch `makepkg` verification/build and exact `.SRCINFO` comparison passed. Offline pacman install/remove and six installed stateless CLI checks passed in an emulated amd64 Arch container. Not submitted to AUR. |
-| [RPM](rpm/README.md) | Verified payload build, archive/ownership checks, offline RPM install/remove and six installed stateless CLI checks passed in an emulated amd64 Fedora 44 container. Unsigned and unpublished. |
+| [RPM](rpm/README.md) | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 install/upgrade/remove, 12 CLI checks, core/companion ownership refusal and state/package preservation passed. The tested v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0. |
 | Nix | [Source packaging draft](../nix/README.md). Native strict-sandbox builds, all 485 tests and exact inventories passed for v0.3.3 plus the declared parser correction. Separately, native Nix-on-Ubuntu core/companion ownership, UI refusal and normal profile removal passed for unpublished v0.3.4 source `2d52985`. NixOS, actual version upgrades, physical clipboard and external SSH remain unverified. |
 
 Preparation is separate from publishing `.deb`/RPM assets or submitting the
@@ -31,8 +31,9 @@ remains pinned to v0.3.0 until those channels are separately advanced.
 
 ## Compatibility and dependencies
 
-The prebuilt binaries require **glibc 2.39 or newer**. Ubuntu 24.04 x86-64 is the
-validated runtime. [Debian 12](https://packages.debian.org/bookworm/libc6) and
+The prebuilt binaries require **glibc 2.39 or newer**. Ubuntu 24.04 and the
+[native Fedora 44 container](rpm/README.md#native-linux-version-upgrade-and-ownership-validation)
+have passed the recorded x86-64 runtime checks. [Debian 12](https://packages.debian.org/bookworm/libc6) and
 [Ubuntu 22.04](https://packages.ubuntu.com/jammy/libc6) have older glibc and cannot
 run these prebuilt assets. This is not an ARM, musl, or all-distributions package.
 Building from source for an older system is a separate compatibility exercise.

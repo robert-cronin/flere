@@ -43,6 +43,8 @@ the package.
 
 ## Validation
 
+### Earlier emulated validation
+
 On 2026-09-14, the package passed real RPM 6.0.2 build and lifecycle checks in a
 disposable Fedora 44 amd64 container under Docker Desktop on macOS arm64. The
 official Fedora image index was pinned to
@@ -72,8 +74,9 @@ user state were never mounted.
 The earlier claim that all 220 unrelated package headers were unchanged is
 unproven. A later native check found that the inherited `%{HDRID}` query was
 unsupported by RPM 6.0.2: it printed diagnostics while returning exit zero. Those
-lines were not valid package identities. A corrected query with strict output
-validation is being checked separately; the original receipts are retained.
+lines were not valid package identities. The native check below uses strict
+`SHA256HEADER` records instead; it does not retroactively validate the historical
+comparison. The original receipts are retained.
 
 The focused Fedora tests passed nine checks with two Debian-tool skips. They
 also proved that a changed input fails the spec's checksum check and leaves no
@@ -82,6 +85,49 @@ now rejects those paths before invoking RPM. This is emulated package lifecycle
 and stateless CLI evidence, not native Fedora hardware, interactive terminal
 acceptance, or an upgrade between runtime versions. No public RPM artifact or
 repository is available yet.
+
+### Native Linux version-upgrade and ownership validation
+
+A subsequent native Linux x86_64 run used the same pinned Fedora 44 image under
+Docker's default security settings, with RPM 6.0.2 and DNF 5.4.3.0. Normal signed
+and TLS-verified dependency provisioning kept weak dependencies enabled;
+`zlib-ng-compat-2.3.3-3.fc44.x86_64` supplied `libz.so.1`. The container network was
+then disconnected for packaging and the complete lifecycle.
+
+The run installed the unchanged `0.3.0-1` package, used a literal `dnf upgrade`
+to a privately generated `0.3.3-1` wrapper, and removed it with
+`dnf remove --no-autoremove`. The newer wrapper uses the published v0.3.3
+payloads and sealed provenance from source `ce6bb62`; the checked-in spec and
+lock remain pinned to v0.3.0. The tested `flere-0.3.3-1.x86_64.rpm` is
+3,794,630 bytes, SHA-256:
+
+```text
+85993e02bd4ecca190bcb91b954313a44bb84b723764bec35643373b1fcbd5f8
+```
+
+All 63 package/lifecycle checks passed, including the exact seven-file payload,
+root ownership/modes, all three license files, installed `rpm -V`, and twelve
+stateless CLI checks across both versions. Full build-info objects matched the
+public manifests. Both actual v0.3.3 update UIs identified RPM ownership and
+refused Flere replacement before staging, displaying manager guidance without
+running it. The core checked the registered frontend and supervisor; the
+companion used a local fake SSH bridge. Both UIs detached normally and their
+owned runtime exited cleanly.
+
+All 223 unrelated package identity/header records, including the stored public
+key, stayed unchanged across install, upgrade and removal. Each record required
+a real SHA256 header digest; the final raw inventory matched the baseline.
+These digests establish preservation, not package authentication. Synthetic
+user and owner state, DNF repository configuration and public keyrings were
+preserved. Payload paths were absent after removal, and successful removal of
+the exact container was independently confirmed.
+
+This is native Fedora-container-on-Linux acceptance, not a Fedora desktop or
+physical terminal check. It used empty disposable workspaces; no workspace shell,
+native chat or external SSH connection was opened. The new RPM remains unsigned
+and unpublished; unchanged
+Fedora defaults permitted the local unsigned package, while dependency signature
+checks remained enabled. Signing setup and publication are still required.
 
 The implementation follows the [RPM spec reference](https://rpm.org/docs/4.20.x/manual/spec.html)
 and uses the [official Fedora container image](https://hub.docker.com/_/fedora).
