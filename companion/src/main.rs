@@ -48,6 +48,7 @@ mod remote_update;
 mod screenshot;
 #[path = "../../src/screenshot_transfer.rs"]
 mod screenshot_transfer;
+mod ssh_exit;
 mod transfers;
 mod update;
 use protocol as remote_protocol;
@@ -515,7 +516,7 @@ fn run() -> io::Result<()> {
             os::image_file(&path)?,
         );
     }
-    loop {
+    let closed = loop {
         keyboard_modal(
             &mut display,
             local.active() || coordinated.active(),
@@ -922,11 +923,11 @@ fn run() -> io::Result<()> {
             }
             Ok(Event::Closed(reason)) => {
                 diagnostics::record("connection-closed", reason);
-                break;
+                break reason;
             }
             Ok(Event::Failure(message)) => return Err(io::Error::other(message)),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break "event-channel-closed",
         }
         keyboard_modal(
             &mut display,
@@ -1023,7 +1024,7 @@ fn run() -> io::Result<()> {
         }
         files.tick(&mut queue);
         if coordinated.tick(&connection, &mut queue)? {
-            break;
+            break "coordinated-update";
         }
         if coordinated.active() {
             coordinated.draw(
@@ -1065,13 +1066,15 @@ fn run() -> io::Result<()> {
                 }
             }
         }
-    }
+    };
     avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
     viewer.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
-    diagnostics::record(
-        "disconnect",
-        &format!("ssh_status={:?}", child.0.try_wait()?),
-    );
+    let status = if closed == "remote-output-eof" {
+        Some(ssh_exit::remote_closed(&mut child.0)?)
+    } else {
+        child.0.try_wait()?
+    };
+    diagnostics::record("disconnect", &format!("ssh_status={status:?}"));
     Ok(())
 }
 fn main() {

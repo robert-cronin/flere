@@ -345,6 +345,45 @@ fn malformed_slow_clients_do_not_block_output_and_lock_rejects_duplicate() {
         0o600
     );
 }
+#[test]
+fn watch_survives_a_slow_reader_and_resumes_without_restarting_the_shell() {
+    let f = Fixture::new();
+    let tab = f.new_workspace("slow UI");
+    f.req(&["resize", "240", "100"]);
+    let epoch = f.snapshot().epoch;
+    let mut watcher = wire::connect(&f.state).unwrap();
+    watcher.write_all(&wire::frame(b"watch")).unwrap();
+
+    // A full-size snapshot exceeds the socket send buffer. Model a frontend
+    // blocked on SSH output for longer than an ordinary request's two seconds.
+    f.send(&tab, b"printf 'WATCH_%s\\n' ALIVE\r");
+    f.wait_text(&tab, "WATCH_ALIVE");
+    f.send(&tab, b"unsubmitted_draft");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(f.capture(&tab).contains("unsubmitted_draft"));
+
+    let initial = Snapshot::decode(&wire::read_frame(&mut watcher).unwrap()).unwrap();
+    assert_eq!(initial.epoch, epoch);
+    assert_eq!(initial.session().unwrap().pid, tab.pid);
+    assert_eq!(initial.session().unwrap().run, tab.run);
+
+    // The same stream must deliver a fresh complete frame after its backlog.
+    f.req(&["resize", "239", "100"]);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let frame = Snapshot::decode(&wire::read_frame(&mut watcher).unwrap()).unwrap();
+        assert_eq!(frame.epoch, epoch);
+        assert_eq!(frame.session().unwrap().pid, tab.pid);
+        if frame.cols == 239 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "watch did not resume fresh frames"
+        );
+    }
+    assert!(f.capture(&tab).contains("unsubmitted_draft"));
+}
 // A Darwin PTY may split a paint into many short reads. Assertions must observe
 // a complete DEC 2026 frame, and bulk input must allow the UI to drain output.
 fn read_ui_bytes(master: &mut fs::File, screen: &mut Terminal, raw: &mut Vec<u8>) {

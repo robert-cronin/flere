@@ -44,6 +44,7 @@ struct SavedWorkspace {
     split: Option<crate::panes::PaneLayout>,
 }
 mod attachments;
+mod clients;
 mod close;
 mod coordination;
 mod delivery;
@@ -1786,7 +1787,7 @@ fn run_loop(
                         links: false,
                         build: None,
                         done: false,
-                        deadline: Instant::now() + Duration::from_secs(2),
+                        deadline: Instant::now() + Client::output_timeout(false),
                     });
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -1877,7 +1878,7 @@ fn run_loop(
                         c.output = wire::frame(&result.unwrap_or_else(|e| {
                             format!("!{}", wire::passive(&e.to_string())).into_bytes()
                         }));
-                        c.deadline = Instant::now() + Duration::from_secs(2);
+                        c.deadline = Instant::now() + Client::output_timeout(c.watch);
                     }
                     Err(_) => c.done = true,
                     Ok(None) => {}
@@ -1900,14 +1901,7 @@ fn run_loop(
                 } else {
                     &frame
                 };
-                if c.output.is_empty() {
-                    c.output = frame.clone();
-                    c.offset = 0;
-                    c.deadline = Instant::now() + Duration::from_secs(2)
-                } else if c.offset == 0 {
-                    c.output = frame.clone()
-                } else { /* finish current frame, then send a fresh one on the next tick */
-                }
+                c.queue_snapshot(frame, Instant::now());
             }
             server.dirty = clients.iter().any(|c| c.watch && c.offset > 0);
             last_frame = Instant::now();
@@ -1916,23 +1910,7 @@ fn run_loop(
             if c.done {
                 continue;
             }
-            if c.offset < c.output.len() {
-                match c.stream.write(&c.output[c.offset..]) {
-                    Ok(n) => c.offset += n,
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(_) => c.done = true,
-                }
-                if c.offset == c.output.len() {
-                    c.output.clear();
-                    c.offset = 0;
-                    if !c.watch {
-                        c.done = true
-                    }
-                }
-            }
-            if (!c.watch || !c.output.is_empty()) && Instant::now() > c.deadline {
-                c.done = true;
-            }
+            c.flush_output(Instant::now());
         }
         clients.retain(|c| !c.done);
         if let Some(binary) = server.refresh.take()

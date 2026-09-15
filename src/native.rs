@@ -319,12 +319,20 @@ pub fn working_screen(term: &crate::terminal::Terminal) -> bool {
         {
             continue;
         }
-        if let Some(next) = lines
+        let mut below = lines
             .iter()
             .skip(i + 1)
             .map(|s| s.trim())
-            .find(|s| !s.is_empty())
+            .filter(|s| !s.is_empty());
+        let mut next = below.next();
+        // The automatic approval reviewer shows one tool caption between its
+        // running status and the composer. This is activity, not a human choice.
+        if line.contains("Reviewing approval request (")
+            && next.is_some_and(|s| s.starts_with("└ "))
         {
+            next = below.next();
+        }
+        if let Some(next) = next {
             let Some(rest) = next.strip_prefix('›').or_else(|| next.strip_prefix('❯')) else {
                 return false;
             };
@@ -348,6 +356,28 @@ mod tests {
 #[cfg(test)]
 mod activity_tests {
     use super::*;
+    #[test]
+    fn automatic_approval_review_with_a_tool_caption_is_working() {
+        let mut t = crate::terminal::Terminal::new(100, 20);
+        t.feed(
+            "• Reviewing approval request (6s • esc to interrupt)\r\n  └ MCP get_context on flere\r\n\r\n› Ask Codex to do anything".as_bytes(),
+        );
+        assert!(working_screen(&t));
+        t.feed(b"\x1b[2J\x1b[H");
+        t.feed(
+            "• Reviewing approval request (6s • esc to interrupt)\r\n  └ MCP get_context on flere\r\n\r\n› 1. Allow\r\n  2. Cancel".as_bytes(),
+        );
+        assert!(
+            !working_screen(&t),
+            "human approval choices are not activity"
+        );
+        t.feed(b"\x1b[2J\x1b[H");
+        t.feed(
+            "• Reviewing approval request (6s • esc to interrupt)\r\n  └ MCP get_context on flere\r\nAn unrelated response\r\n› ".as_bytes(),
+        );
+        assert!(!working_screen(&t), "old status text is not live activity");
+    }
+
     #[test]
     fn activity_requires_live_status_and_composer_not_approval_or_a_quote() {
         let mut t = crate::terminal::Terminal::new(100, 20);

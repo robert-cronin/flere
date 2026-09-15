@@ -415,7 +415,7 @@ pub(super) fn restore(state: &Path, token: &str) -> io::Result<()> {
             links: c.links,
             build: c.build,
             done: false,
-            deadline: Instant::now() + Duration::from_secs(2),
+            deadline: Instant::now() + Client::output_timeout(c.watch),
         });
     }
     fs::remove_file(path(state, token)?)?;

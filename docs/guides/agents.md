@@ -8,6 +8,11 @@ First opening creates one ordinary shell workspace in your current directory. Ev
 
 Existing Lead cards keep their names, directories, chats and pins, and can be unpinned normally. Flere no longer creates or assigns a Lead role. Address messages to an exact workspace ID (from `list_workspaces`) or `user`.
 
+Messages have no broadcast destination, topic categories or channel subscriptions.
+The `quiet` and `interrupt` intents control when a notice can draw attention; they
+do not change its recipient. Both can wake a verified idle Codex through the
+native queue described below.
+
 Start agents explicitly through `S` or the CLI:
 
 ```sh
