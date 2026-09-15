@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Normal first WinGet portable install/remove on one disposable hosted Windows VM.
 
-Two fixed retained inputs; the default preserves the earlier 422 lifecycle.
-The selected 9a918 candidate also checks installed ownership with a synthetic
+Fixed retained inputs; the default preserves the earlier 422 lifecycle.
+The selected candidates also check installed ownership with a synthetic
 profile. No public URL, upgrade, UI, coordinated-refusal or SSH claim.
 The community source is contacted normally. Only LocalManifestFiles may change,
 through normal settings commands with readback and original-state restoration.
@@ -67,7 +67,31 @@ CURRENT_INPUT = {'name': 'candidate-9a9183c',
             'RobertCronin.FlereConnect.locale.en-US.yaml': '782cdfeff696c8fc19920270acef8b7cc5ab6d950c5eab5bbb9b282491ddd8a9',
             'RobertCronin.FlereConnect.yaml': '4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049'},
  'owner_check': True}
-INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT)}
+# The corrected profile resolver has its own immutable candidate input.
+PROFILE_INPUT = {'name': 'candidate-9d53f96',
+ 'run': 34935547435,
+ 'artifact': 10382474094,
+ 'artifact_bytes': 1877630,
+ 'artifact_name': 'windows-candidate-34935547435-1',
+ 'workflow': '9d53f968d306e1ff95f4d1c8af3a74db45cb6106',
+ 'artifact_sha': '90b12d0a6de1d3780d62301b381368e2c9b63f4d7d47cfa1dd70d5c7a2ce6ab6',
+ 'product': '9d53f968d306e1ff95f4d1c8af3a74db45cb6106',
+ 'source': 'b442909fdf817d7c493e57e5c61182cf36b5051a4764ab98db567dc9ab84e654',
+ 'zip_sha': '1d8e5e66620c9dd62ba8f5ebdeb7d7bb8f7909438c1be4ccfa4dc1256439dee0',
+ 'zip_bytes': 1835221,
+ 'payload_sha': 'd04db345069cc0aed0e7a274749c587c4a657b7cacc8f919aa89e8a0b0bbe838',
+ 'manifest_sha': '3bc3e03f9e9370ba31f12b4e82ec59c9a2a902a27f0bb33f8d1ae946935a5479',
+ 'nuspec_sha': '8ba0dd77f894cdfebfa093019dad91e3bd50aafe7c1f180a2665c0a5bc6dc681',
+ 'script_sha': '424626b1efad85f19d4f324723f52946a286147f2f94c1e0a0a3565697d0f337',
+ 'nupkg_sha': '73b617a35b52b57d6a347426dee44daa0c7422b2aab8649e098d8402f88b0120',
+ 'receipt_sha': '87750caffc2c88dc248a14d7a1f58a68d3afb23b1f79632382648455d2dd9d4b',
+ 'source_entries': 384,
+ 'artifact_entries': 33,
+ 'winget': {'RobertCronin.FlereConnect.installer.yaml': 'd03839f6e99d56743b6871759739db3a13d6c924f40e42ef7f6bc7bfda707365',
+            'RobertCronin.FlereConnect.locale.en-US.yaml': '782cdfeff696c8fc19920270acef8b7cc5ab6d950c5eab5bbb9b282491ddd8a9',
+            'RobertCronin.FlereConnect.yaml': '4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049'},
+ 'owner_check': True}
+INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT, PROFILE_INPUT)}
 
 
 def selection(name=DEFAULT_INPUT):

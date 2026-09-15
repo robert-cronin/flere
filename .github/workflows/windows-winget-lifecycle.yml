@@ -11,6 +11,7 @@ on:
         options:
           - recipes-422058c
           - candidate-9a9183c
+          - candidate-9d53f96
 
 permissions:
   contents: read

@@ -356,8 +356,10 @@
   The correction reads the current Windows token SID and its unexpanded HKLM
   profile path, supporting the literal default AppData/Local location. All 308
   core/companion Mac unit tests, both format/strict Clippy checks and Windows GNU
-  cross-compilation pass. Native validation of the corrected query is pending;
-  both failed receipts remain retained. Catalogue/custom-root installations stay
+  cross-compilation pass. Corrected native candidate `34935547435` at
+  `9d53f96` passed 77 tests, six aliases and native recipe checks, with one
+  physical ignore. Its installed-owner check remains pending; both failed
+  receipts remain retained. Catalogue/custom-root installations stay
   Unknown. A normal Scoop public-ZIP install/remove workflow is prepared;
   its generator preserves Flere release metadata before Scoop writes its own
   manifest. Seven helper checks and eleven manifest checks pass; the actual
