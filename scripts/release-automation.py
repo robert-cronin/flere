@@ -66,6 +66,9 @@ MULTI_TARGETS = {
 MULTI_CHANNELS = {**DEBIAN_CHANNELS,
     "scoop_winget": "prepared: verified Windows ZIP; catalogue publication remains separate",
     "chocolatey": "prepared: verified Windows ZIP; catalogue publication remains separate"}
+COMPLETE_TARGETS = {**MULTI_TARGETS,
+    aggregate.MAC_TARGET: "native arm64 CI, Developer ID, accepted notarization and final signed-byte acceptance recorded; physical desktop acceptance is not claimed"}
+COMPLETE_CHANNELS = {**MULTI_CHANNELS}
 
 
 def identity(version, commit, run_id):
@@ -100,11 +103,11 @@ def payload_names():
 
 
 def candidate_names(version, schema=1):
-    if type(schema) is not int or schema not in (1, 2, 3):
+    if type(schema) is not int or schema not in (1, 2, 3, 4):
         raise ValueError("unsupported release descriptor schema")
     files = payload_names() | {source_archive.name(version)}
-    if schema == 3:
-        return files | {debian.name(version)} | aggregate.names(version)
+    if schema in (3, 4):
+        return files | {debian.name(version)} | aggregate.names(version) | (aggregate.mac_names(version) if schema == 4 else set())
     return files | ({debian.name(version)} if schema == 2 else set())
 
 
@@ -212,6 +215,19 @@ def multi_acceptance(directory, version, commit, source, archive, evidence, pinn
     return debian.inspect(directory / debian.name(version), lock, binaries, licenses)
 
 
+def complete_acceptance(directory, version, commit, run_id, workflow_sha, source, archive, evidence, pinned):
+    if (set(evidence) != {"linux_windows", "macos", "inputs"} or set(evidence["inputs"]) != set(aggregate.MAC_PINS)
+            or any(not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{64}", pin) for pin in evidence["inputs"].values())):
+        raise ValueError("incomplete macOS acceptance or trusted receipt pins")
+    proof = multi_acceptance(directory, version, commit, source, archive, evidence["linux_windows"], pinned)
+    _, _, licenses = debian_inputs(directory, version, commit, source, archive)
+    selected = aggregate.macos().identity(version, commit, run_id, workflow_sha)
+    aggregate.verify_macos(directory, selected, source, licenses)
+    aggregate.mac_acceptance(evidence["macos"], pinned, version)
+    aggregate.cross_protocols(directory, TARGET)
+    return proof
+
+
 def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     identity(version, commit, run_id)
     identity(version, workflow_sha, run_id)
@@ -221,7 +237,9 @@ def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     archive = source_archive.inspect(directory / source_archive.name(version), version, source)
     pinned = {name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
               for name in sorted(candidate_names(version, schema))}
-    if schema == 3:
+    if schema == 4:
+        debian_proof = complete_acceptance(directory, version, commit, run_id, workflow_sha, source, archive, evidence, pinned)
+    elif schema == 3:
         debian_proof = multi_acceptance(directory, version, commit, source, archive, evidence, pinned)
     else:
         acceptance(evidence, pinned)
@@ -233,8 +251,9 @@ def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     if schema == 2:
         lock, binaries, licenses = debian_inputs(directory, version, commit, source, archive)
         descriptor["debian"] = debian.inspect(directory / debian.name(version), lock, binaries, licenses)
-    elif schema == 3:
-        descriptor.update(debian=debian_proof, targets=MULTI_TARGETS, channels=MULTI_CHANNELS)
+    elif schema in (3, 4):
+        descriptor.update(debian=debian_proof, targets=COMPLETE_TARGETS if schema == 4 else MULTI_TARGETS,
+                          channels=COMPLETE_CHANNELS if schema == 4 else MULTI_CHANNELS)
     (directory / "release.json").write_bytes(json_bytes(descriptor))
     (directory / "SHA256SUMS").write_text("".join(
         f"{sha(read(directory / name))}  {name}\n" for name in sorted(candidate_names(version, schema) | {"release.json"})))
@@ -272,9 +291,13 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
                             for name in sorted(candidate_names(version, schema) | {"release.json"}))
     if read(directory / "SHA256SUMS", 65536).decode() != expected_sums:
         raise ValueError("SHA256SUMS differs from final release bytes")
-    if schema == 3:
-        proof = multi_acceptance(directory, version, commit, descriptor["source_sha256"], archive,
-                                 descriptor["evidence"], descriptor["assets"])
+    if schema in (3, 4):
+        if schema == 4:
+            proof = complete_acceptance(directory, version, commit, run_id, workflow_sha, descriptor["source_sha256"],
+                                        archive, descriptor["evidence"], descriptor["assets"])
+        else:
+            proof = multi_acceptance(directory, version, commit, descriptor["source_sha256"], archive,
+                                     descriptor["evidence"], descriptor["assets"])
         if descriptor.get("debian") != proof:
             raise ValueError("Debian wrapper provenance differs from verified package")
     else:
@@ -287,9 +310,9 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
     elif schema == 1 and "debian" in descriptor:
         raise ValueError("schema 1 cannot claim Debian wrapper acceptance")
     # Historical snapshots are accepted only with the caller's exact digest.
-    channels = ((MULTI_CHANNELS,) if schema == 3 else (DEBIAN_CHANNELS,) if schema == 2 else
+    channels = ((COMPLETE_CHANNELS,) if schema == 4 else (MULTI_CHANNELS,) if schema == 3 else (DEBIAN_CHANNELS,) if schema == 2 else
                 ((CHANNELS, LEGACY_CHANNELS) if expected_digest is not None else (CHANNELS,)))
-    targets = MULTI_TARGETS if schema == 3 else {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED}
+    targets = COMPLETE_TARGETS if schema == 4 else MULTI_TARGETS if schema == 3 else {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED}
     if (descriptor["targets"] != targets
             or descriptor["channels"] not in channels):
         raise ValueError("missing target acceptance or unexpected channel readiness")
@@ -360,6 +383,17 @@ class GitHub:
 
 
 def release_body(version, commit, run_id, descriptor_sha, schema=1):
+    if schema == 4:
+        return (f"Flere {version}\n\nSource commit: `{commit}`\n"
+                f"Release descriptor SHA-256: `{descriptor_sha}`\n"
+                f"Build run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n"
+                "Linux x86-64 core and companion (glibc 2.39 or newer), the matching Debian wrapper, "
+                "Windows x86-64 MSVC companion and portable ZIP, macOS arm64 core and companion with a ZIP containing their final signed bytes, "
+                "and the complete reviewed source archive. Both Windows commands, flere and flere-connect, run the companion; "
+                "use `flere ssh ALIAS`. Native CI, Developer ID signing, accepted Apple notarization and final signed-byte "
+                "acceptance are recorded in release.json; physical desktop acceptance is not claimed. "
+                "No Intel/universal macOS or Windows core payload is included. Publication does not update external package "
+                "catalogues or the latest-release pointer. The separate core Cargo job follows public verification.\n")
     if schema == 3:
         return (f"Flere {version}\n\nSource commit: `{commit}`\n"
                 f"Release descriptor SHA-256: `{descriptor_sha}`\n"
@@ -475,8 +509,8 @@ def main(argv=None):
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--descriptor-sha256")
-    parser.add_argument("--schema", type=int, choices=(1, 2, 3), default=1,
-                        help="seal format; schema 2 adds Debian, schema 3 also requires the complete native Windows companion")
+    parser.add_argument("--schema", type=int, choices=(1, 2, 3, 4), default=1,
+                        help="seal format; schema 2 adds Debian, schema 3 adds the native Windows companion, schema 4 adds accepted signed macOS arm64")
     args = parser.parse_args(argv)
     values = (args.version, args.commit, args.run_id, args.workflow_sha)
     if args.action == "select":

@@ -154,6 +154,13 @@
   job then failed on WinGet manifest warnings; recipe validation and physical
   acceptance remain separate. Earlier private-source and failed-run evidence
   are retained.
+- [x] Build and verify the current Windows candidate from exact public source
+  `21cf68c`. Run `34922477345` passed all 65 native MSVC tests, formatting,
+  strict Clippy, release packaging and six portable alias checks. One physical
+  screenshot/clipboard test was explicitly ignored. Real WinGet manifest
+  validation and Chocolatey packing also passed. Independent artifact inspection
+  matched all 376 source files and modes, payloads and log hashes. This candidate
+  remains unpublished; installed-manager and physical acceptance are separate.
 - Deferred by the owner: the Windows legacy-input arcade hold pause is not a
   release requirement. Preserve the console-input investigation for a future
   arcade pass; do not alter system repeat settings or add global monitoring.
@@ -285,8 +292,12 @@
   The final four-thread core run passed all 424 tests; 89 companion tests, strict
   Clippy/format checks and Windows companion compilation also passed. The earlier
   long fixture-path failure, one transient probe timeout and toolchain stripping
-  warning remain retained; corrected release relinks passed. Local installation
-  and a new native Windows candidate are follow-ups to this source validation.
+  warning remain retained; corrected release relinks passed. Exact source
+  `21cf68c` subsequently passed all 514 native macOS tests and both components'
+  formatting, strict Clippy and release checks. After correcting a local toolchain
+  symbol-stripping invocation, both verified packages were installed and applied
+  to the two known supervisors: all five exact session identities and selections
+  survived. The two attached frontends still need their own UI reload.
 - [ ] Implement and validate Windows package-manager ownership recognition.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
@@ -314,7 +325,11 @@
   including the manual candidate workflow. Linux/Windows artifact assembly now
   validates one complete eleven-file release from matching source/version/run
   evidence; 78 offline release/packaging checks pass and historical schema 1/2
-  behavior is retained. A real matching candidate pair, macOS producer/signing,
+  behavior is retained. Complete-release assembly additionally requires all
+  sixteen Linux/Windows/macOS assets and pinned accepted macOS signing/notary
+  evidence; it checks every companion against both core protocols and preserves
+  historical formats. All 101 offline release tests pass. Real matching candidate
+  assembly, native macOS signing,
   whole-release workflow wiring and external catalogue updates remain unfinished.
   The Linux manual Release path is complete; v0.3.0 remains latest, and
   macOS/Windows channels were not advanced by v0.3.3.
