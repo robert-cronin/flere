@@ -36,10 +36,19 @@ channels retain their individual validation and publication requirements.
 | [Cargo / crates.io](https://crates.io/crates/flere/0.3.3) | Core source package for Linux/macOS | Published v0.3.3 through Trusted Publishing; public archive and all 124 source files verified. Companion excluded |
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.3 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
-| [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Generator prepared; physical Windows acceptance and publication pending |
+| [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Native source/ZIP checks and warning-free WinGet validation passed for unpublished v0.3.4; manager lifecycle, physical acceptance and publication pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Physical clipboard/external SSH remain open; not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
-| [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Recipe generation and nine offline checks pass; native packing, install/upgrade/remove and publication pending |
+| [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Ten generator checks, native packing and exact package inventory passed; install/upgrade/remove, ownership and publication pending |
+
+The unpublished Windows candidate from exact source `422058c` passed 59 native
+MSVC tests (one physical clipboard ignore), release packaging and six portable
+alias checks in [run 34911230794](https://github.com/robert-cronin/flere/actions/runs/34911230794).
+That run then failed on WinGet warnings. The corrected recipes passed
+[run 34912671194](https://github.com/robert-cronin/flere/actions/runs/34912671194)
+with WinGet 1.11.510 and Chocolatey 2.7.4, reusing the same ZIP. Both artifacts
+were independently inspected; no installation, manager ownership or physical
+acceptance is claimed by those runs.
 
 ### Install with Homebrew
 

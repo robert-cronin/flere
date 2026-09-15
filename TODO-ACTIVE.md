@@ -173,9 +173,14 @@
   version and checksum as Scoop/WinGet. Nine offline generator tests pass, covering
   package inventory, provenance, escaping and AMD64 selection. No Windows core is
   included and no package is published.
-- [ ] Run native `choco pack`, package inventory and Windows install/upgrade/remove
-  checks before publishing Chocolatey. Additional channels require their own
-  package/runtime checks and publisher access.
+- [x] Validate the retained Windows ZIP recipes natively. Run `34912671194`
+  passed warning-free WinGet 1.11.510 validation and Chocolatey 2.7.4 packing;
+  the exact five-member `.nupkg`, logs and source provenance were independently
+  inspected. It reused the byte-identical ZIP from run `34911230794`, without
+  rebuilding or executing the companion. Both earlier failures remain retained.
+- [ ] Complete Windows package-manager install/upgrade/remove and ownership
+  checks before publication. Native recipe validation is not lifecycle or
+  physical desktop acceptance; additional channels need their own checks/access.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;

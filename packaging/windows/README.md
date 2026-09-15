@@ -57,16 +57,25 @@ this does not run the script or install its payload. Missing WinGet/Chocolatey
 tools are recorded for that run. They can be provisioned on a later disposable
 runner after review; they are not a requirement for a physical user machine.
 
-After downloading a successful artifact from the reviewed Actions run, extract
-it into a fresh private directory and verify the inner ZIP's SHA-256 against
-`candidate.json`. To try its portable companion, use a new directory (outside
-any existing managed installation):
+The current validated portable artifact is `windows-recipes-34912671194-1` from
+[the retained-recipe run](https://github.com/robert-cronin/flere/actions/runs/34912671194).
+It reuses the exact native candidate ZIP after correcting the original WinGet
+warnings; both WinGet validation and Chocolatey packing passed. The original
+source/build/alias evidence is retained separately in its `input/` directory.
+Actions artifacts are temporary and require GitHub download access; this is not
+a published release or package-manager channel.
+
+After downloading that artifact, extract it into a fresh private directory and
+verify the inner ZIP against its recipe receipt. To try the portable companion,
+use a new directory outside any existing managed installation:
 
 ```powershell
-$Receipt = Get-Content -LiteralPath '.\candidate.json' -Raw | ConvertFrom-Json
-if ($Receipt.status -ne 'prepared_not_published') { throw 'Candidate validation did not pass.' }
-$Zip = Join-Path '.\windows' $Receipt.zip.name
-if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne $Receipt.zip.sha256) { throw 'ZIP differs.' }
+$Receipt = Get-Content -LiteralPath '.\receipt.json' -Raw | ConvertFrom-Json
+if ($Receipt.status -ne 'recipes_validated_not_published') { throw 'Recipe validation did not pass.' }
+$Distribution = Get-Content -LiteralPath '.\windows\windows-distribution.json' -Raw | ConvertFrom-Json
+$Zip = Join-Path '.\windows' $Distribution.asset
+if ($Distribution.sha256 -ne $Receipt.zip_sha256 -or
+    (Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne $Receipt.zip_sha256) { throw 'ZIP differs.' }
 $Portable = Join-Path $env:LOCALAPPDATA ('Flere\candidates\' + [guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $Portable) { throw 'Use a new candidate directory.' }
 Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
