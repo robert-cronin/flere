@@ -5,8 +5,10 @@ Fixed retained inputs; the default preserves the earlier 422 lifecycle.
 The selected candidates also check installed ownership with a synthetic
 profile. The explicit upgrade mode installs published 0.3.4 bytes before the
 reviewed 0.3.5 candidate. No public download-route, UI, coordinated-refusal or SSH claim.
-The community source is contacted normally. Only LocalManifestFiles may change,
-through normal settings commands with readback and original-state restoration.
+The community source is contacted normally. Upgrade-only VM provisioning removes
+the observed default Store source before the protected source baseline; that source
+set remains until VM teardown. LocalManifestFiles changes use normal settings
+commands with readback and original-state restoration.
 """
 import argparse
 import base64
@@ -250,6 +252,18 @@ def source_export(data):
             and source.get("Identifier") == SOURCE_ID and source.get("Explicit") is False,
             "community source identity differs")
     return sorted(rows, key=lambda row: row["Name"])
+
+
+def upgrade_source_baseline(original):
+    """Only the observed default Store source may be removed from this test VM."""
+    store = {"Name":"msstore", "Arg":"https://storeedgefd.dsx.mp.microsoft.com/v9.0",
+             "Type":"Microsoft.Rest", "Identifier":"StoreEdgeFD", "Explicit":False,
+             "Data":"", "TrustLevel":["Trusted"]}
+    community = {"Name":"winget", "Arg":SOURCE_URL, "Type":"Microsoft.PreIndexed.Package",
+                 "Identifier":SOURCE_ID, "Explicit":False, "Data":SOURCE_ID,
+                 "TrustLevel":["Trusted","StoreOrigin"]}
+    require(original == [store, community], "upgrade source provisioning requires the observed default sources")
+    return [community]
 
 
 def setting_value(value):
@@ -614,8 +628,21 @@ def main(output, selected=LEGACY_INPUT, *, upgrade=False):
         links = local_appdata/"Microsoft/WinGet/Links"
         packages = local_appdata/"Microsoft/WinGet/Packages"
         settings_before = settings("settings-before"); user_before = user_file("user-settings-before")
-        sources_before = source_export(run.command("sources-before", [winget,"source","export"]))
-        run.record("sources-before", sources_before)
+        source_record = "sources-provision-before" if upgrade else "sources-before"
+        observed_sources = source_export(run.command(source_record, [winget,"source","export"]))
+        run.record(source_record, observed_sources)
+        if upgrade:
+            expected_sources = upgrade_source_baseline(observed_sources)
+            receipt["source_provisioning"] = {"status":"attempted", "removed_name":"msstore",
+                "retained_until_vm_teardown":True}
+            receipt["limits"].append("Upgrade-only disposable VM provisioning removes the observed default Store source; the community-only source baseline is preserved until VM teardown, not restored to stock sources.")
+            run.command("provision-remove-store", [winget,"source","remove","--name","msstore"])
+            observed_sources = source_export(run.command("sources-provision-after", [winget,"source","export"]))
+            run.record("sources-provision-after", observed_sources)
+            require(observed_sources == expected_sources, "source provisioning changed beyond removal of the observed Store source")
+            receipt["source_provisioning"]["status"] = "complete"
+            run.record("sources-before", observed_sources)
+        sources_before = observed_sources
         # No source reset, account, automatic agreements or custom source. Normal metadata access is explicit.
         run.command("community-source-update", [winget,"source","update","--name","winget"], seconds=180, source_prompt=True)
         run.command("installed-list-before", [winget,"list","--source","winget"], seconds=180, source_prompt=True)
@@ -669,8 +696,6 @@ def main(output, selected=LEGACY_INPUT, *, upgrade=False):
             attempted = True
             action = "upgrade" if upgrade and not prefix else "install"
             arguments = [winget,action,"--manifest",manifests,"--scope","user","--architecture","x64"]
-            if action == "upgrade":
-                arguments += ["--source", "winget"]
             run.command(prefix+action, arguments, seconds=180)
             after_inventory = registry_inventory(); run.record(prefix+"installed-after", after_inventory)
             verify_inventory(before_inventory, after_inventory, True, version=version); owned = own_record(after_inventory, version=version)
@@ -855,6 +880,22 @@ def self_test():
             for bad in (raw+b"warning",json.dumps([self.source()]).encode(),raw+json.dumps(self.source()).encode(),
                         json.dumps(dict(self.source(),Arg="http://127.0.0.1")).encode()):
                 with self.assertRaises((ValueError,json.JSONDecodeError)):source_export(bad)
+
+        def test_upgrade_source_provisioning_preserves_exact_community_record(self):
+            store={"Name":"msstore","Arg":"https://storeedgefd.dsx.mp.microsoft.com/v9.0",
+                   "Data":"","Explicit":False,"Identifier":"StoreEdgeFD",
+                   "TrustLevel":["Trusted"],"Type":"Microsoft.Rest"}
+            original=[store,self.source()]
+            before=copy.deepcopy(original)
+            expected=upgrade_source_baseline(original)
+            self.assertEqual(expected,[self.source()])
+            self.assertEqual(original,before)
+            for changed in ([store], [self.source()], original+[self.source()],
+                            [dict(store,Arg="https://other.invalid"),self.source()],
+                            [store,dict(self.source(),TrustLevel=["Trusted"])],
+                            [dict(store,Name="unrelated"),self.source()]):
+                with self.subTest(changed=changed), self.assertRaises(ValueError):
+                    upgrade_source_baseline(changed)
 
         def test_observed_boolean_setting_only_and_restoration(self):
             old=self.settings();new=copy.deepcopy(old);new["adminSettings"]["LocalManifestFiles"]=True

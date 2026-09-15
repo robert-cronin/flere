@@ -398,7 +398,11 @@
   selected the existing `winget` source, but run `34940075188` then showed that
   WinGet 1.11 rejects `--source` together with `--manifest`. It stopped before
   the target download; normal removal and preservation passed. Both failures
-  remain retained while the supported local-manifest route is investigated. Native
+  remain retained. Upgrade-only hosted VM provisioning now normally removes
+  the exact default Store source before recording its protected source baseline;
+  the community-only configuration remains until VM teardown. No Store terms
+  are accepted and stock-source restoration is not claimed. All 25 helper checks
+  and replay of the observed source inventory pass; the next native run is pending. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
