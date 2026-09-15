@@ -12,6 +12,7 @@ on:
           - recipes-422058c
           - candidate-9a9183c
           - candidate-9d53f96
+          - candidate-7e43fa1
       upgrade_from_public034:
         description: Normal upgrade from published 0.3.4 (requires the exact reviewed 0.3.5 candidate)
         type: boolean

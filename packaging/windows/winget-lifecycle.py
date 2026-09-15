@@ -92,7 +92,32 @@ PROFILE_INPUT = {'name': 'candidate-9d53f96',
             'RobertCronin.FlereConnect.locale.en-US.yaml': '782cdfeff696c8fc19920270acef8b7cc5ab6d950c5eab5bbb9b282491ddd8a9',
             'RobertCronin.FlereConnect.yaml': '4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049'},
  'owner_check': True}
-INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT, PROFILE_INPUT)}
+# Independently verified native035 candidate; public034 remains a separate baseline.
+CANDIDATE035_INPUT = {'name': 'candidate-7e43fa1',
+ 'version': '0.3.5',
+ 'run': 34938451094,
+ 'artifact': 10383739920,
+ 'artifact_bytes': 1896364,
+ 'artifact_name': 'windows-candidate-34938451094-1',
+ 'workflow': '7e43fa11d8cf17d81388c1be94da083a0c58a760',
+ 'artifact_sha': 'a53eac44cff573aad1ad05aa7a0c61ffc10ad6b2357d4048cf682355e276c412',
+ 'product': '7e43fa11d8cf17d81388c1be94da083a0c58a760',
+ 'source': '503875747896c39552171bc380c74fc108546bbf287137ec34c8525f8f8cd26e',
+ 'zip_sha': 'fc3e8fab4e951d596b57300bdf1bf67e98543ea416bff1e0fa89492238229809',
+ 'zip_bytes': 1853778,
+ 'payload_sha': 'fabd2a0fad3e3ff97c34f020390b1730b3fecdc4125f730200e4eb25a8dc1872',
+ 'manifest_sha': '8350f3cfd9a1853ecc5499cf7260b0e1ce556ee6942dac1ef3081a3c6ece7721',
+ 'nuspec_sha': '7ef58bc1b5b39271e9fce4b3ff635df3eca59ab6d880eca7c971b2e96b4fcf69',
+ 'script_sha': '6a3bb6c15856204c22adb7fb4e7fc4a2d898b2a0c2afda0ec7272d47f1b1e459',
+ 'nupkg_sha': '95548c6d1100f0406e0b4c32aa3ea4884c63b29f82f69a31c98af622e82b6955',
+ 'receipt_sha': '7bcf273f505a208e59440ee69f2f1c5a14be7d5e306d65f3246bc5ba8f921387',
+ 'source_entries': 388,
+ 'artifact_entries': 33,
+ 'owner_check': True,
+ 'winget': {'RobertCronin.FlereConnect.installer.yaml': '040686c13b7ef085c0d7f0d73eb48006ab7dd3d6a316ba985dc52491790bc18d',
+            'RobertCronin.FlereConnect.locale.en-US.yaml': '1fff4b3405f83de5dcab367b7e31ac261b0f21546ea6921df34c12da10ee8bb9',
+            'RobertCronin.FlereConnect.yaml': 'e9019088daa9e9e4d016b96f0ab6ff648b064ad164375052b32694c93bc32180'}}
+INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT, PROFILE_INPUT, CANDIDATE035_INPUT)}
 
 
 # Exact release producer archive; its ZIP matches immutable public v0.3.4.

@@ -2,8 +2,9 @@
 """First Chocolatey install/remove of an exact retained ZIP, on a disposable hosted VM.
 
 The historical input captures manager records; the selected current candidate also
-checks installed ownership JSON. Neither proves coordinated UI refusal, version
-upgrade, a public download URL, signing, physical UI, or SSH acceptance.
+checks installed ownership JSON. Explicit upgrade mode uses published034 bytes
+then the reviewed035 candidate. Neither mode proves coordinated UI refusal, a
+public download route, signing, physical UI, or SSH acceptance.
 """
 import argparse
 import base64
@@ -70,10 +71,56 @@ CURRENT_INPUT = dict(LEGACY_INPUT, name="candidate-21cf68c", run=34922477345, ar
                     nupkg_sha="5f3cf646471037d67694ec29f175bf6fa6e7d4269b4a0b8cbde8ee93fbf4628a",
                     receipt_sha="27a8b7375479f8a4aca5a0610a1207a937f0c22e29b57a0f492705830c40555b",
                     source_entries=376, artifact_entries=33, owner_check=True)
-INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT)}
+# Exact native035 candidate, separate from the published034 baseline.
+CANDIDATE035_INPUT = {'name': 'candidate-7e43fa1',
+ 'version': '0.3.5',
+ 'run': 34938451094,
+ 'artifact': 10383739920,
+ 'artifact_bytes': 1896364,
+ 'artifact_name': 'windows-candidate-34938451094-1',
+ 'workflow': '7e43fa11d8cf17d81388c1be94da083a0c58a760',
+ 'artifact_sha': 'a53eac44cff573aad1ad05aa7a0c61ffc10ad6b2357d4048cf682355e276c412',
+ 'product': '7e43fa11d8cf17d81388c1be94da083a0c58a760',
+ 'source': '503875747896c39552171bc380c74fc108546bbf287137ec34c8525f8f8cd26e',
+ 'zip_sha': 'fc3e8fab4e951d596b57300bdf1bf67e98543ea416bff1e0fa89492238229809',
+ 'zip_bytes': 1853778,
+ 'payload_sha': 'fabd2a0fad3e3ff97c34f020390b1730b3fecdc4125f730200e4eb25a8dc1872',
+ 'manifest_sha': '8350f3cfd9a1853ecc5499cf7260b0e1ce556ee6942dac1ef3081a3c6ece7721',
+ 'nuspec_sha': '7ef58bc1b5b39271e9fce4b3ff635df3eca59ab6d880eca7c971b2e96b4fcf69',
+ 'script_sha': '6a3bb6c15856204c22adb7fb4e7fc4a2d898b2a0c2afda0ec7272d47f1b1e459',
+ 'nupkg_sha': '95548c6d1100f0406e0b4c32aa3ea4884c63b29f82f69a31c98af622e82b6955',
+ 'receipt_sha': '7bcf273f505a208e59440ee69f2f1c5a14be7d5e306d65f3246bc5ba8f921387',
+ 'source_entries': 388,
+ 'artifact_entries': 33,
+ 'owner_check': True}
+INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT, CANDIDATE035_INPUT)}
 OWNER_GUIDANCE = ("Local Chocolatey: choco upgrade flere-connect Run this in a shell using the same "
                   "Chocolatey package source, then reopen the companion. In-app Apply is disabled for this installation.")
 
+
+# Exact public034 producer archive; candidate-schema proof is reused without
+# asserting the baseline owner. Its ZIP equals immutable published034 bytes.
+PUBLIC034_INPUT = {'name': 'published-0.3.4',
+ 'version': '0.3.4',
+ 'run': 34930826557,
+ 'artifact': 10381936022,
+ 'artifact_bytes': 1864914,
+ 'artifact_name': 'release-windows-34930826557-1',
+ 'workflow': '32108e352f4a51d809b1e5ed64cc9dba3bc0be88',
+ 'artifact_sha': 'd87eddb9960995a203887cf5c5d5260034c4059867edf43bf88fb69435159ad6',
+ 'product': '32108e352f4a51d809b1e5ed64cc9dba3bc0be88',
+ 'source': '9a801df30c3e71a1c61bc04cf3ed15b1f8574ea46b9bb2c75561c3850ff3bf35',
+ 'zip_sha': '71fd96f768894d849c4773add52bd0e3131e032c77640a02aa1c4af36e5001db',
+ 'zip_bytes': 1822693,
+ 'payload_sha': 'ccf4985a7df7174206cb6ca9f6df21dd0619a4402f2f8f11736a7b0fd940b302',
+ 'manifest_sha': 'a6038e1f993b13ef953b7818e77fae639b228546cf2d88325a30dcbd8024ff31',
+ 'nuspec_sha': '8ba0dd77f894cdfebfa093019dad91e3bd50aafe7c1f180a2665c0a5bc6dc681',
+ 'script_sha': '6780e4a3ec300809ec52442bfe2142e2e19533772f8d4521811b317ee37c42fc',
+ 'nupkg_sha': '95cd639010892eea109247ebc651aed1f7811fd1fa1080d8cc6d8299276ace9b',
+ 'receipt_sha': '20da0ed83a12bb0c0ade783a5363e6481e095c7e23c9bd2606e7748302a4ea91',
+ 'source_entries': 383,
+ 'artifact_entries': 33,
+ 'owner_check': True}
 
 def selection(name=DEFAULT_INPUT):
     require(name in INPUTS, "only an exact reviewed retained input may be selected")
@@ -109,6 +156,21 @@ def input_version(selected):
 
 def zip_name(selected):
     return f"flere-connect-{input_version(selected)}-x86_64-pc-windows-msvc.zip"
+
+
+def upgrade_baseline(selected, requested):
+    require(type(requested) is bool, "explicit upgrade mode must be boolean")
+    if not requested:
+        return None
+    require(input_version(selected) == "0.3.5" and selected["owner_check"] is True,
+            "upgrade requires the fixed reviewed035 candidate; same-version reinstall is not upgrade")
+    return dict(PUBLIC034_INPUT)
+
+
+def verify_upgrade_packages(before, after, baseline):
+    require(PACKAGE not in baseline and before == dict(baseline, **{PACKAGE: "0.3.4"})
+            and after == dict(baseline, **{PACKAGE: "0.3.5"}),
+            "normal upgrade must replace active034 with035 and preserve unrelated packages")
 
 
 def candidate_proof(archive, selected):
@@ -276,11 +338,13 @@ def inputs(data, work, selected=LEGACY_INPUT):
 
 
 def local_script(script, port, selected=LEGACY_INPUT):
-    require(sha(script) == selected["script_sha"] and script.count(PUBLIC_URL) == 1
+    version, filename = input_version(selected), zip_name(selected)
+    public_url = f"https://github.com/{REPO}/releases/download/v{version}/{filename}".encode()
+    require(sha(script) == selected["script_sha"] and script.count(public_url) == 1
             and 49152 <= port <= 65535, "script or loopback port differs")
-    url = f"http://127.0.0.1:{port}/{ZIP_NAME}".encode()
-    result = script.replace(PUBLIC_URL, url)
-    require(result.replace(url, PUBLIC_URL) == script and selected["zip_sha"].encode() in result,
+    url = f"http://127.0.0.1:{port}/{filename}".encode()
+    result = script.replace(public_url, url)
+    require(result.replace(url, public_url) == script and selected["zip_sha"].encode() in result,
             "non-URL script change")
     return result
 
@@ -484,7 +548,9 @@ def runtime_env(environment):
             if not any(word in k.upper() for word in ("TOKEN", "PASSWORD", "SECRET", "CREDENTIAL"))}
 
 
-def main(output, selected=LEGACY_INPUT):
+def main(output, selected=LEGACY_INPUT, *, upgrade=False):
+    baseline = upgrade_baseline(selected, upgrade)
+    target_version = input_version(selected)
     candidate.hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64")
             and sys.version_info >= (3, 12), "native Windows AMD64/Python3.12+ required")
@@ -506,8 +572,13 @@ def main(output, selected=LEGACY_INPUT):
                            "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
     receipt["input_selection"] = selected["name"]
     receipt["installed_owner_check_required"] = selected["owner_check"]
+    if upgrade:
+        receipt["upgrade_from"] = {"version": "0.3.4", "product_commit": baseline["product"],
+            "zip_sha256": baseline["zip_sha"], "artifact_sha256": baseline["artifact_sha"]}
+        receipt["upgrade_to_version"] = target_version
+        receipt["limits"][0] = "Normal034 to035 upgrade from identical public baseline bytes via loopback; not a public URL/catalogue check."
     environment = runtime_env(os.environ)
-    mirror = None; changed_confirmation = False; attempted_install = False; uninstalled = False
+    mirrors = []; changed_confirmation = False; attempted_install = False; uninstalled = False
     baseline_features = baseline_packages = None
     deadline = time.monotonic() + 360  # Leave a separate 150s normal cleanup budget inside the 10min job.
 
@@ -591,7 +662,10 @@ def main(output, selected=LEGACY_INPUT):
         if not path.exists():
             return []
         file_record(path)
-        return sorted(path.glob("flere-connect.0.3.4*"))
+        if upgrade:
+            return sorted(value for version in ("0.3.4", "0.3.5")
+                          if os.path.lexists(value := path / (PACKAGE + "." + version)))
+        return sorted(path.glob(PACKAGE + "." + target_version + "*"))
 
     def removal_snapshot(name, installed):
         # Capture each predicate before asserting, including normal historical registration retention.
@@ -622,12 +696,18 @@ def main(output, selected=LEGACY_INPUT):
 
     try:
         gh = shutil.which("gh.exe"); require(gh, "existing GitHub CLI unavailable")
-        api = f"repos/{REPO}/actions/artifacts/{selected['artifact']}"
-        metadata = json.loads(command("artifact-api", [gh, "api", api], env=os.environ.copy(), maximum=65536))
-        verify_api(metadata, selected); record("artifact-api", metadata)
-        portable, spec, script, manifest, payload, original = inputs(command("artifact-download", [gh, "api", api + "/zip"],
-            env=os.environ.copy(), destination=work / "artifact.zip", maximum=selected["artifact_bytes"]), work, selected)
-        record("input-recipe-receipt", original); record("manifest", manifest)
+        def load_input(chosen, directory, prefix):
+            api = f"repos/{REPO}/actions/artifacts/{chosen['artifact']}"
+            metadata = json.loads(command(prefix+"artifact-api", [gh, "api", api], env=os.environ.copy(), maximum=65536))
+            verify_api(metadata, chosen); record(prefix+"artifact-api", metadata)
+            portable, spec, script, manifest, payload, original = inputs(command(prefix+"artifact-download", [gh, "api", api + "/zip"],
+                env=os.environ.copy(), destination=directory / "artifact.zip", maximum=chosen["artifact_bytes"]), directory, chosen)
+            record(prefix+"input-recipe-receipt", original); record(prefix+"manifest", manifest)
+            return chosen, directory, portable, spec, script, manifest, payload
+        phases = [("", load_input(selected, work, ""))]
+        if baseline is not None:
+            old_work = work / "public034"; old_work.mkdir()
+            phases.insert(0, ("baseline-", load_input(baseline, old_work, "baseline-")))
         root = Path(os.environ.get("ChocolateyInstall", ""))
         require(root.resolve() == Path(r"C:\ProgramData\chocolatey").resolve(), "normal Chocolatey root required")
         choco = Path(shutil.which("choco.exe") or "missing")
@@ -690,109 +770,127 @@ def main(output, selected=LEGACY_INPUT):
                         for key, value in environment.items()), "inherited checksum override is unsupported")
         require(features("features-during") == dict(baseline_features, allowGlobalConfirmation=False),
                 "features changed beyond confirmation tightening")
-        mirror = Mirror(portable, selected)
-        install_script = local_script(script, mirror.server_port, selected)
-        recipe = work / "recipe"; (recipe / "tools").mkdir(parents=True)
-        (recipe / "flere-connect.nuspec").write_bytes(spec)
-        (recipe / "tools/chocolateyInstall.ps1").write_bytes(install_script)
-        packed = work / "packages"; packed.mkdir()
-        command("pack", [choco, "pack", recipe / "flere-connect.nuspec", "--outputdirectory", packed], cwd=recipe)
-        nupkg = packed / "flere-connect.0.3.4.nupkg"
-        require(list(packed.iterdir()) == [nupkg], "unexpected packed output")
-        with zipfile.ZipFile(nupkg) as private, zipfile.ZipFile(work / "flere-connect.0.3.4.nupkg") as original_package:
-            require(private.read("flere-connect.nuspec") == original_package.read("flere-connect.nuspec"),
-                    "normal pack changed the reviewed package metadata")
-        record("private-package", {"sha256": sha(nupkg.read_bytes()), "port": mirror.server_port,
-                "original_script_sha256": selected["script_sha"], "private_script_sha256": sha(install_script),
-                "inventory": candidate.verify_nupkg(nupkg, install_script)})
-        attempted_install = True
-        command("install", [choco, "install", PACKAGE, "--version=" + VERSION,
-                            "--source=" + str(packed), "--no-progress"], confirm=True)
-        require(packages("packages-installed") == dict(baseline_packages, **{PACKAGE: VERSION}), "unrelated package change")
-        package_root = root / "lib" / PACKAGE; app = package_root / "tools/app"
-        require(app.is_dir() and {p.name for p in app.iterdir()} == set(payload), "installed app inventory differs")
-        for name, data in payload.items():
-            require(file_record(app / name)["sha256"] == sha(data), "installed payload differs")
-        with zipfile.ZipFile(nupkg) as archive:
-            packed_spec = archive.read("flere-connect.nuspec")
-        require((package_root / "flere-connect.nuspec").read_bytes() == packed_spec
-                and (package_root / "tools/chocolateyInstall.ps1").read_bytes() == install_script,
-                "installed package spec/script differs")
-        aliases = []
-        for alias in ("flere.exe", "flere-connect.exe"):
-            path = Path(shutil.which(alias) or "missing")
-            require(path.resolve() == (root / "bin" / alias).resolve(), "normal PATH alias not the Chocolatey shim")
-            require(file_record(path)["sha256"] != selected["payload_sha"], "alias is a payload copy, not a generated shim")
-            aliases.append(path)
-            for flag in ("--help", "--version", "--build-info"):
-                data = command(alias[:-4] + "-" + flag[2:], [path, flag], env=child_env, seconds=20, maximum=32768)
-                if flag == "--build-info":
-                    require(json.loads(data) == manifest["build"], "alias full build info differs")
-                elif flag == "--version":
-                    require(data.decode().strip().startswith("flere-connect " + VERSION + " ")
-                            and manifest["build"]["build_id"] in data.decode(), "alias version/build differs")
+        old_installed_packages = None
+        for prefix, (phase_input, phase_work, portable, spec, script, manifest, payload) in phases:
+            version = input_version(phase_input)
+            mirror = Mirror(portable, phase_input); mirrors.append((prefix, mirror, phase_input))
+            install_script = local_script(script, mirror.server_port, phase_input)
+            recipe = phase_work / "recipe"; (recipe / "tools").mkdir(parents=True)
+            (recipe / "flere-connect.nuspec").write_bytes(spec)
+            (recipe / "tools/chocolateyInstall.ps1").write_bytes(install_script)
+            packed = phase_work / "packages"; packed.mkdir()
+            command(prefix+"pack", [choco, "pack", recipe / "flere-connect.nuspec", "--outputdirectory", packed], cwd=recipe)
+            nupkg = packed / (PACKAGE + "." + version + ".nupkg")
+            require(list(packed.iterdir()) == [nupkg], "unexpected packed output")
+            with zipfile.ZipFile(nupkg) as private, zipfile.ZipFile(phase_work / (PACKAGE + "." + version + ".nupkg")) as original_package:
+                require(private.read("flere-connect.nuspec") == original_package.read("flere-connect.nuspec"),
+                        "normal pack changed the reviewed package metadata")
+            record(prefix+"private-package", {"sha256": sha(nupkg.read_bytes()), "port": mirror.server_port,
+                    "original_script_sha256": phase_input["script_sha"], "private_script_sha256": sha(install_script),
+                    "inventory": candidate.verify_nupkg(nupkg, install_script, version=version)})
+            attempted_install = True
+            action = "upgrade" if upgrade and not prefix else "install"
+            command(prefix+action, [choco, action, PACKAGE, "--version=" + version,
+                                "--source=" + str(packed), "--no-progress"], confirm=True)
+            phase_packages = packages(prefix+"packages-installed")
+            require(phase_packages == dict(baseline_packages, **{PACKAGE: version}), "unrelated package change")
+            if upgrade:
+                if prefix:
+                    old_installed_packages = phase_packages
                 else:
-                    require(b"--build-info" in data and b"ssh" in data, "alias help differs")
-        # Capture only this install's package files and registration, not other packages/configuration.
-        paths = [root, choco, package_root, *aliases]
-        paths.extend(owned_paths(package_root))
-        registrations = owned_registration()
-        paths.extend(registrations)
-        for path in registrations:
-            paths.extend(owned_paths(path))
-        paths = list(dict.fromkeys(paths)); require(len(paths) <= 128, "owned metadata inventory exceeds bound")
-        records = [file_record(path) for path in paths]
-        record("installed-layout", {"files": records, "registration_observed": list(map(str, registrations)),
-               "native_file_id": "Python os.stat st_ino/st_dev from Windows file identity; observation, not ownership proof"})
-        # Keep small manager-generated ledger bytes for the detector review; never copy executables.
-        ledger = []
-        for index, path in enumerate(paths):
-            if any(path == base or base in path.parents for base in registrations) and path.is_file():
-                require(len(ledger) < 12 and path.stat().st_size <= 128 * 1024, "registration record exceeds bound")
-                data = path.read_bytes(); target = proof / "records" / f"registration-{index}.bin"
-                target.write_bytes(data); ledger.append({"path": str(path), "retained": target.name, "sha256": sha(data)})
-        record("registration-files", ledger)
-        # Optional diagnostic: capture needed manager records first, without changing module paths/policy.
-        metadata_paths = work / "metadata-paths.json"; metadata_paths.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
-        escaped = str(metadata_paths).replace("'", "''")
-        try:
-            acl = powershell("owned-acls", "$paths = Get-Content -Raw -LiteralPath '" + escaped + "' | ConvertFrom-Json; @($paths | ForEach-Object { $a=Get-Acl -LiteralPath $_; [pscustomobject]@{path=$_;owner=$a.Owner;sddl=$a.Sddl} }) | ConvertTo-Json -Depth 3 -Compress")
-            require(len(acl) == len(paths) and all(row["sddl"] and row["owner"] for row in acl), "owned ACL capture incomplete")
-            record("owned-acls", acl)
-            receipt["acl_diagnostic"] = {"status": "passed", "required_for_lifecycle": False}
-        except Exception as error:
-            receipt["acl_diagnostic"] = {"status": "failed", "required_for_lifecycle": False, "error": str(error)}
-        save()
-        if selected["owner_check"]:
-            # Normal installed shim, before any console/connection handling. This
-            # standalone command has no host argument and uses only local records.
-            before_owner = [file_record(path) for path in paths]
-            data = command("installed-update-status", [aliases[1], "update-status"], env=child_env,
-                           seconds=60, maximum=32768, separate_stderr=True)
-            status = json.loads(data)
-            owner = verify_installed_owner(status, manifest, app / "flere-connect.exe")
-            record("installed-update-status", status)
-            require([file_record(path) for path in paths] == before_owner,
-                    "installed update-status changed owned package/registration files")
-            require(owned_paths(package_root) == [p for p in paths if p == package_root or package_root in p.parents]
-                    and owned_registration() == registrations, "installed update-status changed installed inventory")
-            after_state, after_paths = candidate.tree(fixture), path_hashes()
-            record("after-owner-state", preservation_snapshot(before_state, after_state, paths_before, after_paths))
-            require(after_state == before_state and after_paths == paths_before,
-                    "installed update-status changed synthetic state or PATH")
-            require(packages("packages-after-owner") == dict(baseline_packages, **{PACKAGE: VERSION}),
-                    "installed update-status changed package inventory")
-            record("installed-owner", {"owner": owner, "running_build": status["running_build"],
-                   "package_and_registration_unchanged": True, "synthetic_state_unchanged": True,
-                   "path_unchanged": True, "package_inventory_unchanged": True,
-                   "coordinated_ui_refusal_verified": False})
-            receipt["installed_owner_verified"] = True
-        require(candidate.tree(fixture) == before_state, "stateless alias calls changed synthetic state")
-        command("uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
+                    verify_upgrade_packages(old_installed_packages, phase_packages, baseline_packages)
+                    receipt["upgrade_version_transition_verified"] = True
+            package_root = root / "lib" / PACKAGE; app = package_root / "tools/app"
+            require(app.is_dir() and {p.name for p in app.iterdir()} == set(payload), "installed app inventory differs")
+            for name, data in payload.items():
+                require(file_record(app / name)["sha256"] == sha(data), "installed payload differs")
+            with zipfile.ZipFile(nupkg) as archive:
+                packed_spec = archive.read("flere-connect.nuspec")
+            require((package_root / "flere-connect.nuspec").read_bytes() == packed_spec
+                    and (package_root / "tools/chocolateyInstall.ps1").read_bytes() == install_script,
+                    "installed package spec/script differs")
+            aliases = []
+            for alias in ("flere.exe", "flere-connect.exe"):
+                path = Path(shutil.which(alias) or "missing")
+                require(path.resolve() == (root / "bin" / alias).resolve(), "normal PATH alias not the Chocolatey shim")
+                require(file_record(path)["sha256"] != phase_input["payload_sha"], "alias is a payload copy, not a generated shim")
+                aliases.append(path)
+                for flag in ("--help", "--version", "--build-info"):
+                    data = command(prefix+alias[:-4] + "-" + flag[2:], [path, flag], env=child_env, seconds=20, maximum=32768)
+                    if flag == "--build-info":
+                        require(json.loads(data) == manifest["build"], "alias full build info differs")
+                    elif flag == "--version":
+                        require(data.decode().strip().startswith("flere-connect " + version + " ")
+                                and manifest["build"]["build_id"] in data.decode(), "alias version/build differs")
+                    else:
+                        require(b"--build-info" in data and b"ssh" in data, "alias help differs")
+            # Capture only this install's package files and registration, not other packages/configuration.
+            paths = [root, choco, package_root, *aliases]
+            paths.extend(owned_paths(package_root))
+            registrations = owned_registration()
+            paths.extend(registrations)
+            for path in registrations:
+                paths.extend(owned_paths(path))
+            paths = list(dict.fromkeys(paths)); require(len(paths) <= 128, "owned metadata inventory exceeds bound")
+            records = [file_record(path) for path in paths]
+            record(prefix+"installed-layout", {"files": records, "registration_observed": list(map(str, registrations)),
+                   "native_file_id": "Python os.stat st_ino/st_dev from Windows file identity; observation, not ownership proof"})
+            # Keep small manager-generated ledger bytes for the detector review; never copy executables.
+            ledger = []
+            for index, path in enumerate(paths):
+                if any(path == base or base in path.parents for base in registrations) and path.is_file():
+                    require(len(ledger) < 12 and path.stat().st_size <= 128 * 1024, "registration record exceeds bound")
+                    data = path.read_bytes(); target = proof / "records" / f"{prefix}registration-{index}.bin"
+                    target.write_bytes(data); ledger.append({"path": str(path), "retained": target.name, "sha256": sha(data)})
+            record(prefix+"registration-files", ledger)
+            # Optional diagnostic: capture needed manager records first, without changing module paths/policy.
+            metadata_paths = phase_work / "metadata-paths.json"; metadata_paths.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
+            escaped = str(metadata_paths).replace("'", "''")
+            try:
+                acl = powershell(prefix+"owned-acls", "$paths = Get-Content -Raw -LiteralPath '" + escaped + "' | ConvertFrom-Json; @($paths | ForEach-Object { $a=Get-Acl -LiteralPath $_; [pscustomobject]@{path=$_;owner=$a.Owner;sddl=$a.Sddl} }) | ConvertTo-Json -Depth 3 -Compress")
+                require(len(acl) == len(paths) and all(row["sddl"] and row["owner"] for row in acl), "owned ACL capture incomplete")
+                record(prefix+"owned-acls", acl)
+                receipt[prefix+"acl_diagnostic"] = {"status": "passed", "required_for_lifecycle": False}
+            except Exception as error:
+                receipt[prefix+"acl_diagnostic"] = {"status": "failed", "required_for_lifecycle": False, "error": str(error)}
+            save()
+            if not prefix and phase_input["owner_check"]:
+                # Normal installed shim, before any console/connection handling. This
+                # standalone command has no host argument and uses only local records.
+                before_owner = [file_record(path) for path in paths]
+                checked_owners = {}
+                for alias in (aliases if upgrade else [aliases[1]]):
+                    label = "installed-update-status" if alias.name == "flere-connect.exe" else "installed-flere-update-status"
+                    data = command(prefix+label, [alias, "update-status"], env=child_env,
+                                   seconds=60, maximum=32768, separate_stderr=True)
+                    status = json.loads(data)
+                    owner = verify_installed_owner(status, manifest, app / alias.name)
+                    checked_owners[alias.name] = owner
+                    record(prefix+label, status)
+                if upgrade:
+                    record("installed-owners", checked_owners)
+                    receipt["installed_owner_aliases_checked"] = len(checked_owners)
+                require([file_record(path) for path in paths] == before_owner,
+                        "installed update-status changed owned package/registration files")
+                require(owned_paths(package_root) == [p for p in paths if p == package_root or package_root in p.parents]
+                        and owned_registration() == registrations, "installed update-status changed installed inventory")
+                after_state, after_paths = candidate.tree(fixture), path_hashes()
+                record(prefix+"after-owner-state", preservation_snapshot(before_state, after_state, paths_before, after_paths))
+                require(after_state == before_state and after_paths == paths_before,
+                        "installed update-status changed synthetic state or PATH")
+                require(packages(prefix+"packages-after-owner") == dict(baseline_packages, **{PACKAGE: version}),
+                        "installed update-status changed package inventory")
+                record(prefix+"installed-owner", {"owner": owner, "running_build": status["running_build"],
+                       "package_and_registration_unchanged": True, "synthetic_state_unchanged": True,
+                       "path_unchanged": True, "package_inventory_unchanged": True,
+                       "coordinated_ui_refusal_verified": False})
+                receipt["installed_owner_verified"] = True
+            require(candidate.tree(fixture) == before_state, "stateless alias calls changed synthetic state")
+        command("uninstall", [choco, "uninstall", PACKAGE, "--version=" + target_version, "--no-progress"])
         uninstalled = True
         verify_removal(removal_snapshot("removal", packages("packages-after")))
         record("path-after", path_hashes()); record("state-after", candidate.tree(fixture))
-        receipt.update(status="lifecycle_complete_pending_mirror", aliases_checked=6, synthetic_state_preserved=True,
+        receipt.update(status="lifecycle_complete_pending_mirror", aliases_checked=(12 if upgrade else 6), synthetic_state_preserved=True,
                        package_inventory_preserved=True, no_product_ownership_claim=not selected["owner_check"])
     except BaseException as error:
         receipt.update(status="failed", error=str(error), traceback=traceback.format_exc())
@@ -802,7 +900,16 @@ def main(output, selected=LEGACY_INPUT):
         # Normal package-manager cleanup only. A failure is retained, never papered over by deleting its files.
         if attempted_install and not uninstalled:
             try:
-                command("failure-uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
+                if upgrade:
+                    active = packages("failure-packages-before")
+                    require({key:value for key,value in active.items() if key != PACKAGE} == baseline_packages,
+                            "unrelated package inventory changed before cleanup")
+                    current_version = active.get(PACKAGE)
+                    require(current_version in (None, "0.3.4", "0.3.5"), "unexpected active cleanup version")
+                    if current_version is not None:
+                        command("failure-uninstall", [choco, "uninstall", PACKAGE, "--version=" + current_version, "--no-progress"])
+                else:
+                    command("failure-uninstall", [choco, "uninstall", PACKAGE, "--version=" + target_version, "--no-progress"])
                 verify_removal(removal_snapshot("failure-removal", packages("failure-packages-after")))
             except BaseException as error:
                 cleanup_errors.append("normal uninstall: " + str(error))
@@ -817,32 +924,35 @@ def main(output, selected=LEGACY_INPUT):
                 receipt["features_restored"] = True
             except BaseException as error:
                 cleanup_errors.append("feature verification: " + str(error))
-        if mirror is not None:
+        mirrors_verified = True
+        for prefix, mirror, mirror_input in mirrors:
             try:
-                mirror.close_owned(); receipt["loopback_closed"] = True
+                mirror.close_owned(); receipt[prefix+"loopback_closed"] = True
             except BaseException as error:
                 cleanup_errors.append("loopback cleanup: " + str(error))
-            receipt["loopback_requests"] = mirror.requests
-            receipt["loopback_response_attempts"] = mirror.attempts
-            receipt["loopback_internal_errors"] = mirror.internal_errors
-            receipt["loopback_rejections"] = mirror.rejections
-            receipt["loopback_rejections_dropped"] = mirror.rejections_dropped
+            receipt[prefix+"loopback_requests"] = mirror.requests
+            receipt[prefix+"loopback_response_attempts"] = mirror.attempts
+            receipt[prefix+"loopback_internal_errors"] = mirror.internal_errors
+            receipt[prefix+"loopback_rejections"] = mirror.rejections
+            receipt[prefix+"loopback_rejections_dropped"] = mirror.rejections_dropped
             try:
-                require(receipt.get("loopback_closed") is True, "loopback must close before final verification")
+                require(receipt.get(prefix+"loopback_closed") is True, "loopback must close before final verification")
                 verify_mirror(mirror.requests, mirror.attempts, mirror.rejections,
-                              mirror.rejections_dropped, mirror.internal_errors, selected)
-                receipt["loopback_verified"] = True
-                if receipt["status"] == "lifecycle_complete_pending_mirror":
-                    receipt["status"] = "lifecycle_passed"
+                              mirror.rejections_dropped, mirror.internal_errors, mirror_input)
+                receipt[prefix+"loopback_verified"] = True
+
             except Exception as error:
+                mirrors_verified = False
                 receipt["status"] = "failed"
                 receipt.setdefault("error", str(error))
-                receipt["loopback_verification_error"] = str(error)
+                receipt[prefix+"loopback_verification_error"] = str(error)
+        if mirrors_verified and receipt["status"] == "lifecycle_complete_pending_mirror":
+            receipt["status"] = "lifecycle_passed"
         receipt["cleanup_errors"] = cleanup_errors
         if cleanup_errors:
             receipt["status"] = "failed"
         files = [p for p in proof.rglob("*") if p.is_file() and p.name != "receipt.json"]
-        if len(files) > 64 or sum(p.stat().st_size for p in files) > 8 * 1024 * 1024:
+        if len(files) > (96 if upgrade else 64) or sum(p.stat().st_size for p in files) > 8 * 1024 * 1024:
             receipt.update(status="failed", error="curated proof bound exceeded")
         receipt["files"] = {p.relative_to(proof).as_posix(): {"bytes": p.stat().st_size, "sha256": sha(p.read_bytes())}
                             for p in sorted(files)}
@@ -856,6 +966,48 @@ def self_test():
     import tempfile
 
     class Guards(unittest.TestCase):
+        def test_upgrade_requires_distinct_reviewed035_target(self):
+            for chosen in (LEGACY_INPUT, CURRENT_INPUT):
+                self.assertIsNone(upgrade_baseline(chosen, False))
+                with self.assertRaises(ValueError): upgrade_baseline(chosen, True)
+            chosen = dict(CURRENT_INPUT, version="0.3.5")
+            self.assertEqual(upgrade_baseline(chosen, True), PUBLIC034_INPUT)
+            with self.assertRaises(ValueError): upgrade_baseline(dict(chosen, owner_check=False), True)
+            with self.assertRaises(ValueError): upgrade_baseline(chosen, "true")
+
+        def test_upgrade_changes_active_version_and_preserves_unrelated_packages(self):
+            baseline = {"chocolatey":"2.7.4", "unrelated":"1.2.3"}
+            old = dict(baseline, **{PACKAGE:"0.3.4"}); new = dict(baseline, **{PACKAGE:"0.3.5"})
+            verify_upgrade_packages(old, new, baseline)
+            for wrong in (old, baseline, dict(new, unrelated="1.2.4"), dict(new, extra="1.0"),
+                          dict(new, **{PACKAGE:"0.3.6"})):
+                with self.assertRaises(ValueError): verify_upgrade_packages(old, wrong, baseline)
+            with self.assertRaises(ValueError): verify_upgrade_packages(baseline, new, baseline)
+
+        def test_upgrade_script_uses_real_version_url_without_changing_hash_or_script(self):
+            for version in ("0.3.4", "0.3.5"):
+                chosen = dict(CURRENT_INPUT, version=version)
+                public = f"https://github.com/{REPO}/releases/download/v{version}/{zip_name(chosen)}".encode()
+                script = b"$url = '" + public + b"'\n$checksum = '" + chosen["zip_sha"].encode() + b"'\n"
+                chosen["script_sha"] = sha(script)
+                result = local_script(script, 50000, chosen)
+                local = f"http://127.0.0.1:50000/{zip_name(chosen)}".encode()
+                self.assertEqual(result.replace(local, public), script)
+                with self.assertRaises(ValueError): local_script(script+b"x", 50000, chosen)
+
+        def test_two_upgrade_alias_reports_bind_each_actual_payload_path(self):
+            root = PureWindowsPath(r"C:\ProgramData\chocolatey\lib\flere-connect\tools\app")
+            manifest = {"build":{"package_version":"0.3.5","build_id":"exact"}, "payload":{"sha256":"a"*64}}
+            for alias in ("flere.exe", "flere-connect.exe"):
+                executable = root / alias
+                owner = {"kind":"manager", "executable":str(executable), "sha256":"a"*64,
+                         "attempt":None, "guidance":OWNER_GUIDANCE}
+                value = {"schema_version":1, "running_build":manifest["build"], "installation":None,
+                         "other_frontends":"untracked", "ownership":owner}
+                self.assertEqual(verify_installed_owner(value, manifest, executable), owner)
+                other = root / ("flere.exe" if alias == "flere-connect.exe" else "flere-connect.exe")
+                with self.assertRaises(ValueError): verify_installed_owner(value, manifest, other)
+
 
         def test_preservation_diagnostics_keep_actual_added_removed_changed_names_and_strict_result(self):
             before = {"state/preserved.json": "a" * 64, ".ssh/config": "b" * 64, "removed": "directory"}
@@ -1187,6 +1339,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--upgrade-from-public034", action="store_true")
     parser.add_argument("--input", choices=tuple(INPUTS), default=DEFAULT_INPUT)
     args = parser.parse_args()
     if args.self_test:
@@ -1194,4 +1347,4 @@ if __name__ == "__main__":
         self_test()
     else:
         require(args.output is not None, "fresh output directory required")
-        main(args.output.resolve(), selection(args.input))
+        main(args.output.resolve(), selection(args.input), upgrade=args.upgrade_from_public034)

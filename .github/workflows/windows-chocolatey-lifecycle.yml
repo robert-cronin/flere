@@ -11,6 +11,12 @@ on:
         options:
           - recipes-422058c
           - candidate-21cf68c
+          - candidate-7e43fa1
+      upgrade_from_public034:
+        description: Normal upgrade from published034 (requires the fixed reviewed035 candidate)
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -56,13 +62,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FLERE_RETAINED_INPUT: ${{ inputs.candidate }}
+          FLERE_UPGRADE_FROM_PUBLIC034: ${{ inputs.upgrade_from_public034 }}
           FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $HOME '.cache/flere/tmp'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $Output = Join-Path $Root ("chocolatey-lifecycle-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
-          python -B packaging/windows/chocolatey-lifecycle.py $Output --input $env:FLERE_RETAINED_INPUT
+          $Upgrade = @()
+          if ($env:FLERE_UPGRADE_FROM_PUBLIC034 -eq 'true') { $Upgrade = @('--upgrade-from-public034') }
+          python -B packaging/windows/chocolatey-lifecycle.py $Output --input $env:FLERE_RETAINED_INPUT @Upgrade
           if ($LASTEXITCODE -ne 0) { throw 'Chocolatey lifecycle failed; inspect retained proof.' }
       - name: Retain bounded proof, without package or executable publication
         if: always() && steps.lifecycle.outputs.evidence != ''

@@ -45,9 +45,29 @@ PUBLIC_INPUT = {"name": DEFAULT_INPUT, "version": VERSION, "owner_check": False,
     "product": PRODUCT, "source": "9a801df30c3e71a1c61bc04cf3ed15b1f8574ea46b9bb2c75561c3850ff3bf35",
     "zip_bytes": ZIP_BYTES, "zip_sha": ZIP_SHA, "payload_sha": PAYLOAD_SHA, "manifest_sha": MANIFEST_SHA}
 OWNER_INPUT_NAME = "candidate-scoop-owner"
-# Fill only after independent review of one successful 0.3.5 Windows candidate.
-# No caller-supplied URLs, commits or hashes can activate this unavailable slot.
-OWNER_INPUT = None
+# Independently verified native candidate34938451094, attempt1; not a public release.
+# Runtime callers select this fixed mapping, never supply URLs, commits or hashes.
+OWNER_INPUT = {'artifact': 10383739920,
+ 'artifact_bytes': 1896364,
+ 'artifact_entries': 33,
+ 'artifact_name': 'windows-candidate-34938451094-1',
+ 'artifact_sha': 'a53eac44cff573aad1ad05aa7a0c61ffc10ad6b2357d4048cf682355e276c412',
+ 'manifest_sha': '8350f3cfd9a1853ecc5499cf7260b0e1ce556ee6942dac1ef3081a3c6ece7721',
+ 'nupkg_sha': '95548c6d1100f0406e0b4c32aa3ea4884c63b29f82f69a31c98af622e82b6955',
+ 'nuspec_sha': '7ef58bc1b5b39271e9fce4b3ff635df3eca59ab6d880eca7c971b2e96b4fcf69',
+ 'payload_sha': 'fabd2a0fad3e3ff97c34f020390b1730b3fecdc4125f730200e4eb25a8dc1872',
+ 'product': '7e43fa11d8cf17d81388c1be94da083a0c58a760',
+ 'receipt_sha': '7bcf273f505a208e59440ee69f2f1c5a14be7d5e306d65f3246bc5ba8f921387',
+ 'run': 34938451094,
+ 'script_sha': '6a3bb6c15856204c22adb7fb4e7fc4a2d898b2a0c2afda0ec7272d47f1b1e459',
+ 'source': '503875747896c39552171bc380c74fc108546bbf287137ec34c8525f8f8cd26e',
+ 'source_entries': 388,
+ 'version': '0.3.5',
+ 'workflow': '7e43fa11d8cf17d81388c1be94da083a0c58a760',
+ 'zip_bytes': 1853778,
+ 'zip_sha': 'fc3e8fab4e951d596b57300bdf1bf67e98543ea416bff1e0fa89492238229809',
+ 'name': 'candidate-scoop-owner',
+ 'owner_check': True}
 OWNER_KEYS = {"name", "version", "owner_check", "run", "artifact", "artifact_bytes", "artifact_name",
     "workflow", "artifact_sha", "product", "source", "zip_sha", "zip_bytes", "payload_sha", "manifest_sha",
     "nuspec_sha", "script_sha", "nupkg_sha", "receipt_sha", "source_entries", "artifact_entries"}
