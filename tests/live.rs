@@ -7,6 +7,8 @@ mod dock_flere;
 mod flere_mascot;
 #[path = "hover_tooltips/mod.rs"]
 mod hover_tooltips;
+#[path = "native_launcher/mod.rs"]
+mod native_launcher;
 #[path = "screensaver/mod.rs"]
 mod screensaver;
 #[path = "search/mod.rs"]
@@ -2187,11 +2189,33 @@ fn actual_ui_start_agent_has_no_session_id_field_and_keeps_existing_shell() {
     assert_eq!(f.snapshot().session().unwrap().kind, "shell");
     assert_eq!(f.snapshot().session().unwrap().pid, first.pid);
     master.write_all(b"\0S").unwrap();
-    drain_pty(&mut master, &mut screen, "▌ claude");
+    drain_pty(&mut master, &mut screen, "› Claude Code");
     assert!(!screen.capture(100).contains(uuid));
     assert!(!screen.capture(100).contains("Conversation UUID"));
     assert_eq!(f.snapshot().workspace().unwrap().tabs.len(), 2);
-    master.write_all(b"\r").unwrap();
+    master.write_all(b"j").unwrap();
+    drain_pty(&mut master, &mut screen, "› GitHub Copilot");
+    // This is a selection, not an editable harness name. Paste never starts a chat.
+    master
+        .write_all(b"arbitrary\x1b[200~codex\r\x1b[201~")
+        .unwrap();
+    pump_ui_bytes(&mut master, &mut screen, 100);
+    assert!(screen.capture(100).contains("› GitHub Copilot"));
+    assert_eq!(f.snapshot().workspace().unwrap().tabs.len(), 2);
+    master.write_all(b"\x1b[A").unwrap();
+    drain_pty(&mut master, &mut screen, "› Claude Code");
+    let row = (0..screen.grid.rows)
+        .find(|y| screen.grid.line(*y).contains("› Claude Code"))
+        .unwrap()
+        + 1;
+    master
+        .write_all(format!("\x1b[<0;24;{row}m").as_bytes())
+        .unwrap();
+    pump_ui_bytes(&mut master, &mut screen, 80);
+    assert_eq!(f.snapshot().workspace().unwrap().tabs.len(), 2);
+    master
+        .write_all(format!("\x1b[<0;24;{row}M\x1b[<0;24;{row}m").as_bytes())
+        .unwrap();
     wait_current_ui(&mut master, &mut screen, |_| {
         f.snapshot().session().unwrap().kind == "agent"
     });
@@ -4369,6 +4393,7 @@ fn any_agent_workspace_updates_preserve_live_state_and_roll_back_failed_saves() 
     let mut expected = serde_json::to_value(&card.meta).unwrap();
     expected["project"] = json!("flere");
     expected["pinned"] = json!(true);
+    expected["last_conversation"] = expected["conversations"][0].clone();
     assert_eq!(result["workspace"]["meta"], expected);
     assert_eq!(result["workspace"]["cwd"], card.cwd);
     assert_eq!(
@@ -4401,7 +4426,12 @@ fn any_agent_workspace_updates_preserve_live_state_and_roll_back_failed_saves() 
     let failed = f.snapshot();
     let kept = failed.workspaces.iter().find(|w| w.id == wid).unwrap();
     assert_eq!(kept.name, "Builder 界");
-    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), expected);
+    let mut frontend_expected = expected.clone();
+    frontend_expected
+        .as_object_mut()
+        .unwrap()
+        .remove("last_conversation");
+    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), frontend_expected);
     assert_eq!(identities(&failed), identities(&before));
     assert_eq!((failed.active, failed.tab), (before.active, before.tab));
     assert_eq!(fs::read(&retained).unwrap(), durable);
@@ -4437,7 +4467,12 @@ fn any_agent_workspace_updates_preserve_live_state_and_roll_back_failed_saves() 
     assert!(restarted.workspaces.iter().all(|w| w.tabs.is_empty()));
     let kept = restarted.workspaces.iter().find(|w| w.id == wid).unwrap();
     assert_eq!(kept.name, "Builder 界");
-    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), expected);
+    let mut frontend_expected = expected.clone();
+    frontend_expected
+        .as_object_mut()
+        .unwrap()
+        .remove("last_conversation");
+    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), frontend_expected);
     assert_ne!(restarted.epoch, before.epoch);
     assert!(dispatch_call(&f, &lead, "update_workspace", args).is_err());
     let output = Command::new(env!("CARGO_BIN_EXE_flere"))
@@ -4727,6 +4762,7 @@ fn agent_reconciliation_rejects_stale_edits_and_preserves_live_state() {
     let mut expected = serde_json::to_value(human_meta).unwrap();
     expected["project"] = json!("flere");
     expected["pinned"] = json!(true);
+    expected["last_conversation"] = expected["conversations"][0].clone();
     expected["status"] = json!("waiting");
     expected["notes"] = json!("Deferred by user.\nPreserve candidate; no approval owed.");
     expected["issue"] = json!("https://example.test/issues/12");
@@ -4761,7 +4797,12 @@ fn agent_reconciliation_rejects_stale_edits_and_preserves_live_state() {
     let failed = f.snapshot();
     let kept = failed.workspaces.iter().find(|w| w.id == wid).unwrap();
     assert_eq!(kept.name, "Reconciled 界");
-    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), expected);
+    let mut frontend_expected = expected.clone();
+    frontend_expected
+        .as_object_mut()
+        .unwrap()
+        .remove("last_conversation");
+    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), frontend_expected);
     assert_eq!(fs::read(&retained).unwrap(), durable);
     assert_eq!(identities(&failed), identities(&before));
     assert_eq!((failed.active, failed.tab), (before.active, before.tab));
@@ -4871,7 +4912,12 @@ fn agent_reconciliation_rejects_stale_edits_and_preserves_live_state() {
     assert_ne!(restarted.epoch, before.epoch);
     let kept = restarted.workspaces.iter().find(|w| w.id == wid).unwrap();
     assert_eq!(kept.name, "Reconciled 界");
-    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), expected);
+    let mut frontend_expected = expected.clone();
+    frontend_expected
+        .as_object_mut()
+        .unwrap()
+        .remove("last_conversation");
+    assert_eq!(serde_json::to_value(&kept.meta).unwrap(), frontend_expected);
     // The human wrapper enforces the same epoch and Done restriction.
     assert!(
         wire::request(

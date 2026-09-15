@@ -478,6 +478,7 @@ mod tests {
                 meta: CardMeta::default(),
                 split: None,
                 tabs: vec![Session {
+                    shell_run: String::new(),
                     id: 2,
                     run: "owned-run".into(),
                     master,
@@ -633,6 +634,7 @@ mod tests {
         let tab = &mut f.server.workspaces[0].tabs[0];
         tab.term.bracketed_paste = true;
         tab.native = Some(crate::native::HostSpec {
+            launcher: None,
             id: tab.id,
             run: tab.run.clone(),
             harness: "codex".into(),

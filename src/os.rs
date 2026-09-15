@@ -310,6 +310,13 @@ pub fn spawn_command_pty(
     let child = cmd.spawn()?;
     Ok((master, Process::new(child)))
 }
+/// The launcher must belong to the foreground group of this owned PTY.
+pub fn foreground_process(master: RawFd, pid: u32) -> io::Result<bool> {
+    // POSIX process groups and tcgetpgrp use pid_t; no descriptors are adopted.
+    let foreground = cvt(unsafe { libc::tcgetpgrp(master) })?;
+    let group = cvt(unsafe { libc::getpgid(pid as libc::pid_t) })?;
+    Ok(foreground > 0 && foreground == group)
+}
 pub fn hangup(master: RawFd, child: &mut Process) {
     // Target only the foreground group of this owned PTY, and its unreaped direct child.
     let mut group = 0i32;

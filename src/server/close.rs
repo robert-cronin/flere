@@ -6,6 +6,7 @@ pub(super) struct Pending {
     workspace: u64,
     id: u64,
     run: String,
+    shell_run: String,
     token: String,
     root: u32,
     pid: u32,
@@ -25,7 +26,7 @@ impl Pending {
         })
     }
     fn finish(&mut self, state: &Path, reason: String) {
-        let _ = fs::remove_file(integration::directory(state, &self.run).join("request"));
+        let _ = fs::remove_file(integration::directory(state, &self.shell_run).join("request"));
         self.reason = Some(reason);
         self.deadline = Instant::now() + Duration::from_secs(10);
     }
@@ -153,7 +154,8 @@ impl Server {
                 .map_err(io::Error::other);
         }
         let root = tab.child.id();
-        let dir = integration::directory(&self.state, run);
+        let shell_run = tab.shell_identity().to_string();
+        let dir = integration::directory(&self.state, &shell_run);
         let ready = integration::read(&dir.join("ready"))
             .ok()
             .and_then(|b| String::from_utf8(b).ok())
@@ -171,6 +173,7 @@ impl Server {
             workspace: wid,
             id,
             run: run.into(),
+            shell_run,
             token,
             root,
             pid,
@@ -223,7 +226,8 @@ impl Server {
             .position(|p| p.workspace == wid && p.id == id && p.run == run && p.token == token)
         {
             let p = self.close_pending.remove(index);
-            let _ = fs::remove_file(integration::directory(&self.state, &p.run).join("request"));
+            let _ =
+                fs::remove_file(integration::directory(&self.state, &p.shell_run).join("request"));
         }
         Ok(b"cancelled".to_vec())
     }
@@ -258,7 +262,7 @@ impl Server {
                 );
                 continue;
             }
-            let dir = integration::directory(&self.state, &p.run);
+            let dir = integration::directory(&self.state, &p.shell_run);
             let Some(reply) = integration::read(&dir.join("reply"))
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<Reply>(&bytes).ok())

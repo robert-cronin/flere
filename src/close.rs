@@ -14,7 +14,7 @@ pub(crate) fn directory(state: &Path, run: &str) -> PathBuf {
     state.join("close").join(run)
 }
 
-fn private_directory(path: &Path) -> io::Result<()> {
+pub(crate) fn private_directory(path: &Path) -> io::Result<()> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
@@ -43,10 +43,21 @@ fn quote(text: &str) -> String {
 pub(crate) fn shell_command(state: &Path, run: &str, shell: &str) -> io::Result<Command> {
     let mut cmd = Command::new(shell);
     cmd.arg("-i");
+    let dir = prepare(state, run)?;
+    let bin = crate::native::launcher::prepare(state, run)?;
+    let path = std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )))
+    .map_err(io::Error::other)?;
+    cmd.env("PATH", &path);
+    let launch_path = format!("export PATH={}:\"$PATH\"\n", quote(&bin.to_string_lossy()));
     if Path::new(shell).file_name().and_then(|s| s.to_str()) == Some("bash") {
-        let dir = prepare(state, run)?;
-        atomic_write(&dir.join("shell.bash"), include_bytes!("close/shell.bash"))?;
+        atomic_write(
+            &dir.join("shell.bash"),
+            format!("{}\n{launch_path}", include_str!("close/shell.bash")).as_bytes(),
+        )?;
         let mut command = Command::new(shell);
+        command.env("PATH", &path);
         command
             .arg("--rcfile")
             .arg(dir.join("shell.bash"))
@@ -56,7 +67,6 @@ pub(crate) fn shell_command(state: &Path, run: &str, shell: &str) -> io::Result<
     if Path::new(shell).file_name().and_then(|s| s.to_str()) != Some("zsh") {
         return Ok(cmd);
     }
-    let dir = prepare(state, run)?;
     let original = std::env::var_os("ZDOTDIR");
     let original_dir = original.clone().or_else(|| std::env::var_os("HOME"));
     let Some(original_dir) = original_dir else {
@@ -69,7 +79,7 @@ pub(crate) fn shell_command(state: &Path, run: &str, shell: &str) -> io::Result<
         "typeset -g _flere_close_dir={private}\nZDOTDIR={original_dir}\n[[ -r $ZDOTDIR/.zshenv ]] && source $ZDOTDIR/.zshenv\ntypeset -g _flere_user_zdotdir=${{ZDOTDIR:-$HOME}}\nZDOTDIR={private}\n"
     ).as_bytes())?;
     atomic_write(&dir.join(".zshrc"), format!(
-        "ZDOTDIR=$_flere_user_zdotdir\n[[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc\n{}\nsource {private}/shell.zsh\n",
+        "ZDOTDIR=$_flere_user_zdotdir\n[[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc\n{}\nsource {private}/shell.zsh\n{launch_path}",
         if original.is_none() { "[[ $ZDOTDIR == $HOME ]] && unset ZDOTDIR" } else { ":" }
     ).as_bytes())?;
     atomic_write(&dir.join("shell.zsh"), include_bytes!("close/shell.zsh"))?;

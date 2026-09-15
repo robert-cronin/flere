@@ -126,12 +126,12 @@ impl Server {
         Err(invalid("stale or non-native mailbox target"))
     }
     pub(super) fn proof(&self, session: u64, run: &str) -> io::Result<Target> {
-        let (_, s, w) = self.native_scope(session, run)?;
+        let (_, s, _) = self.native_scope(session, run)?;
         let spec = s.native.as_ref().unwrap();
         if spec.harness != "codex" {
             return Err(invalid("automatic delivery currently requires Codex"));
         }
-        let proof = crate::native::delivery::inspect(s.child.id(), &w.cwd, session, run)?;
+        let proof = crate::native::delivery::inspect(s.child.id(), &spec.cwd, session, run)?;
         if !spec.conversation.is_empty() && spec.conversation != proof.uuid {
             return Err(invalid("native conversation changed"));
         }

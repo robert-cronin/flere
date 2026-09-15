@@ -50,6 +50,7 @@ mod close;
 mod coordination;
 mod delivery;
 mod dispatch;
+mod launcher;
 mod panes;
 mod projects;
 mod refresh;
@@ -60,6 +61,7 @@ mod transfers;
 struct Session {
     id: u64,
     run: String,
+    shell_run: String,
     master: File,
     child: os::Process,
     term: Terminal,
@@ -260,7 +262,7 @@ impl Server {
                 return Err(invalid("workspace metadata exceeds 8 MiB"));
             }
             let saved: Saved = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-            if !matches!(saved.version, 2..=8) {
+            if !matches!(saved.version, 2..=9) {
                 return Err(invalid("unsupported workspace store version"));
             }
             s.coordination = match saved.coordination {
@@ -365,7 +367,7 @@ impl Server {
     }
     fn persist(&self) -> io::Result<()> {
         let saved = Saved {
-            version: 8,
+            version: 9,
             active: self.active,
             coordination: Some(self.coordination.clone()),
             workspaces: self
@@ -496,6 +498,7 @@ impl Server {
         let id = self.next;
         self.next += 1;
         w.tabs.push(Session {
+            shell_run: String::new(),
             id,
             run,
             master,
@@ -621,6 +624,7 @@ impl Server {
                     .is_some_and(|op| matches!(op, "focus" | "move" | "new-tab"))))
         {
             self.record_pane_selection();
+            self.remember_native_selection()?;
         }
         if result.is_ok()
             && !matches!(
@@ -795,6 +799,27 @@ impl Server {
                     .retain(|(workspace, _)| *workspace != wid);
                 Ok(b"ready".to_vec())
             }
+            "resume-recent" => {
+                let wid = num(2)?;
+                let w = self
+                    .workspaces
+                    .iter()
+                    .find(|w| w.id == wid)
+                    .ok_or_else(|| invalid("workspace unavailable"))?;
+                let recent = w.meta.recent_conversation();
+                let Some(saved) = recent.or_else(|| w.meta.conversations.first()) else {
+                    return Ok(b"none".to_vec());
+                };
+                let harness = saved.harness.clone();
+                let uuid = recent.map_or("", |c| c.uuid.as_str()).to_string();
+                self.command(&format!(
+                    "resume-saved\t{}\t{}\t{}\t{}",
+                    arg(1)?,
+                    num(2)?,
+                    harness,
+                    uuid
+                ))
+            }
             "resume-saved" => {
                 if arg(1)? != self.epoch {
                     return Err(invalid("workspace epoch changed; open the card again"));
@@ -813,20 +838,58 @@ impl Server {
                 if !w.meta.operation.is_empty() {
                     return Err(invalid(&w.meta.operation));
                 }
-                let [saved] = w.meta.conversations.as_slice() else {
-                    return Err(invalid("choose an exact saved conversation"));
-                };
-                if saved.harness != harness || saved.uuid != uuid || saved.cwd != w.cwd {
-                    return Err(invalid(
-                        "saved conversation identity changed; choose it again",
-                    ));
-                }
-                // The supervisor serializes requests. A second attachment or a repeated
-                // activation reuses any existing terminal, including a failure's shell.
+                // Existing and failed saved tabs take precedence over the history fallback.
                 if !w.tabs.is_empty() {
                     return Ok(b"already open".to_vec());
                 }
-                self.command(&format!("native\t{wid}\t{harness}\t{uuid}"))
+                if self.restoration.pending.iter().any(|p| p.workspace == wid) {
+                    return Err(invalid(
+                        "saved tabs must be restored before reopening a conversation",
+                    ));
+                }
+                let saved = w.meta.recent_conversation();
+                let cwd = if let Some(saved) = saved {
+                    if saved.harness != harness || saved.uuid != uuid {
+                        return Err(invalid(
+                            "saved conversation identity changed; open the card again",
+                        ));
+                    }
+                    saved.cwd.clone()
+                } else {
+                    // Old multi-chat cards have no reliable recency. Only the user can pick.
+                    if !uuid.is_empty()
+                        || !w.meta.conversations.iter().any(|c| c.harness == harness)
+                    {
+                        return Err(invalid("choose a saved conversation in the native picker"));
+                    }
+                    w.cwd.clone()
+                };
+                if self.workspaces.iter().flat_map(|w| &w.tabs).any(|t| {
+                    t.native.as_ref().is_some_and(|n| {
+                        !uuid.is_empty() && n.harness == harness && n.conversation == uuid
+                    })
+                }) {
+                    return Err(invalid(
+                        "this saved chat is already open in another workspace",
+                    ));
+                }
+                let spec = crate::native::HostSpec {
+                    id: self.next,
+                    run: os::nonce()?,
+                    harness: harness.into(),
+                    argv: crate::native::resume_arguments(&self.state, harness, uuid)?,
+                    cwd,
+                    shell: os::shell(),
+                    conversation: uuid.into(),
+                    dispatch: String::new(),
+                    launcher: None,
+                };
+                crate::native::write_spec(&self.state, &spec)?;
+                let id = spec.id;
+                self.next += 1;
+                self.spawn_native(wid, spec, true)?;
+                self.remember_native_selection()?;
+                Ok(format!("{{\"session\":{id}}}").into_bytes())
             }
             "native" => {
                 let wid = num(1)?;
@@ -858,6 +921,7 @@ impl Server {
                 let id = self.next;
                 self.next += 1;
                 let spec = crate::native::HostSpec {
+                    launcher: None,
                     id,
                     run: run.clone(),
                     harness: harness.into(),
@@ -913,6 +977,12 @@ impl Server {
                 self.worker_event(num(1)?, arg(2)?, arg(3)?, &wire::text(arg(4)?)?)?;
                 Ok(b"recorded".to_vec())
             }
+            "shell-context" => self.shell_context(
+                arg(1)?,
+                num(2)?.try_into().map_err(io::Error::other)?,
+                arg(3)?,
+            ),
+            "shell-native" => self.shell_native(&p),
             "native-ended" => {
                 let id = num(1)?;
                 let run = arg(2)?;
@@ -1046,6 +1116,7 @@ impl Server {
                 let (master, child) = os::spawn_command_pty(&cwd, &mut command, cols, rows)?;
                 let w = self.workspaces.iter_mut().find(|w| w.id == wid).unwrap();
                 w.tabs.push(Session {
+                    shell_run: String::new(),
                     id,
                     run,
                     master,
@@ -1089,6 +1160,7 @@ impl Server {
                         "close live terminals before archiving this workspace",
                     ));
                 }
+                meta.last_conversation = self.workspaces[index].meta.last_conversation.clone();
                 meta.conversations = self.workspaces[index].meta.conversations.clone();
                 meta.operation = self.workspaces[index].meta.operation.clone();
                 meta.base_sha = self.workspaces[index].meta.base_sha.clone();
@@ -1545,8 +1617,11 @@ impl Server {
                     continue;
                 }
                 let working = crate::native::working_screen(&s.term)
-                    && crate::native::discover_codex(s.child.id(), &w.cwd)
-                        .is_ok_and(|id| id.is_some());
+                    && crate::native::discover_codex(
+                        s.child.id(),
+                        s.native.as_ref().map_or(&w.cwd, |n| &n.cwd),
+                    )
+                    .is_ok_and(|id| id.is_some());
                 if s.working != working {
                     s.working = working;
                     changed = true;
@@ -1557,25 +1632,26 @@ impl Server {
                 if spec.harness != "codex" {
                     continue;
                 }
-                if let Ok(Some(uuid)) = crate::native::discover_codex(s.child.id(), &w.cwd) {
+                if spec.launcher.as_ref().is_some_and(|(pid, start)| {
+                    !os::child_identity(*pid).is_ok_and(|p| p.1 == *start)
+                }) {
+                    continue; // Lost launcher ownership requires explicit repair, not adoption of another child.
+                }
+                if let Ok(Some(uuid)) = crate::native::discover_codex(s.child.id(), &spec.cwd) {
                     // A harness may switch conversations itself. Follow its current,
                     // unambiguous owned rollout rather than freezing the launch UUID.
                     if spec.conversation != uuid {
-                        recorded = true;
-                    }
-                    if !w
-                        .meta
-                        .conversations
-                        .iter()
-                        .any(|c| c.harness == "codex" && c.uuid == uuid)
-                    {
-                        w.meta.conversations.push(crate::native::Conversation {
+                        let saved = crate::native::Conversation {
                             harness: "codex".into(),
                             uuid: uuid.clone(),
-                            cwd: w.cwd.clone(),
-                        });
-                        changed = true;
+                            cwd: spec.cwd.clone(),
+                        };
+                        if !w.meta.conversations.contains(&saved) {
+                            w.meta.conversations.push(saved.clone());
+                        }
+                        w.meta.last_conversation = Some(saved);
                         recorded = true;
+                        changed = true;
                     }
                     spec.conversation = uuid;
                 }
@@ -1680,7 +1756,8 @@ impl Server {
         for w in &mut self.workspaces {
             let before = w.tabs.len();
             for t in w.tabs.iter().filter(|t| t.ended && !t.alive) {
-                let _ = fs::remove_dir_all(crate::close::directory(&self.state, &t.run));
+                let _ =
+                    fs::remove_dir_all(crate::close::directory(&self.state, t.shell_identity()));
             }
             w.tabs
                 .retain(|s| !s.ended || s.alive || self.tasks.contains(&s.run));

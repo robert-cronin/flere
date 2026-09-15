@@ -99,7 +99,11 @@ impl Snapshot {
             e.u64(w.id);
             e.string(&w.name);
             e.string(&w.cwd);
-            e.string(&serde_json::to_string(&w.meta).expect("serializable metadata"));
+            // Recency is supervisor-owned saved state. Keep legacy frontend metadata
+            // compatible; explicit resume asks the supervisor for its current choice.
+            let mut meta = w.meta.clone();
+            meta.last_conversation = None;
+            e.string(&serde_json::to_string(&meta).expect("serializable metadata"));
             e.u64(w.tabs.len() as u64);
             for t in &w.tabs {
                 e.u64(t.id);

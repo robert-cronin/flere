@@ -1,6 +1,7 @@
 //! Explicit native launches and exact conversation metadata. Manual resumes have no prompt;
 //! fresh agent dispatch adds only a bounded assignment reference. No permission overrides.
 pub mod delivery;
+pub mod launcher;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -29,6 +30,8 @@ pub struct HostSpec {
     pub conversation: String,
     #[serde(default)]
     pub dispatch: String,
+    #[serde(default)]
+    pub launcher: Option<(u32, String)>,
 }
 #[derive(Serialize, Deserialize)]
 struct Profile {
@@ -82,29 +85,7 @@ pub fn arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<Stri
             .file_name()
             .is_some_and(|s| s == "codex")
     {
-        let binary = crate::os::executable_path()?;
-        let settings = [
-            format!(
-                "mcp_servers.flere.command={}",
-                serde_json::to_string(&binary.to_string_lossy()).map_err(io::Error::other)?
-            ),
-            format!(
-                "mcp_servers.flere.args={}",
-                serde_json::to_string(&[
-                    "--state",
-                    state
-                        .to_str()
-                        .ok_or_else(|| crate::wire::invalid("state must be UTF-8"))?,
-                    "mcp"
-                ])
-                .map_err(io::Error::other)?
-            ),
-            "mcp_servers.flere.env_vars=[\"FLERE_SESSION\",\"FLERE_RUN\"]".into(),
-        ];
-        for setting in settings {
-            argv.extend(["-c".into(), setting]);
-        }
-        argv.extend(crate::inbox_hook::flags(&binary, state));
+        argv.extend(codex_flags(state)?);
     }
     if !uuid.is_empty() {
         match harness {
@@ -116,6 +97,33 @@ pub fn arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<Stri
     }
     // No appended prompt, --last, shell interpolation, auto-approval, or trust override.
     Ok(argv)
+}
+pub(crate) fn codex_flags(state: &Path) -> io::Result<Vec<String>> {
+    let binary = crate::os::executable_path()?;
+    let settings = [
+        format!(
+            "mcp_servers.flere.command={}",
+            serde_json::to_string(&binary.to_string_lossy()).map_err(io::Error::other)?
+        ),
+        format!(
+            "mcp_servers.flere.args={}",
+            serde_json::to_string(&[
+                "--state",
+                state
+                    .to_str()
+                    .ok_or_else(|| crate::wire::invalid("state must be UTF-8"))?,
+                "mcp"
+            ])
+            .map_err(io::Error::other)?
+        ),
+        "mcp_servers.flere.env_vars=[\"FLERE_SESSION\",\"FLERE_RUN\"]".into(),
+    ];
+    let mut flags = Vec::new();
+    for setting in settings {
+        flags.extend(["-c".into(), setting]);
+    }
+    flags.extend(crate::inbox_hook::flags(&binary, state));
+    Ok(flags)
 }
 /// With no discoverable ID, let the harness present its own resume picker.
 pub fn resume_arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<String>> {
@@ -211,8 +219,8 @@ pub fn host(state: &Path, run: &str) -> io::Result<()> {
         ),
     };
     let _ = crate::wire::request(state, &["native-ended", &spec.id.to_string(), run]);
-    let mut shell = Command::new(&spec.shell);
-    shell.arg("-i").current_dir(&spec.cwd);
+    let mut shell = crate::close::shell_command(state, run, &spec.shell)?;
+    shell.current_dir(&spec.cwd);
     crate::os::clean_environment(&mut shell);
     Err(shell.exec())
 }

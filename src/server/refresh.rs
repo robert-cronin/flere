@@ -2,7 +2,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::os::unix::process::CommandExt;
-const VERSION: u32 = 8;
+const VERSION: u32 = 9;
 #[derive(Serialize, Deserialize)]
 struct SavedClient {
     fd: i32,
@@ -21,6 +21,8 @@ struct SavedClient {
 struct SavedSession {
     id: u64,
     run: String,
+    #[serde(default)]
+    shell_run: String,
     fd: i32,
     pid: u32,
     start: String,
@@ -138,7 +140,13 @@ fn read(state: &Path, token: &str, preflight: bool) -> io::Result<Handoff> {
             }
         }
         for t in &w.tabs {
-            if !t.term.valid_state() || t.input.len() > 131072 || t.run.len() != 32 {
+            if !t.term.valid_state()
+                || t.input.len() > 131072
+                || t.run.len() != 32
+                || (!t.shell_run.is_empty()
+                    && (t.shell_run.len() != 32
+                        || !t.shell_run.bytes().all(|b| b.is_ascii_hexdigit())))
+            {
                 return Err(invalid("invalid terminal refresh image"));
             }
         }
@@ -228,6 +236,7 @@ pub(super) fn replace(
                 os::child_identity(t.child.id())?.1
             };
             tabs.push(SavedSession {
+                shell_run: t.shell_run.clone(),
                 id: t.id,
                 run: t.run.clone(),
                 fd: t.master.as_raw_fd(),
@@ -378,6 +387,7 @@ pub(super) fn restore(state: &Path, token: &str) -> io::Result<()> {
             let master = os::adopt_file(t.fd)?;
             let child = os::Process::restore(t.pid, t.status, &t.start)?;
             tabs.push(Session {
+                shell_run: t.shell_run,
                 id: t.id,
                 run: t.run,
                 master,
@@ -452,6 +462,6 @@ mod hyperlink_refresh_tests {
         assert_eq!(range["current"], VERSION);
         assert_eq!(range["read_min"], 1);
         assert_eq!(range["read_max"], VERSION);
-        assert_eq!(build["compatibility"]["saved_state"]["current"], 8);
+        assert_eq!(build["compatibility"]["saved_state"]["current"], 9);
     }
 }

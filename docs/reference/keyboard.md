@@ -37,7 +37,7 @@
 | Navigation | e / p | Edit workspace metadata / pin |
 | Navigation | B | Board; h/l selects column, j/k selects card, Enter returns |
 | Navigation | 1 / 2 / 3 / 4 / 5 | Needs me / In progress / Todo / Waiting / Done |
-| Navigation | S | Start agent: choose a harness (no conversation-ID field) |
+| Navigation | S | Start agent: choose a harness with arrows, j/k or Tab; Enter starts, Escape cancels |
 | Navigation | W | Retry saved tabs for the selected workspace |
 | Navigation | x | Close exact terminal; ask when work or unknown state needs protection |
 | Navigation | s | Copy the full Flere view as a PNG to the local clipboard (SSH: updated companion) |
@@ -54,7 +54,7 @@
 | Navigation | c | Page into terminal scrollback and leave navigation |
 | Navigation | m / I / D | Send message / read messages / review decisions |
 | Navigation | q | Detach, preserving processes |
-| Stopped terminal | S / W / Enter / t / Space | Start agent / retry saved tabs / reopen tabs or offer start / shell / actions, without a navigation prefix |
+| Stopped terminal | S / W / Enter / t / Space | Start agent / retry saved tabs / reopen saved tabs or the last recorded chat, otherwise offer start / shell / actions, without a navigation prefix |
 | Terminal | Wheel, Shift+Page Up/Down | Browse retained terminal history |
 | Web links in current `main` builds | Outer terminal hyperlink gesture (Ghostty while Flere captures mouse input: Shift+Cmd-click on macOS, Shift+Ctrl-click on Linux) | Open the target; requires newly emitted or redrawn OSC 8 output |
 | Terminal / scrollback | Shift+Home / Home | Jump to the oldest retained output |

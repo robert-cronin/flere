@@ -143,6 +143,12 @@ fn run() -> io::Result<()> {
         state = env::current_dir()?.join(state)
     }
     let action = args.first().map_or("open", String::as_str);
+    if action == "_shell-codex" {
+        let run = args
+            .get(1)
+            .ok_or_else(|| wire::invalid("missing shell identity"))?;
+        return flere::native::launcher::run(&state, run, &args[2..]);
+    }
     if matches!(
         action,
         "package"

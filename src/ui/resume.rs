@@ -62,6 +62,27 @@ impl Ui {
                 self.notice = e.to_string();
             }
         }
+        // Explicit activation may reopen the last chat after every tab was closed.
+        // Passive card preview and UI attachment never call this history fallback.
+        if self
+            .snapshot
+            .workspace()
+            .is_some_and(|w| w.id == id && w.tabs.is_empty())
+            && !self.restore_pending
+        {
+            match wire::request(
+                &self.state,
+                &["resume-recent", &self.snapshot.epoch, &id.to_string()],
+            ) {
+                Ok(_) => {
+                    if let Ok(snapshot) = self.read_snapshot() {
+                        self.snapshot(snapshot);
+                    }
+                }
+                Err(e) if e.to_string() == "unknown command" => {} // Older supervisors keep their existing Start action.
+                Err(e) => self.notice = e.to_string(),
+            }
+        }
         self.remember_workspace();
     }
     pub(super) fn stopped_key(&mut self, bytes: &[u8]) -> bool {

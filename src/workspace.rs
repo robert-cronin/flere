@@ -65,10 +65,20 @@ pub struct CardMeta {
     pub notes: String,
     pub branch: String,
     pub conversations: Vec<crate::native::Conversation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_conversation: Option<crate::native::Conversation>,
     pub operation: String,
     pub base_sha: String,
 }
 impl CardMeta {
+    pub fn recent_conversation(&self) -> Option<&crate::native::Conversation> {
+        self.last_conversation
+            .as_ref()
+            .or(match self.conversations.as_slice() {
+                [saved] => Some(saved),
+                _ => None,
+            })
+    }
     pub fn validate(&self) -> io::Result<()> {
         for s in [&self.project, &self.issue, &self.pr, &self.branch] {
             if s.len() > 2048 || s.chars().any(char::is_control) {
@@ -83,6 +93,18 @@ impl CardMeta {
                 || !c.cwd.is_absolute()
         }) {
             return Err(crate::wire::invalid("invalid saved native conversation"));
+        }
+        if self.last_conversation.as_ref().is_some_and(|c| {
+            if c.uuid.is_empty() {
+                !matches!(c.harness.as_str(), "codex" | "claude" | "copilot")
+                    || !c.cwd.is_absolute()
+            } else {
+                !self.conversations.contains(c)
+            }
+        }) {
+            return Err(crate::wire::invalid(
+                "last native conversation is not recorded",
+            ));
         }
         if self.notes.len() > 65536 {
             return Err(crate::wire::invalid("notes exceed 64 KiB"));

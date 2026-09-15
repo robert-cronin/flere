@@ -24,7 +24,33 @@ The optional CLI UUID is an advanced integration interface; omit it for a fresh 
 
 Flere saves every open tab, its order, the selected tab and the selected workspace. Opening the UI after a supervisor or machine restart reopens those tabs: agents use their own recorded harness and exact conversation ID; shells start in their last saved directory; editor tabs reopen their file. Three open chats remain three separate tabs. Supervisor-only startup launches nothing. Reattaching to live tabs reuses them.
 
-**S** starts a new agent with a harness selector only. Flere has no conversation-ID field or saved-conversation chooser. Switch conversations inside the harness. Codex discovers the current ID from a unique rollout descriptor in its owned child tree, including after a conversation switch. Automatic ID discovery for Claude and Copilot is not yet implemented: recorded IDs resume exactly; an unknown ID opens that harness's native resume picker. Flere never selects the latest chat automatically or adds approval-bypass flags.
+**S** opens a harness selector: use Up/Down, j/k or Tab/Shift+Tab to choose Codex, Claude Code or GitHub Copilot, then Enter; a click also starts the selected harness. Escape cancels. Flere has no conversation-ID field or saved-conversation chooser. Switch conversations inside the harness. Codex discovers the current ID from a unique rollout descriptor in its owned child tree, including after a conversation switch. Automatic ID discovery for Claude and Copilot is not yet implemented: recorded IDs resume exactly; an unknown ID opens that harness's native resume picker. Flere never guesses the globally latest chat or adds approval-bypass flags.
+
+Inside newly opened Flere terminals, plain `codex` and `codex resume` automatically
+connect the interactive chat to the same card, including Flere MCP tools and
+native paste support. A private executable on that terminal's PATH forwards your
+arguments to the real Codex. Each launch gets a fresh run identity; exiting
+returns to the existing shell, preserving its variables and jobs. Recognized
+management commands such as `codex --version`, `codex exec` and `codex mcp list`
+pass through without registering a chat. Your global shell and Codex settings
+are unchanged. User aliases are preserved; aliases or commands that name an
+absolute Codex executable can bypass this integration. Nested shells inherit
+the launcher unless their startup configuration replaces PATH.
+
+When every tab on an existing card has been closed, **Enter** or explicit card
+activation reopens its last recorded native conversation. A legacy card with one
+saved conversation resumes that exact ID; ambiguous older history opens the
+native harness picker. A closed chat with an unknown ID also reopens its recorded harness picker. Passive browsing and merely attaching the UI do not
+reopen closed chats. Existing live tabs and pending saved-tab restoration take
+precedence. Failed starts retain the card's conversation history for retry.
+
+The launcher becomes available in new terminals, including the shell opened
+after a newly launched native chat exits. Refresh preserves existing processes;
+it cannot change an already-running shell's PATH or add flags to a running Codex.
+Saved-state and refresh handoff version 9 retain the native run and shell's
+separate lifecycle identity. Older binaries reject this state instead of
+silently dropping its recovery information.
+
 
 Shell directories are sampled once per second and before an explicit supervisor stop. Restart does not replay commands, drafts, scrollback or unsaved editor buffers. An explicitly closed tab stays closed. A failed reopen leaves the saved tab available while other tabs continue; **Ctrl+Space, W** retries saved tabs for the selected card. Opening that card also retries. Hover and keyboard preview do not launch anything.
 

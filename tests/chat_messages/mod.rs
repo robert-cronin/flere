@@ -127,7 +127,7 @@ fn chat_message_idle_nudge_preserves_provenance_and_deduplicates() {
         saved["coordination"]["messages"].as_array().unwrap().len(),
         1
     );
-    assert_eq!(saved["version"], 8);
+    assert_eq!(saved["version"], 9);
     assert!(
         !fs::read_to_string(f.state.join("actions.log"))
             .unwrap()

@@ -179,6 +179,7 @@ impl Server {
                 );
                 let w = self.workspaces.iter_mut().find(|w| w.id == wid).unwrap();
                 w.tabs.push(Session {
+                    shell_run: String::new(),
                     id,
                     run,
                     master,

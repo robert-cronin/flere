@@ -490,6 +490,7 @@ impl Server {
             .ok_or_else(|| invalid("identity exhausted"))?;
         let run = os::nonce()?;
         let spec = crate::native::HostSpec {
+            launcher: None,
             id: session,
             run: run.clone(),
             harness: "codex".into(),
@@ -628,6 +629,7 @@ impl Server {
             .ok_or_else(|| invalid("workspace disappeared"))?;
         let id = spec.id;
         w.tabs.push(Session {
+            shell_run: String::new(),
             id,
             run: spec.run.clone(),
             master,

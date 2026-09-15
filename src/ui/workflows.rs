@@ -83,6 +83,7 @@ pub(super) struct Form {
     meta: CardMeta,
     reference: Option<serde_json::Value>,
     locked: usize,
+    pressed: Option<usize>,
     pub(super) project: Option<project_picker::Picker>,
 }
 #[derive(Clone)]
@@ -498,14 +499,10 @@ impl Ui {
             | "Archived workspaces" => {
                 vec![("Filter", String::new())]
             }
-            "Start agent" => vec![(
-                "Harness: codex / claude / copilot",
-                if meta.conversations.len() == 1 {
-                    meta.conversations[0].harness.clone()
-                } else {
-                    "codex".into()
-                },
-            )],
+            "Start agent" => ["codex", "claude", "copilot"]
+                .into_iter()
+                .map(|harness| (harness, String::new()))
+                .collect(),
             "New worktree" => vec![
                 ("Name", String::new()),
                 ("Repository", cwd.clone()),
@@ -533,11 +530,21 @@ impl Ui {
                 .into_iter()
                 .map(|(k, v)| (k, v.into_bytes()))
                 .collect(),
-            selected: 0,
+            selected: if kind == "Start agent" {
+                meta.recent_conversation()
+                    .map_or(0, |saved| match saved.harness.as_str() {
+                        "claude" => 1,
+                        "copilot" => 2,
+                        _ => 0,
+                    })
+            } else {
+                0
+            },
             result: 0,
             meta,
             reference: None,
             locked: 0,
+            pressed: None,
             project: (kind == "Add project")
                 .then(|| project_picker::Picker::new(PathBuf::from(cwd))),
         });
@@ -623,7 +630,66 @@ impl Ui {
         }
         out.into_iter().filter(|p| fuzzy(query, &p.label)).collect()
     }
+    fn agent_form_rect(&self) -> (usize, usize, usize, usize) {
+        let width = self.layout.width.min(64);
+        let height = 8;
+        (
+            (self.layout.width - width) / 2,
+            (self.layout.height - height) / 2,
+            width,
+            height,
+        )
+    }
+    fn agent_form_key(&mut self, key: Key) {
+        let mut f = self.form.take().unwrap();
+        let (x, y, width, _) = self.agent_form_rect();
+        let row_at = |mx: usize, my: usize| {
+            (mx > x && mx < x + width - 1 && (y + 2..y + 5).contains(&my)).then(|| my - y - 2)
+        };
+        let mut start = false;
+        match key {
+            Key::Bytes(bytes) => {
+                f.pressed = None;
+                match bytes.as_slice() {
+                    b"\x1b" => return,
+                    b"\r" => start = true,
+                    b"j" | b"\x1b[B" | b"\t" => f.selected = (f.selected + 1) % 3,
+                    b"k" | b"\x1b[A" | b"\x1b[Z" => f.selected = (f.selected + 2) % 3,
+                    _ => {}
+                }
+            }
+            Key::Mouse { x, y } => {
+                f.pressed = row_at(x, y);
+                if let Some(row) = f.pressed {
+                    f.selected = row;
+                }
+            }
+            Key::Release { x, y } => {
+                start = f
+                    .pressed
+                    .take()
+                    .is_some_and(|row| row_at(x, y) == Some(row));
+            }
+            Key::Drag { .. } | Key::PointerActivity | Key::Context { .. } => {
+                f.pressed = None;
+            }
+            _ => {}
+        }
+        if start {
+            self.command(&["native", &f.target.to_string(), f.values[f.selected].0, ""]);
+            if self.notice.is_empty() {
+                self.focus = Focus::Terminal;
+                self.nav = false;
+                return;
+            }
+        }
+        self.form = Some(f);
+    }
     pub(super) fn form_key(&mut self, key: Key) {
+        if self.form.as_ref().is_some_and(|f| f.kind == "Start agent") {
+            self.agent_form_key(key);
+            return;
+        }
         let (b, paste) = match key {
             Key::Bytes(b) => (b, false),
             Key::Paste(b) => (b, true),
@@ -761,13 +827,6 @@ impl Ui {
                                 return;
                             }
                         }
-                    }
-                }
-                "Start agent" => {
-                    self.command(&["native", &f.target.to_string(), &vals[0], ""]);
-                    if self.notice.is_empty() {
-                        self.focus = Focus::Terminal;
-                        self.nav = false;
                     }
                 }
                 "Project filter" => {
@@ -1130,6 +1189,48 @@ impl Ui {
         };
         if let Some(project) = &f.project {
             project.draw(c, self.layout, &f.values[0].1);
+            return;
+        }
+        if f.kind == "Start agent" {
+            let (x, y, width, height) = self.agent_form_rect();
+            c.fill(x, y, width, height, style(TEXT, PANEL, false));
+            c.border(x, y, width, height, BORDER);
+            c.text(
+                x + 2,
+                y + 1,
+                width - 4,
+                "Start agent",
+                style(CYAN, PANEL, true),
+            );
+            for (i, label) in ["Codex", "Claude Code", "GitHub Copilot"]
+                .iter()
+                .enumerate()
+            {
+                let selected = i == f.selected;
+                let bg = if selected { ACTIVE_BG } else { PANEL };
+                c.fill(x + 1, y + 2 + i, width - 2, 1, style(TEXT, bg, false));
+                c.text(
+                    x + 2,
+                    y + 2 + i,
+                    width - 4,
+                    &format!("{} {label}", if selected { "›" } else { " " }),
+                    style(if selected { CYAN } else { TEXT }, bg, selected),
+                );
+            }
+            c.text(
+                x + 2,
+                y + 5,
+                width - 4,
+                &self.notice,
+                style(GOLD, PANEL, false),
+            );
+            c.text(
+                x + 2,
+                y + 6,
+                width - 4,
+                "↑/↓ or j/k choose · Enter or click start · Esc cancel",
+                style(MUTED, PANEL, false),
+            );
             return;
         }
         let l = self.layout;

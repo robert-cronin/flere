@@ -265,6 +265,7 @@ impl Server {
                 crate::native::resume_arguments(&self.state, &tab.harness, &tab.conversation)?;
             let run = os::nonce()?;
             let spec = crate::native::HostSpec {
+                launcher: None,
                 id,
                 run,
                 harness: tab.harness.clone(),
@@ -316,6 +317,7 @@ impl Server {
                 .unwrap()
                 .tabs
                 .push(Session {
+                    shell_run: String::new(),
                     id,
                     run,
                     master,

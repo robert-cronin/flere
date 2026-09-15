@@ -45,7 +45,11 @@ pub fn flags(binary: &Path, state: &Path) -> Vec<String> {
         .iter()
         .flat_map(|event| {
             // A notice uses two bounded socket round trips; Interrupt emits no notice.
-            let timeout = if *event == "Interrupt" { 3 } else { 5 };
+            let timeout = if matches!(*event, "Interrupt" | "SessionEnd") {
+                3
+            } else {
+                5
+            };
             [
                 "-c".into(),
                 format!(

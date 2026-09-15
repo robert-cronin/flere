@@ -449,8 +449,8 @@ impl Report {
 }
 fn references(state: &Path) -> io::Result<BTreeSet<PathBuf>> {
     let v: serde_json::Value = read_json(&state.join("workspaces.v2.json"), 8 * 1024 * 1024)?;
-    // Version 8 adds conversation mail; the retained tab/path layout is unchanged.
-    if !matches!(v.get("version").and_then(|v| v.as_u64()), Some(7 | 8)) {
+    // Versions 8/9 add mail and native recency; retained tab/path layout is unchanged.
+    if !matches!(v.get("version").and_then(|v| v.as_u64()), Some(7..=9)) {
         return Err(invalid(
             "unknown saved layout version; Git snapshots retained",
         ));

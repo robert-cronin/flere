@@ -2,7 +2,9 @@ use super::*;
 use serde_json::{Value, json};
 
 fn restart(f: &mut Fixture) {
-    f.stop();
+    if f.child.try_wait().unwrap().is_none() {
+        f.stop();
+    }
     f.child = Command::new(env!("CARGO_BIN_EXE_flere"))
         .arg("--state")
         .arg(&f.state)
@@ -305,7 +307,7 @@ fn unknown_native_id_opens_the_harness_picker_and_stopped_s_never_asks_for_a_uui
     let mut screen = Terminal::new(100, 24);
     drain_pty(&mut master, &mut screen, "Workspace is stopped.");
     master.write_all(b"S").unwrap();
-    drain_pty(&mut master, &mut screen, "Harness: codex");
+    drain_pty(&mut master, &mut screen, "› Codex");
     assert!(!screen.capture(100).contains("UUID"));
     master.write_all(b"\r").unwrap();
     drain_pty(&mut master, &mut screen, "RESTORED_NATIVE");
@@ -446,4 +448,125 @@ fn tab_tracks_conversation_switches_inside_the_owned_native_harness() {
         }
         assert_eq!(f.snapshot().session().unwrap().run, t.run);
     }
+}
+
+fn close_all(f: &Fixture) {
+    let tabs = f.snapshot().workspace().unwrap().tabs.clone();
+    for t in tabs {
+        f.req(&["close", &t.id.to_string(), &t.run]);
+    }
+    let until = Instant::now() + Duration::from_secs(3);
+    while !f.snapshot().workspace().unwrap().tabs.is_empty() {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn explicit_empty_card_enter_reopens_last_selected_exact_chat_without_passive_launch() {
+    let mut f = Fixture::new();
+    standins(&f);
+    f.req(&[
+        "new-stopped",
+        &wire::hex(b"Recent chat"),
+        &wire::hex(f.root.to_str().unwrap().as_bytes()),
+    ]);
+    let wid = f.snapshot().active;
+    let first = "12345678-1234-1234-1234-123456789001";
+    let second = "12345678-1234-1234-1234-123456789002";
+    f.req(&["native", &wid.to_string(), "codex", first]);
+    let selected = f.snapshot().session().unwrap().id;
+    f.req(&["native", &wid.to_string(), "codex", second]);
+    f.req(&["focus", &wid.to_string(), &selected.to_string()]);
+    close_all(&f);
+    assert_eq!(
+        stored(&f)["workspaces"][0]["meta"]["last_conversation"]["uuid"],
+        first
+    );
+    restart(&mut f);
+    let (mut master, mut child, mut screen) = attach(&f, 0);
+    pump_ui_bytes(&mut master, &mut screen, 200);
+    assert!(f.snapshot().workspace().unwrap().tabs.is_empty());
+    master.write_all(b"\r").unwrap();
+    wait_current_ui(&mut master, &mut screen, |_| {
+        f.snapshot().session().is_some()
+    });
+    let t = f.snapshot().session().unwrap().clone();
+    assert_eq!(spec(&f, &t)["conversation"], first);
+    assert_eq!(spec(&f, &t)["argv"][3], first);
+    f.req(&["resume-recent", &f.snapshot().epoch, &wid.to_string()]);
+    assert_eq!(f.snapshot().workspace().unwrap().tabs.len(), 1);
+    assert_eq!(f.snapshot().session().unwrap().id, t.id);
+    finish_ui(&mut master, &mut screen, &mut child);
+}
+
+#[test]
+fn legacy_ambiguous_history_uses_native_picker_and_rejects_guessed_exact_id() {
+    let mut f = Fixture::new();
+    standins(&f);
+    f.req(&[
+        "new-stopped",
+        &wire::hex(b"Legacy history"),
+        &wire::hex(f.root.to_str().unwrap().as_bytes()),
+    ]);
+    let wid = f.snapshot().active;
+    let first = "12345678-1234-1234-1234-123456789001";
+    let second = "12345678-1234-1234-1234-123456789002";
+    for uuid in [first, second] {
+        f.req(&["native", &wid.to_string(), "codex", uuid]);
+    }
+    close_all(&f);
+    f.stop();
+    let mut saved = stored(&f);
+    saved["version"] = json!(8);
+    saved["workspaces"][0]["meta"]
+        .as_object_mut()
+        .unwrap()
+        .remove("last_conversation");
+    fs::write(
+        f.state.join("workspaces.v2.json"),
+        serde_json::to_vec(&saved).unwrap(),
+    )
+    .unwrap();
+    restart(&mut f);
+    let epoch = f.snapshot().epoch;
+    assert!(
+        wire::request(
+            &f.state,
+            &["resume-saved", &epoch, &wid.to_string(), "codex", second]
+        )
+        .is_err()
+    );
+    f.req(&["resume-recent", &epoch, &wid.to_string()]);
+    let t = f.snapshot().session().unwrap().clone();
+    let argv = spec(&f, &t);
+    assert_eq!(argv["conversation"], "");
+    assert_eq!(argv["argv"].as_array().unwrap().last().unwrap(), "resume");
+    assert!(!argv["argv"].as_array().unwrap().contains(&json!("--last")));
+}
+
+#[test]
+fn closed_chat_without_a_discoverable_id_reopens_its_harness_picker() {
+    let mut f = Fixture::new();
+    standins(&f);
+    f.req(&[
+        "new-stopped",
+        &wire::hex(b"Unknown chat"),
+        &wire::hex(f.root.to_str().unwrap().as_bytes()),
+    ]);
+    let wid = f.snapshot().active;
+    f.req(&["native", &wid.to_string(), "claude", ""]);
+    close_all(&f);
+    restart(&mut f);
+    let (mut master, mut child, mut screen) = attach(&f, 0);
+    master.write_all(b"\r").unwrap();
+    wait_current_ui(&mut master, &mut screen, |_| {
+        f.snapshot().session().is_some()
+    });
+    let snapshot = f.snapshot();
+    let n = spec(&f, snapshot.session().unwrap());
+    assert_eq!(n["harness"], "claude");
+    assert_eq!(n["conversation"], "");
+    assert_eq!(n["argv"].as_array().unwrap().last().unwrap(), "--resume");
+    finish_ui(&mut master, &mut screen, &mut child);
 }
