@@ -7,6 +7,9 @@
 mod avatar;
 mod avatars;
 mod bootstrap;
+mod browser;
+#[path = "../../src/browser_links.rs"]
+mod browser_links;
 #[path = "../../src/build_info.rs"]
 mod build_info;
 #[cfg(target_os = "linux")]
@@ -463,6 +466,7 @@ fn run() -> io::Result<()> {
     let mut files = transfers::Transfers::default();
     let mut ports = ports::Ports::default();
     let mut local = local_tools::Gate::default();
+    let mut browser = browser::Browser::default();
     let mut drop_capable = false;
     let mut coordinated = coordinated::Coordinator::default();
     coordinated.resume(&connection)?;
@@ -482,6 +486,7 @@ fn run() -> io::Result<()> {
             0,
             remote_services::DROP_PROBE,
         ));
+        queue.push_back(Packet::new(protocol::NOTICE, 0, browser_links::PROBE));
         queue.push_back(Packet::new(
             protocol::NOTICE,
             0,
@@ -529,6 +534,7 @@ fn run() -> io::Result<()> {
                     continue;
                 }
                 if coordinated.active() {
+                    browser.suspend();
                     coordinated.input(&bytes, received, &connection, &mut queue, dimensions)?;
                     coordinated.draw(
                         dimensions,
@@ -536,6 +542,7 @@ fn run() -> io::Result<()> {
                     )?;
                     input.reset();
                 } else if local.active() {
+                    browser.suspend();
                     if let Some(decision) = local.input(&bytes, received) {
                         local_decision(
                             decision,
@@ -553,8 +560,20 @@ fn run() -> io::Result<()> {
                         )?;
                     }
                 } else {
+                    if viewer.active() {
+                        browser.suspend();
+                    }
+                    let local_input = browser.input(&bytes, received);
+                    if let Some(url) = local_input.open {
+                        let message = if transfers::launch(&url).is_ok() {
+                            "Opening GitHub link in your browser"
+                        } else {
+                            "Could not open browser; use the copy URL action"
+                        };
+                        notice(&mut queue, message);
+                    }
                     actions(
-                        input.feed(&bytes),
+                        input.feed(&local_input.bytes),
                         &mut queue,
                         &mut pending,
                         &mut counter,
@@ -562,6 +581,7 @@ fn run() -> io::Result<()> {
                         &mut local,
                     );
                     if local.active() {
+                        browser.suspend();
                         input.reset();
                         avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                         viewer.restart(&mut display.keyboard.local_output(&mut io::stdout()))?;
@@ -585,9 +605,27 @@ fn run() -> io::Result<()> {
                     }
                 }
                 if coordinated.packet(&packet, &mut queue, dimensions)? {
+                    browser.suspend();
                     continue;
                 }
                 match packet.tag {
+                    protocol::CAPABILITIES
+                        if tools_protocol
+                            && packet.id == 0
+                            && packet.data == browser_links::CAPABILITY =>
+                    {
+                        browser.enable();
+                        // Input may have gone out before capability negotiation.
+                        // Rearm only after the core has also processed that input.
+                        queue.push_back(Packet::new(protocol::KEYS, 0, Vec::new()));
+                    }
+                    browser_links::CONTEXT if tools_protocol => {
+                        browser.context(
+                            &packet,
+                            dimensions,
+                            !local.active() && !coordinated.active() && !viewer.active(),
+                        )?;
+                    }
                     protocol::CAPABILITIES
                         if packet.id == 0
                             && packet.data == remote_services::DROP_CAPABILITY
@@ -642,6 +680,7 @@ fn run() -> io::Result<()> {
                         }
                     }
                     protocol::OUTPUT if packet.id == 0 => {
+                        browser.repaint();
                         let visible = !local.active() && !coordinated.active();
                         if visible && avatars_advertised {
                             avatars.begin_output();
@@ -686,6 +725,7 @@ fn run() -> io::Result<()> {
                         ));
                     }
                     remote_services::REQUEST | remote_services::PORTS_REQUEST if tools_protocol => {
+                        browser.suspend();
                         if let Some(decision) = local.offer(packet)? {
                             local_decision(
                                 decision,
@@ -860,6 +900,7 @@ fn run() -> io::Result<()> {
                         screenshots = screenshot_transfer::Receiver::default();
                         files.reset();
                         local.reset();
+                        browser.reset();
                         input.disable_drop();
                         drop_capable = false;
                         coordinated.refreshed();
@@ -897,6 +938,7 @@ fn run() -> io::Result<()> {
                                 0,
                                 remote_services::DROP_PROBE,
                             ));
+                            queue.push_back(Packet::new(protocol::NOTICE, 0, browser_links::PROBE));
                             queue.push_back(Packet::new(
                                 protocol::NOTICE,
                                 0,
@@ -983,8 +1025,10 @@ fn run() -> io::Result<()> {
             }
             coordinated.escape(&mut queue, dimensions);
             if !local.active() && !coordinated.active() {
+                let mut timed_out = input.feed(&browser.timeout());
+                timed_out.extend(input.timeout());
                 actions(
-                    input.timeout(),
+                    timed_out,
                     &mut queue,
                     &mut pending,
                     &mut counter,
@@ -996,6 +1040,9 @@ fn run() -> io::Result<()> {
         if checked.elapsed() > Duration::from_millis(200) {
             let size = os::size();
             if size != dimensions {
+                browser.suspend();
+                // Fence queued contexts even if the viewport returns to its old size.
+                queue.push_back(Packet::new(protocol::KEYS, 0, Vec::new()));
                 diagnostics::record("resize", &format!("{}x{}", size.0, size.1));
                 avatars.clear(&mut display.keyboard.local_output(&mut io::stdout()))?;
                 dimensions = size;
@@ -1054,7 +1101,8 @@ fn run() -> io::Result<()> {
                 "SSH input stalled; detached without retrying queued input",
             ));
         }
-        while let Some(packet) = queue.pop_front() {
+        while let Some(mut packet) = queue.pop_front() {
+            browser.outgoing(&mut packet)?;
             match tx.try_send(packet) {
                 Ok(()) => {}
                 Err(mpsc::TrySendError::Full(packet)) => {

@@ -520,7 +520,6 @@ impl Ui {
                         self.sidebar_terminal(c, w, *tab, y, s);
                     }
                 }
-                SideRow::Gap => {}
             }
         }
         let above = rows

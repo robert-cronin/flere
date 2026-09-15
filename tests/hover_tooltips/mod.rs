@@ -205,3 +205,156 @@ fn hover_tooltip_clamps_narrow_viewports_and_keeps_hovered_card_logo_gutter() {
         finish_ui(&mut master, &mut screen, &mut child);
     }
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn card_links_open_by_click_and_keyboard_locally_and_in_the_companion() {
+    const ISSUE: &str = "https://github.com/demo/fixture/issues/7";
+    const PR: &str = "https://github.com/demo/fixture/pull/9";
+    for remote in [false, true] {
+        let f = Fixture::new();
+        let tab = f.new_workspace("Linked card");
+        let before = f.snapshot();
+        let mut meta = before.workspace().unwrap().meta.clone();
+        meta.issue = ISSUE.into();
+        meta.pr = PR.into();
+        f.req(&[
+            "metadata",
+            &before.active.to_string(),
+            &wire::hex(&serde_json::to_vec(&meta).unwrap()),
+        ]);
+        f.send(&tab, b"printf 'LINK_DRAFT");
+        f.wait_text(&tab, "LINK_DRAFT");
+        fs::write(
+            f.state.join("ui.json"),
+            br#"{"left":38,"right":44,"pet":false,"reduced_motion":true}"#,
+        )
+        .unwrap();
+        let bin = f.root.join("bin");
+        fs::create_dir(&bin).unwrap();
+        let log = f.root.join("opened-links");
+        fs::write(
+            bin.join("xdg-open"),
+            "#!/bin/sh\nprintf '%s %s\\n' \"$FLERE_OPEN_SIDE\" \"$1\" >> \"$FLERE_OPEN_LOG\"\n",
+        )
+        .unwrap();
+        fs::write(
+            bin.join("gh"),
+            "#!/bin/sh\nprintf '%s' '{\"title\":\"Linked fixture\",\"state\":\"OPEN\"}'\n",
+        )
+        .unwrap();
+        for name in ["xdg-open", "gh"] {
+            fs::set_permissions(bin.join(name), fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let mut command = if remote {
+            let ssh = f.root.join("fixture-ssh");
+            fs::write(&ssh, "#!/usr/bin/python3\nimport os,sys,shlex\nassert sys.argv[1:4]==['-T','--','fixture-host']\nargs=shlex.split(sys.argv[4]);assert args.pop(0)=='exec'\nos.environ['FLERE_OPEN_SIDE']='remote'\nos.execv(args[0],args)\n").unwrap();
+            fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
+            let mut c = Command::new("/usr/bin/env");
+            c.args(["-u", "FLERE"])
+                .arg(crate::remote::companion_binary())
+                .args([
+                    "fixture-host",
+                    "--remote",
+                    env!("CARGO_BIN_EXE_flere"),
+                    "--state",
+                ])
+                .arg(&f.state)
+                .arg("--ssh")
+                .arg(ssh);
+            c
+        } else {
+            let mut c = outer_ui_command();
+            c.arg("--state").arg(&f.state).arg("attach");
+            c
+        };
+        command
+            .env("HOME", &f.root)
+            .env_remove("XDG_CACHE_HOME")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("FLERE_OPEN_LOG", &log)
+            .env("FLERE_OPEN_SIDE", "local");
+        let (mut master, mut child) =
+            os::spawn_command_pty(&f.root, &mut command, 160, 35).unwrap();
+        let mut screen = Terminal::new(160, 35);
+        drain_pty(&mut master, &mut screen, "LINK_DRAFT");
+        let (_, y) = locate(&screen, "Linked card");
+        master
+            .write_all(format!("\x1b[<35;10;{}M", y + 1).as_bytes())
+            .unwrap();
+        drain_pty(&mut master, &mut screen, "[i] Issue #7 · open");
+        pump_ui_bytes(&mut master, &mut screen, 150);
+        assert!(screen.capture(100).contains("[p] PR #9 · open"));
+        assert!(!log.exists(), "hover opened a browser");
+        artifact(
+            &screen,
+            if remote {
+                "links-hover-remote"
+            } else {
+                "links-hover-local"
+            },
+            None,
+        );
+        let (x, y) = locate(&screen, "[i] Issue #7");
+        // Dragging away cancels activation even if release returns to the link.
+        master
+            .write_all(
+                format!(
+                    "\x1b[<0;{};{}M\x1b[<32;{};{}M\x1b[<0;{};{}m",
+                    x + 1,
+                    y + 1,
+                    x + 2,
+                    y + 1,
+                    x + 1,
+                    y + 1
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        pump_ui_bytes(&mut master, &mut screen, 150);
+        assert!(!log.exists());
+        master
+            .write_all(
+                format!("\x1b[<0;{};{}M\x1b[<0;{};{}m", x + 1, y + 1, x + 1, y + 1).as_bytes(),
+            )
+            .unwrap();
+        wait_current_ui(&mut master, &mut screen, |_| {
+            fs::read_to_string(&log).unwrap_or_default() == format!("local {ISSUE}\n")
+        });
+        // Open/pin through Cards navigation without sending a key to the shell.
+        master.write_all(b"\x1b").unwrap();
+        pump_ui_bytes(&mut master, &mut screen, 100);
+        master.write_all(b"\0h?").unwrap();
+        drain_pty(&mut master, &mut screen, "> [i] Open issue");
+        pump_ui_bytes(&mut master, &mut screen, 150);
+        master.write_all(b"p").unwrap();
+        wait_current_ui(&mut master, &mut screen, |_| {
+            fs::read_to_string(&log).unwrap_or_default() == format!("local {ISSUE}\nlocal {PR}\n")
+        });
+        pump_ui_bytes(&mut master, &mut screen, 150);
+        master.write_all(b"\r").unwrap();
+        wait_current_ui(&mut master, &mut screen, |_| {
+            fs::read_to_string(&log).unwrap_or_default()
+                == format!("local {ISSUE}\nlocal {PR}\nlocal {ISSUE}\n")
+        });
+        master.write_all(b"\x1b[200~ip\r\x1b[201~").unwrap();
+        pump_ui_bytes(&mut master, &mut screen, 150);
+        assert_eq!(
+            fs::read_to_string(&log).unwrap().lines().count(),
+            3,
+            "paste activated a link"
+        );
+        assert!(!screen.capture(100).contains("Enter to apply"));
+        let after = f.snapshot();
+        assert_eq!(after.epoch, before.epoch);
+        assert_eq!(after.session().unwrap().pid, tab.pid);
+        assert_eq!(after.session().unwrap().run, tab.run);
+        assert!(f.capture(&tab).contains("LINK_DRAFT"));
+        master.write_all(b"\x1b").unwrap();
+        pump_ui_bytes(&mut master, &mut screen, 100);
+        finish_ui(&mut master, &mut screen, &mut child);
+    }
+}

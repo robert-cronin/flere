@@ -6,6 +6,9 @@ pub(super) struct Connection {
     pub size: (u16, u16),
     pub buffer: Vec<u8>,
     last_image: u64,
+    pub browser_capable: bool,
+    pub browser_input: u64,
+    pub browser_serial: u64,
     pub preview_capable: bool,
     pub screenshot_capable: bool,
     pub update_capable: bool,
@@ -93,6 +96,9 @@ impl Connection {
             size,
             buffer: Vec::new(),
             last_image: 0,
+            browser_capable: false,
+            browser_input: 0,
+            browser_serial: 0,
             preview_capable: false,
             screenshot_capable: false,
             update_capable: false,
@@ -177,6 +183,19 @@ impl Ui {
             return Ok(());
         }
         match packet.tag {
+            protocol::NOTICE if packet.id == 0 && packet.data == crate::browser_links::PROBE => {
+                self.remote.as_mut().unwrap().browser_capable = true;
+                Packet::new(protocol::CAPABILITIES, 0, crate::browser_links::CAPABILITY)
+                    .write(&mut io::stdout().lock())?;
+            }
+            crate::browser_links::INPUT if self.remote.as_ref().unwrap().browser_capable => {
+                let remote = self.remote.as_mut().unwrap();
+                if packet.id == 0 || packet.id <= remote.browser_input {
+                    return Err(wire::invalid("stale browser input"));
+                }
+                remote.browser_input = packet.id;
+                self.feed_input(&packet.data);
+            }
             protocol::CAPABILITIES if packet.id == 0 && packet.data == protocol::SCREENSHOT_CAP => {
                 self.remote.as_mut().unwrap().screenshot_capable = true;
             }

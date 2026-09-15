@@ -1,5 +1,6 @@
 //! Explicit, bounded GitHub reads. Hover never calls request().
 use super::*;
+pub(super) use crate::browser_links::Link;
 use std::{
     process::{Command, Stdio},
     sync::{
@@ -8,50 +9,6 @@ use std::{
         mpsc,
     },
 };
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Link {
-    pub url: String,
-    pub kind: &'static str,
-    pub number: u64,
-}
-impl Link {
-    pub fn parse(value: &str) -> Option<Self> {
-        if value.len() > 2048 || value.chars().any(|c| c.is_control() || c.is_whitespace()) {
-            return None;
-        }
-        let path = value.strip_prefix("https://github.com/")?;
-        let path = path.split(['?', '#']).next()?;
-        let parts: Vec<_> = path.split('/').collect();
-        if parts.len() != 4
-            || !parts[..2].iter().all(|s| {
-                !s.is_empty()
-                    && *s != "."
-                    && *s != ".."
-                    && s.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-            })
-        {
-            return None;
-        }
-        let kind = match parts[2] {
-            "issues" => "issue",
-            "pull" => "pr",
-            _ => return None,
-        };
-        if !parts[3].bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        let number = parts[3].parse::<u64>().ok().filter(|n| *n > 0)?;
-        Some(Self {
-            url: format!(
-                "https://github.com/{}/{}/{}/{number}",
-                parts[0], parts[1], parts[2]
-            ),
-            kind,
-            number,
-        })
-    }
-}
 #[derive(Clone)]
 struct Entry {
     url: String,

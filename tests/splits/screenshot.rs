@@ -94,7 +94,10 @@ fn full_screenshot_keeps_an_inactive_panes_visible_scrollback_and_both_live_pane
     b.send(protocol::KEYS, 0, b"\0s");
     let mut receiver = flere::screenshot_transfer::Receiver::default();
     let png = loop {
-        let packet = b.until(|p, _| {
+        // PNG rasterization runs on a worker and can exceed the ordinary UI
+        // packet deadline in debug builds on a busy host. Use the screenshot
+        // transfer's budget while still verifying every resulting pixel below.
+        let packet = b.until_timeout(Duration::from_secs(30), |p, _| {
             matches!(
                 p.tag,
                 protocol::SCREENSHOT_BEGIN | protocol::SCREENSHOT_DATA | protocol::SCREENSHOT_END

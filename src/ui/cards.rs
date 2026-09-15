@@ -30,10 +30,10 @@ impl Action {
             Self::Refresh => b'r',
         }
     }
-    fn label(self, remote: bool) -> &'static str {
+    fn label(self, copy_only: bool) -> &'static str {
         match self {
-            Self::Issue if remote => "Copy issue",
-            Self::Pr if remote => "Copy PR",
+            Self::Issue if copy_only => "Copy issue",
+            Self::Pr if copy_only => "Copy PR",
             Self::Issue => "Open issue",
             Self::Pr => "Open PR",
             Self::CopyIssue => "Copy issue",
@@ -43,6 +43,10 @@ impl Action {
             Self::Refresh => "Refresh GitHub",
         }
     }
+}
+struct ContentLine {
+    text: String,
+    action: Option<Action>,
 }
 struct Edit {
     expected: String,
@@ -296,8 +300,9 @@ impl Ui {
         let Some(target) = self.card_at(x, y) else {
             return false;
         };
+        let offset = self.side_offset();
         let header = matches!(
-            self.side_rows().get(self.side_offset() + y - 3),
+            self.side_rows().get(offset + y - 3),
             Some(workflows::SideRow::Card { row: 0, .. })
         );
         self.cards.children = None;
@@ -314,6 +319,10 @@ impl Ui {
                 self.resume_saved_chat();
             }
         }
+        // The pointer already found a visible target. Keep that viewport after
+        // the focus snapshot or disclosure update; keyboard moves still reveal
+        // their target through card_move's automatic scrolling.
+        self.side_scroll = Some(offset);
         true
     }
     pub(super) fn card_popup_visible(&self) -> bool {
@@ -593,10 +602,22 @@ impl Ui {
                     }
                 }
             }
+            Action::Issue | Action::Pr
+                if self.remote.as_ref().is_some_and(|r| r.browser_capable) =>
+            {
+                // Current companions consume a fresh local activation themselves.
+                // A forwarded shortcut was typed before the matching view arrived.
+                self.notice = "Link view changed; press its shortcut or click again".into();
+            }
             _ => match selection::clipboard_write(&url) {
                 Ok(sequence) => {
                     self.clipboard = Some(sequence);
-                    self.notice = "Sent to clipboard".into();
+                    self.notice = if matches!(action, Action::Issue | Action::Pr) {
+                        "URL copied · update the SSH companion for direct browser opening"
+                    } else {
+                        "Sent to clipboard"
+                    }
+                    .into();
                 }
                 Err(e) => self.notice = e.into(),
             },
@@ -697,9 +718,28 @@ impl Ui {
                 if let Key::Mouse { x, y } = key
                     && self.card_inside(*x, *y)
                 {
-                    let wid = self.cards.popup.as_ref().unwrap().wid;
-                    self.card_open(wid, true);
+                    if let Some(action) = self.card_content_action_at(*x, *y) {
+                        self.cards.popup.as_mut().unwrap().pressed = Some((action, *x, *y));
+                    } else {
+                        let wid = self.cards.popup.as_ref().unwrap().wid;
+                        self.card_open(wid, true);
+                    }
                     return true;
+                }
+                if let Key::Release { x, y } = key {
+                    let pressed = self.cards.popup.as_mut().unwrap().pressed.take();
+                    if let Some((action, ax, ay)) = pressed
+                        && (ax, ay) == (*x, *y)
+                        && self.card_content_action_at(*x, *y) == Some(action)
+                    {
+                        let wid = self.cards.popup.as_ref().unwrap().wid;
+                        self.card_open(wid, true);
+                        self.card_action(action);
+                        return true;
+                    }
+                }
+                if matches!(key, Key::Drag { .. } | Key::Wheel { .. }) {
+                    self.cards.popup.as_mut().unwrap().pressed = None;
                 }
                 if let Key::Wheel { x, y, delta, .. } = key
                     && self.card_inside(*x, *y)
@@ -728,6 +768,9 @@ impl Ui {
                 }
             }
             return false;
+        }
+        if matches!(key, Key::Bytes(_) | Key::Wheel { .. }) {
+            self.cards.popup.as_mut().unwrap().pressed = None;
         }
         let choices = actions(self.cards.popup.as_ref().unwrap());
         let (px, py, width, h) = self.card_rect();
@@ -785,14 +828,8 @@ impl Ui {
             Key::Mouse { x, y } => {
                 if !self.card_inside(*x, *y) {
                     self.card_close();
-                } else if *y == py + h - 3
-                    || (*y == py + h - 2
-                        && (18..30).contains(&width)
-                        && *x >= px + 7
-                        && *x < px + 12)
-                {
-                    let p = self.cards.popup.as_mut().unwrap();
-                    p.pressed = Some((choices[p.action.min(choices.len() - 1)], *x, *y));
+                } else if let Some(action) = self.card_popup_action_at(*x, *y) {
+                    self.cards.popup.as_mut().unwrap().pressed = Some((action, *x, *y));
                 } else if *y == py + h - 2 && *x >= px + width - if width < 30 { 5 } else { 11 } {
                     self.card_close();
                 } else if *y == py + h - 2 && *x < px + if width < 30 { 5 } else { 10 } {
@@ -806,12 +843,7 @@ impl Ui {
                 if let Some((a, ax, ay)) = p.pressed.take()
                     && ax == *x
                     && ay == *y
-                    && (*y == py + h - 3
-                        || (*y == py + h - 2
-                            && (18..30).contains(&width)
-                            && *x >= px + 7
-                            && *x < px + 12))
-                    && self.card_inside(*x, *y)
+                    && self.card_popup_action_at(*x, *y) == Some(a)
                 {
                     self.card_action(a);
                 }
@@ -821,7 +853,10 @@ impl Ui {
         }
         true // Pinned overlays own every key and paste, including unknown shortcuts.
     }
-    fn card_content(&self) -> Vec<String> {
+    fn card_copy_links(&self) -> bool {
+        self.remote.as_ref().is_some_and(|r| !r.browser_capable)
+    }
+    fn card_content(&self) -> Vec<ContentLine> {
         let Some(p) = &self.cards.popup else {
             return Vec::new();
         };
@@ -897,14 +932,190 @@ impl Ui {
             lines.push(format!(
                 "[{}] {}",
                 a.key() as char,
-                a.label(self.remote.is_some())
+                a.label(self.card_copy_links())
             ));
         }
         let width = self.card_rect().2.saturating_sub(4).max(1);
-        lines
-            .into_iter()
-            .flat_map(|line| chrome::wrap(&line, width, 65536))
-            .collect()
+        let mut content = Vec::new();
+        // Put both destinations before paths, terminals and fetched details so
+        // even a short hover preview exposes the actions without scrolling.
+        for (label, value, action) in [
+            ("Issue", &p.issue, Action::Issue),
+            ("PR", &p.pr, Action::Pr),
+        ] {
+            if let Some(link) = Link::parse(value) {
+                for text in chrome::wrap(
+                    &format!(
+                        "[{}] {label} #{} · {}",
+                        action.key() as char,
+                        link.number,
+                        if self.card_copy_links() {
+                            "copy"
+                        } else {
+                            "open"
+                        }
+                    ),
+                    width,
+                    65536,
+                ) {
+                    content.push(ContentLine {
+                        text,
+                        action: Some(action),
+                    });
+                }
+            }
+        }
+        if !content.is_empty() {
+            content.push(ContentLine {
+                text: String::new(),
+                action: None,
+            });
+        }
+        content.extend(
+            lines
+                .into_iter()
+                .flat_map(|line| chrome::wrap(&line, width, 65536))
+                .map(|text| ContentLine { text, action: None }),
+        );
+        content
+    }
+    fn card_content_action_at(&self, x: usize, y: usize) -> Option<Action> {
+        let p = self.cards.popup.as_ref()?;
+        let (px, py, width, _) = self.card_rect();
+        let visible = self.card_page_rows();
+        if x < px + 2 || x >= px + width.saturating_sub(2) || y < py + 2 || y >= py + 2 + visible {
+            return None;
+        }
+        let content = self.card_content();
+        let offset = p.offset.min(content.len().saturating_sub(visible));
+        content.get(offset + y - py - 2)?.action
+    }
+    fn card_popup_action_at(&self, x: usize, y: usize) -> Option<Action> {
+        if !self.card_inside(x, y) {
+            return None;
+        }
+        if let Some(action) = self.card_content_action_at(x, y) {
+            return Some(action);
+        }
+        let p = self.cards.popup.as_ref()?;
+        let (px, py, width, height) = self.card_rect();
+        if p.pinned
+            && (y == py + height - 3
+                || (y == py + height - 2
+                    && (18..30).contains(&width)
+                    && x >= px + 7
+                    && x < px + 12))
+        {
+            let choices = actions(p);
+            Some(choices[p.action.min(choices.len() - 1)])
+        } else {
+            None
+        }
+    }
+    pub(super) fn emit_card_links(&mut self) -> io::Result<()> {
+        use crate::browser_links::{self as links, Context, Region, Target};
+        let Some(remote) = self.remote.as_ref().filter(|r| r.browser_capable) else {
+            return Ok(());
+        };
+        let mut context = Context {
+            input: remote.browser_input,
+            width: self.layout.width as u16,
+            height: self.layout.height as u16,
+            identity: String::new(),
+            targets: Vec::new(),
+        };
+        let visible = self.arcade.is_none()
+            && !self.screensaver.active
+            && !self.menu
+            && self.form.is_none()
+            && self.search.is_none()
+            && self.update.is_none()
+            && self.tasks.is_none()
+            && self.confirm.is_none()
+            && self.context_menu.is_none()
+            && !self.remote_tools_open()
+            && !self.image_view()
+            && !self.board
+            && self.input.buf.is_empty()
+            && !self.input.paste;
+        if visible && let Some(p) = self.cards.popup.as_ref().filter(|p| p.edit.is_none()) {
+            context.identity = format!("{}:{}", p.epoch, p.wid);
+            let url = |action| match action {
+                Action::Issue => Link::parse(&p.issue).map(|l| l.url),
+                Action::Pr => Link::parse(&p.pr).map(|l| l.url),
+                _ => None,
+            };
+            if p.pinned {
+                let choices = actions(p);
+                for (key, action) in [
+                    (b'i', Action::Issue),
+                    (b'p', Action::Pr),
+                    (b'\r', choices[p.action.min(choices.len() - 1)]),
+                ] {
+                    if let Some(url) = url(action) {
+                        context.targets.push(Target {
+                            url,
+                            key: Some(key),
+                            region: None,
+                        });
+                    }
+                }
+            }
+            let (x, y, width, height) = self.card_rect();
+            let content = self.card_content();
+            let visible = self.card_page_rows();
+            let offset = p.offset.min(content.len().saturating_sub(visible));
+            let mut rows: Vec<_> = content
+                .iter()
+                .skip(offset)
+                .take(visible)
+                .enumerate()
+                .filter_map(|(i, line)| line.action.map(|action| (y + 2 + i, action)))
+                .collect();
+            if p.pinned {
+                let choices = actions(p);
+                rows.push((y + height - 3, choices[p.action.min(choices.len() - 1)]));
+            }
+            for (row, action) in rows {
+                if let Some(url) = url(action) {
+                    context.targets.push(Target {
+                        url,
+                        key: None,
+                        region: Some(Region {
+                            x: (x + 2) as u16,
+                            y: row as u16,
+                            width: width.saturating_sub(4) as u16,
+                        }),
+                    });
+                }
+            }
+            if p.pinned
+                && (18..30).contains(&width)
+                && let Some(action) = self.card_popup_action_at(x + 7, y + height - 2)
+                && let Some(url) = url(action)
+            {
+                context.targets.push(Target {
+                    url,
+                    key: None,
+                    region: Some(Region {
+                        x: (x + 7) as u16,
+                        y: (y + height - 2) as u16,
+                        width: 5,
+                    }),
+                });
+            }
+        }
+        let remote = self.remote.as_mut().unwrap();
+        remote.browser_serial = remote
+            .browser_serial
+            .checked_add(1)
+            .ok_or_else(|| wire::invalid("browser context counter exhausted"))?;
+        crate::remote_protocol::Packet::new(
+            links::CONTEXT,
+            remote.browser_serial,
+            serde_json::to_vec(&context).map_err(io::Error::other)?,
+        )
+        .write(&mut io::stdout().lock())
     }
     pub(super) fn draw_card_popup(&self, c: &mut Canvas) {
         let Some(p) = &self.cards.popup else {
@@ -976,7 +1187,17 @@ impl Ui {
         let visible = self.card_page_rows();
         let offset = p.offset.min(content.len().saturating_sub(visible));
         for (i, line) in content.iter().skip(offset).take(visible).enumerate() {
-            c.text(x + 2, y + 2 + i, inner, line, style(TEXT, BG, false));
+            c.text(
+                x + 2,
+                y + 2 + i,
+                inner,
+                &line.text,
+                style(
+                    if line.action.is_some() { CYAN } else { TEXT },
+                    BG,
+                    line.action.is_some(),
+                ),
+            );
         }
         if content.len() > visible && height >= 8 {
             c.text(
@@ -1010,7 +1231,7 @@ impl Ui {
                 &format!(
                     "> [{}] {}{}",
                     a.key() as char,
-                    a.label(self.remote.is_some()),
+                    a.label(self.card_copy_links()),
                     if width >= 30 { " · Enter" } else { "" }
                 ),
                 style(CYAN, ACTIVE_BG, true),
