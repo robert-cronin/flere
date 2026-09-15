@@ -141,9 +141,9 @@
 - [ ] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. The September 14 handoff tested the earlier private base
   plus that patch, not a fresh public checkout; preserve that evidence distinction.
-- [ ] Fix the initial horizontal/ladder hold pause on Windows legacy input;
-  investigate console-owned press/release events. Do not lengthen the legacy
-  timeout blindly, alter system repeat settings or add global keyboard monitoring.
+- Deferred by the owner: the Windows legacy-input arcade hold pause is not a
+  release requirement. Preserve the console-input investigation for a future
+  arcade pass; do not alter system repeat settings or add global monitoring.
 - [x] Prepare the upstream RPM wrapper from the verified v0.3.0 release. Real
   rpmbuild, payload/license/dependency checks and offline RPM install/remove
   passed in emulated amd64 Fedora 44; six installed stateless CLI checks and

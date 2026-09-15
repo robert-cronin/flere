@@ -76,6 +76,10 @@ Prebuilt Linux x86_64 and macOS arm64 downloads are also available from
 [Flere v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0), subject
 to their platform limits. The development workflow follows below.
 
+On Windows, [install the native SSH companion from source](packaging/windows/README.md#install-the-windows-companion-from-source)
+and connect with `flere-connect ssh dev`. It connects to a Linux/macOS workbench;
+the Windows ZIP and package-manager channels are still in preparation.
+
 From this checkout, with **Rust 1.98+**, Python 3, a system C linker and cached
 dependencies:
 

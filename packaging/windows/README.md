@@ -7,6 +7,29 @@ that companion; this does not claim a native Windows core.
 No Windows package-manager channel is published yet. Physical Windows acceptance
 is tracked in [the handoff](../../docs/windows-acceptance-handoff.md).
 
+## Install the Windows companion from source
+
+Until a Windows ZIP or package-manager channel is published, install from the
+public repository. On Windows x86_64, install Rust 1.98+ using
+<https://rustup.rs> and its Visual Studio C++ prerequisites, then reopen
+PowerShell. The native MSVC toolchain is the normal choice. An installed OpenSSH
+client and your existing SSH configuration provide the connection.
+
+```powershell
+cargo install --git https://github.com/robert-cronin/flere --locked flere-connect
+flere-connect ssh dev
+```
+
+Replace `dev` with your SSH hostname or configured alias. Cargo adds
+`flere-connect.exe` to its user bin directory; this source-install route does not
+create the `flere.exe` alias. It follows public `main`, so record `--build-info`
+when reporting a problem. For acceptance tied to a reviewed commit, add
+`--rev <FULL_REVIEWED_SOURCE_COMMIT>` to `cargo install`.
+
+This is a native Windows client for a Linux/macOS workbench, not a local Windows
+workbench. It does not require WinGet, Scoop or WSL. The portable candidate below
+provides both command names when its validation succeeds.
+
 ## Private hosted candidate
 
 The manual **Windows companion candidate** workflow prepares the unpublished
