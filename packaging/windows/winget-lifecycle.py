@@ -4,7 +4,9 @@
 Fixed retained inputs; the default preserves the earlier 422 lifecycle.
 The selected candidates also check installed ownership with a synthetic
 profile. The explicit upgrade mode installs published 0.3.4 bytes before the
-reviewed 0.3.5 candidate. No public download-route, UI, coordinated-refusal or SSH claim.
+reviewed 0.3.5 candidate, projecting its local installer ProductCode from the
+verified baseline record. No public download-route, catalogue upgrade, UI,
+coordinated-refusal or SSH claim.
 The community source is contacted normally. Upgrade-only VM provisioning removes
 the observed default Store source before the protected source baseline; that source
 set remains until VM teardown. LocalManifestFiles changes use normal settings
@@ -292,7 +294,7 @@ def verify_user_settings(value):
                 and type(group.get(key, default)) is type(default), "unsupported custom setting: " + key)
 
 
-def local_manifest(name, original, port, selected=LEGACY_INPUT):
+def local_manifest(name, original, port, selected=LEGACY_INPUT, *, upgrade_record=None):
     require(type(port) is int and 49152 <= port <= 65535, "owned high loopback port required")
     require(name in selected["winget"] and sha(original) == selected["winget"][name], "frozen manifest differs")
     version, zip_name = base.input_version(selected), base.zip_name(selected)
@@ -303,10 +305,22 @@ def local_manifest(name, original, port, selected=LEGACY_INPUT):
         local = f"http://127.0.0.1:{port}/{zip_name}".encode()
         updated = original.replace(public_url, local)
         require(updated.replace(local, public_url) == original, "non-URL manifest change")
+        if upgrade_record is not None:
+            upgrade_baseline(selected, True)
+            own_record([upgrade_record], version="0.3.4")
+            local_package_args(upgrade_record, version="0.3.4")
+            newline = b"\r\n" if b"\r\n" in original else b"\n"
+            anchor = b"- Architecture: x64" + newline
+            product = b"  ProductCode: " + PRODUCT_CODE.encode() + newline
+            require(updated.count(anchor) == 1 and b"ProductCode:" not in updated,
+                    "unexpected installer correlation metadata")
+            updated = updated.replace(anchor, anchor + product)
+            require(updated.replace(product, b"").replace(local, public_url) == original,
+                    "change outside URL and exact local ProductCode")
     return updated
 
 
-def local_manifests(archive_bytes, destination, port, selected=LEGACY_INPUT):
+def local_manifests(archive_bytes, destination, port, selected=LEGACY_INPUT, *, upgrade_record=None):
     require(len(archive_bytes) == selected["artifact_bytes"] and sha(archive_bytes) == selected["artifact_sha"],
             "recipe artifact differs")
     original_prefix = f"windows/winget/manifests/r/RobertCronin/FlereConnect/{base.input_version(selected)}/"
@@ -315,9 +329,16 @@ def local_manifests(archive_bytes, destination, port, selected=LEGACY_INPUT):
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         for name, digest in selected["winget"].items():
             original = archive.read(original_prefix + name)
-            updated = local_manifest(name, original, port, selected)
+            updated = local_manifest(name, original, port, selected, upgrade_record=upgrade_record)
             (destination / name).write_bytes(updated)
             changes[name] = {"original_sha256": digest, "private_sha256": sha(updated)}
+            if upgrade_record is not None and name.endswith(".installer.yaml"):
+                version, zip_name = base.input_version(selected), base.zip_name(selected)
+                changes[name]["metadata_delta"] = {
+                    "InstallerUrl":{"from":f"https://github.com/{base.REPO}/releases/download/v{version}/{zip_name}",
+                                    "to":f"http://127.0.0.1:{port}/{zip_name}"},
+                    "ProductCode":{"from":None,"to":PRODUCT_CODE},
+                    "baseline_record":{"key":upgrade_record["key"],"sha256":upgrade_record["sha256"]}}
     return changes
 
 
@@ -548,7 +569,7 @@ def main(output, selected=LEGACY_INPUT, *, upgrade=False):
         receipt["upgrade_from"] = {"version": "0.3.4", "product_commit": baseline["product"],
             "zip_sha256": baseline["zip_sha"], "artifact_sha256": baseline["artifact_sha"]}
         receipt["upgrade_to_version"] = target_version
-        receipt["limits"][0] = "Normal local-manifest 0.3.4 to 0.3.5 upgrade; identical public baseline bytes via loopback, not public URL/catalogue acceptance."
+        receipt["limits"][0] = "Normal local-manifest 0.3.4 to 0.3.5 upgrade; identical payloads via loopback and exact baseline ProductCode projected into the target installer, not public URL/catalogue acceptance."
     run = Run(work, proof, receipt); mirrors = []; settings_before = None; changed_setting = False
     user_before = sources_before = None
     attempted = False; removed = False; manifests = work/"manifests"; installed_root = None
@@ -691,7 +712,11 @@ def main(output, selected=LEGACY_INPUT, *, upgrade=False):
             version = base.input_version(phase_input)
             manifests = work/(prefix+"manifests")
             mirror = base.Mirror(portable, phase_input); mirrors.append((prefix, mirror, phase_input))
-            run.record(prefix+"private-manifests", local_manifests(artifact, manifests, mirror.server_port, phase_input))
+            projection_record = baseline_record if upgrade and not prefix else None
+            if upgrade and not prefix:
+                require(projection_record is not None, "verified baseline record missing before upgrade projection")
+            run.record(prefix+"private-manifests", local_manifests(artifact, manifests, mirror.server_port,
+                phase_input, upgrade_record=projection_record))
             run.command(prefix+"validate", [winget,"validate",manifests])
             attempted = True
             action = "upgrade" if upgrade and not prefix else "install"
@@ -1112,6 +1137,35 @@ def self_test():
                 with self.assertRaises(ValueError): verify_upgrade_identity(old, changed)
             with self.assertRaises(ValueError): verify_upgrade_identity(old, dict(new, key="other"))
             with self.assertRaises(ValueError): verify_inventory([unrelated], [dict(unrelated, sha256="c"*64),new], True, version="0.3.5")
+
+        def test_local_upgrade_product_code_is_exact_and_bound_to_baseline(self):
+            chosen = dict(PROFILE_INPUT, version="0.3.5")
+            owned = Guards().owned()
+            owned["subkey"] = ARP + "\\" + PRODUCT_CODE
+            owned["values"]["UninstallString"] = "winget uninstall --product-code " + PRODUCT_CODE
+            name = PACKAGE + ".installer.yaml"
+            public = f"https://github.com/{base.REPO}/releases/download/v0.3.5/{base.zip_name(chosen)}".encode()
+            original = b"Installers:\n- Architecture: x64\n  InstallerUrl: " + public + b"\n"
+            chosen["winget"] = {name:sha(original)}
+            private = local_manifest(name, original, 50000, chosen, upgrade_record=owned)
+            line = b"  ProductCode: " + PRODUCT_CODE.encode() + b"\n"
+            local = f"http://127.0.0.1:50000/{base.zip_name(chosen)}".encode()
+            self.assertEqual(private, original.replace(b"- Architecture: x64\n", b"- Architecture: x64\n" + line).replace(public, local))
+            self.assertEqual(private.replace(line,b"").replace(local,public), original)
+            self.assertNotIn(line, local_manifest(name, original, 50000, chosen))
+            crlf = original.replace(b"\n",b"\r\n")
+            crlf_private = local_manifest(name, crlf, 50000, dict(chosen,winget={name:sha(crlf)}), upgrade_record=owned)
+            self.assertEqual(crlf_private, private.replace(b"\n",b"\r\n"))
+            for field, wrong in (("DisplayVersion","0.3.5"), ("WinGetSourceIdentifier","winget"),
+                                 ("UninstallString","winget uninstall --product-code Other")):
+                changed=copy.deepcopy(owned);changed["values"][field]=wrong
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    local_manifest(name, original, 50000, chosen, upgrade_record=changed)
+            with self.assertRaises(ValueError):
+                local_manifest(name, original, 50000, chosen, upgrade_record=dict(owned,subkey=ARP+"\\Other"))
+            for altered in (original+line, original.replace(b"x64",b"arm64"), original+b"- Architecture: x64\n"):
+                with self.assertRaises(ValueError):
+                    local_manifest(name, altered, 50000, dict(chosen,winget={name:sha(altered)}), upgrade_record=owned)
 
         def test_versioned_manifest_substitution_preserves_all_non_url_bytes(self):
             for version in ("0.3.4", "0.3.5"):

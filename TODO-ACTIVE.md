@@ -402,7 +402,13 @@
   the exact default Store source before recording its protected source baseline;
   the community-only configuration remains until VM teardown. No Store terms
   are accepted and stock-source restoration is not claimed. All 25 helper checks
-  and replay of the observed source inventory pass; the next native run is pending. Native
+  and replay of the observed source inventory pass. Run `34941913400` verified
+  that provisioning and normal cleanup, but WinGet could not correlate its
+  local portable record with the target manifest; no target download occurred.
+  The private upgrade manifest now supplies the exact baseline ProductCode,
+  in addition to its runner-local URL. Public catalogue recipes and payloads
+  remain unchanged; 26 helper checks and actual CRLF manifest/record replay pass.
+  Native validation of that local-manifest projection remains pending. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
