@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import struct
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -68,6 +70,42 @@ class WindowsPackaging(unittest.TestCase):
         self.assertIn(result["sha256"].upper(), installer)
         self.assertIn("PortableCommandAlias: flere-connect", installer)
         self.assertEqual(result["status"], "prepared_not_published")
+
+    def test_scoop_retains_public_zip_and_only_adds_fixed_metadata_rename(self):
+        result = packager.prepare(self.assets, self.root / "scoop", self.target)
+        recipe = json.loads((self.root / "scoop/scoop/bucket/flere.json").read_text())
+        self.assertEqual(recipe["pre_install"], packager.SCOOP_PRE_INSTALL)
+        self.assertEqual(recipe["bin"], ["flere.exe", "flere-connect.exe"])
+        self.assertEqual(recipe, packager.scoop_manifest("0.3.0", result["url"], result["sha256"]))
+        with zipfile.ZipFile(self.root / "scoop" / result["asset"]) as archive:
+            self.assertEqual(archive.read("manifest.json"), (self.assets / (self.name + ".manifest.json")).read_bytes())
+            self.assertNotIn("flere-release.manifest.json", archive.namelist())
+
+    @unittest.skipUnless(shutil.which("pwsh"), "actual rename requires PowerShell; hosted Windows runs this check")
+    def test_actual_scoop_hook_preserves_bytes_and_fails_closed(self):
+        source = b'{"build":"fixture"}\r\n'
+        for case in ("normal", "missing", "collision"):
+            folder = self.root / case
+            folder.mkdir()
+            if case != "missing":
+                (folder / "manifest.json").write_bytes(source)
+            if case == "collision":
+                (folder / "flere-release.manifest.json").write_bytes(b"existing record")
+            command = "$ErrorActionPreference='Stop'; $dir=" + packager.powershell_literal(str(folder)) + "; " + packager.SCOOP_PRE_INSTALL
+            result = subprocess.run([shutil.which("pwsh"), "-NoLogo", "-NoProfile", "-Command", command],
+                                    stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
+            self.assertLess(len(result.stdout) + len(result.stderr), 65536)
+            if case == "normal":
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+                self.assertFalse((folder / "manifest.json").exists())
+                (folder / "manifest.json").write_bytes(b'{"version":"0.3.0"}')
+                self.assertEqual((folder / "flere-release.manifest.json").read_bytes(), source)
+                self.assertEqual(json.loads((folder / "manifest.json").read_bytes()), {"version":"0.3.0"})
+            else:
+                self.assertNotEqual(result.returncode, 0)
+                if case == "collision":
+                    self.assertEqual((folder / "flere-release.manifest.json").read_bytes(), b"existing record")
+                    self.assertEqual((folder / "manifest.json").read_bytes(), source)
 
     def test_winget_headers_match_each_type_and_portable_has_no_scope(self):
         packager.prepare(self.assets, self.root / "out", self.target)

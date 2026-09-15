@@ -144,6 +144,28 @@ Install-ChocolateyZipPackage @packageArgs
             "tools/chocolateyInstall.ps1": script.encode("utf-8-sig")}
 
 
+SCOOP_PRE_INSTALL = 'Rename-Item -LiteralPath "$dir\\manifest.json" -NewName \'flere-release.manifest.json\' -ErrorAction Stop'
+
+
+def scoop_manifest(version, url, checksum):
+    """Scoop keeps its own manifest.json; preserve the exact release record first."""
+    if not release_version(version) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        raise ValueError("invalid Scoop version/checksum")
+    return {
+        "version": version,
+        "description": "OpenSSH and clipboard companion for a Linux or macOS Flere workbench",
+        "homepage": REPOSITORY, "license": "MIT",
+        "architecture": {"64bit": {"url": url, "hash": checksum}},
+        "bin": ["flere.exe", "flere-connect.exe"],
+        "pre_install": SCOOP_PRE_INSTALL,
+        "notes": [
+            "Requires an existing OpenSSH client and a Linux or macOS SSH host.",
+            "Run flere ssh ALIAS. The Windows package is the companion, not a native Windows workbench.",
+            "Use scoop update flere for this installation; the in-app updater manages a separate user installation.",
+        ],
+    }
+
+
 def prepare(assets, output, target, license_path=PROJECT / "LICENSE"):
     if output.exists():
         raise ValueError("output directory already exists")
@@ -166,18 +188,7 @@ def prepare(assets, output, target, license_path=PROJECT / "LICENSE"):
         destination.write_bytes(data)
     scoop = output / "scoop" / "bucket"
     scoop.mkdir(parents=True)
-    (scoop / "flere.json").write_text(json.dumps({
-        "version": version,
-        "description": "OpenSSH and clipboard companion for a Linux or macOS Flere workbench",
-        "homepage": REPOSITORY, "license": "MIT",
-        "architecture": {"64bit": {"url": url, "hash": checksum}},
-        "bin": ["flere.exe", "flere-connect.exe"],
-        "notes": [
-            "Requires an existing OpenSSH client and a Linux or macOS SSH host.",
-            "Run flere ssh ALIAS. The Windows package is the companion, not a native Windows workbench.",
-            "Use scoop update flere for this installation; the in-app updater manages a separate user installation.",
-        ],
-    }, indent=2) + "\n")
+    (scoop / "flere.json").write_text(json.dumps(scoop_manifest(version, url, checksum), indent=2) + "\n")
     winget = output / "winget" / "manifests" / "r" / "RobertCronin" / "FlereConnect" / version
     winget.mkdir(parents=True)
     common = f"PackageIdentifier: {IDENTIFIER}\nPackageVersion: {yaml_scalar(version)}\n"

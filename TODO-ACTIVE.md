@@ -358,8 +358,11 @@
   core/companion Mac unit tests, both format/strict Clippy checks and Windows GNU
   cross-compilation pass. Native validation of the corrected query is pending;
   both failed receipts remain retained. Catalogue/custom-root installations stay
-  Unknown. A normal Scoop first-install/remove check is being prepared; its
-  detector is still missing. Use installed-manager records and exact executable
+  Unknown. A normal Scoop public-ZIP install/remove workflow is prepared;
+  its generator preserves Flere release metadata before Scoop writes its own
+  manifest. Seven helper checks and eleven manifest checks pass; the actual
+  PowerShell rename check awaits native execution. Scoop ownership detection
+  is still missing. Use installed-manager records and exact executable
   identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
