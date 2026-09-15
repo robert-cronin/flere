@@ -668,7 +668,10 @@ def main(output, selected=LEGACY_INPUT, *, upgrade=False):
             run.command(prefix+"validate", [winget,"validate",manifests])
             attempted = True
             action = "upgrade" if upgrade and not prefix else "install"
-            run.command(prefix+action, [winget,action,"--manifest",manifests,"--scope","user","--architecture","x64"], seconds=180)
+            arguments = [winget,action,"--manifest",manifests,"--scope","user","--architecture","x64"]
+            if action == "upgrade":
+                arguments += ["--source", "winget"]
+            run.command(prefix+action, arguments, seconds=180)
             after_inventory = registry_inventory(); run.record(prefix+"installed-after", after_inventory)
             verify_inventory(before_inventory, after_inventory, True, version=version); owned = own_record(after_inventory, version=version)
             if upgrade:

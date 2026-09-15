@@ -379,7 +379,13 @@
   source `7e43fa1` passed all 541 native macOS tests and both release builds;
   strict checks and formatting pass. Normal Scoop/WinGet upgrade workflows
   are prepared with exact version/build/alias and preservation checks; all 64
-  combined helper checks pass. They await verified 0.3.5 candidate inputs. Native
+  combined helper checks pass. Native candidate `34938451094` at `7e43fa1`
+  passed 81 tests, six aliases and package recipe checks; one physical clipboard
+  test remains ignored. First upgrade run `34939643780` installed and checked
+  public 0.3.4, then stopped when WinGet opened Microsoft Store terms during
+  upgrade. No terms were accepted and 0.3.5 was not installed; normal removal
+  and state/settings/source preservation passed. The upgrade now explicitly
+  selects the existing `winget` source; the original failure remains retained. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
