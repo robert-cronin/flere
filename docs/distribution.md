@@ -23,7 +23,7 @@ Linux prebuilt executables require **glibc 2.39 or newer**. See the
 macOS arm64 prebuilt core/companion downloads remain at
 [v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0), without
 Developer ID notarization. Older macOS and Intel runtime acceptance are not
-established by that release. Homebrew source formulas now track v0.3.6.
+established by that release. Homebrew source formulas now track v0.3.7.
 
 The Unix shell bootstrap pins the verified installer at commit `5297628`. It
 selects Linux v0.3.7 or the unsigned macOS arm64 v0.3.0 prebuilt from the
@@ -48,11 +48,11 @@ channels retain their individual validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
-| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.6 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
+| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.7 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
 | [Cargo / crates.io](https://crates.io/crates/flere/0.3.7) | Core source package for Linux/macOS | Published v0.3.7 through Trusted Publishing from the matching GitHub source. Companion excluded |
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.7 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
-| [Scoop bucket](https://github.com/robert-cronin/scoop-flere) | Windows x86_64 companion | Published v0.3.6 recipe uses the verified public ZIP. Earlier owned-Git-bucket upgrade, ownership, local UI refusal and removal/preservation passed on candidate `4f3b693`; the new public bucket route and physical acceptance remain untested |
+| [Scoop bucket](https://github.com/robert-cronin/scoop-flere) | Windows x86_64 companion | Published v0.3.7 recipe uses the verified public ZIP. Earlier owned-Git-bucket upgrade, ownership, local UI refusal and removal/preservation passed on candidate `4f3b693`; the new public bucket route and physical acceptance remain untested |
 | [WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.7 ZIP and native manifest validation passed. Earlier local-recipe upgrades, both installed-owner reports and removal/preservation passed; community submission and physical acceptance remain pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | The draft remains pinned to public v0.3.5 source `8744d35`, which passed 543 tests, strict-sandbox builds and exact inventories in [run 34950280814](https://github.com/robert-cronin/flere/actions/runs/34950280814). Historical v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Real SSH from the installed macOS companion to the Nix-built core passed; physical clipboard remains open. Not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
@@ -111,7 +111,7 @@ remote-core refusal, actual SSH or physical-terminal behavior. The prior
 [run 34952666337](https://github.com/robert-cronin/flere/actions/runs/34952666337)
 remains failed before UI startup because of a Python console-wrapper error,
 with normal package/bucket cleanup. The owned Scoop bucket is now published at
-v0.3.6. WinGet/Chocolatey UI refusal, their catalogue publication/upgrades and
+v0.3.7. WinGet/Chocolatey UI refusal, their catalogue publication/upgrades and
 physical acceptance remain pending; the historical bucket fixtures do not prove
 the newly published bucket's download route.
 
@@ -128,13 +128,13 @@ flere --version
 brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
 ```
 
-Homebrew builds locally from the pinned v0.3.6 source archive and supplies Rust
+Homebrew builds locally from the pinned v0.3.7 source archive and supplies Rust
 1.98 or newer as a build dependency. Ensure Homebrew's `bin` directory is on PATH.
 Use `brew upgrade robert-cronin/flere/flere` after `brew update`; upgrade the
 companion through Homebrew too if installed. See the
 [tap guide](../packaging/homebrew/README.md) for removal and maintenance.
-Both published formulas at [tap commit `c13fe92`](https://github.com/robert-cronin/homebrew-flere/commit/c13fe92a61c13dd7008b556598f85cf1328dc6f3)
-match the verified v0.3.6 release recipes. This pin update did not repeat the
+Both published formulas at [tap commit `593f84b`](https://github.com/robert-cronin/homebrew-flere/commit/593f84b22fb7f96ec01738f585f782a1b23cf99a)
+match the verified v0.3.7 release recipes. This pin update did not repeat the
 earlier full Homebrew lifecycle checks below.
 
 Native Linux and hosted macOS 15/26 arm64 checks passed source installation,
@@ -234,7 +234,7 @@ acceptance at exact source `2d52985`: both normal source installs, formula tests
 six stateless checks and actual core/companion update UIs passed. Both refused
 preparation before staging, kept their installed binaries and manager receipts
 unchanged, then exited and uninstalled normally with synthetic state preserved.
-The private formulas used a verified local source URL. The current v0.3.6 tap
+The private formulas used a verified local source URL. The current v0.3.7 tap
 retains this correction; the earlier v0.3.2 tap did not. No active sessions
 or external SSH were exercised by that lifecycle check.
 

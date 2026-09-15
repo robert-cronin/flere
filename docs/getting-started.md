@@ -94,13 +94,13 @@ flere-connect --version
 ```
 
 The [published tap](https://github.com/robert-cronin/homebrew-flere) builds the
-pinned v0.3.6 source locally and supplies Rust as a build dependency. Ensure
+pinned v0.3.7 source locally and supplies Rust as a build dependency. Ensure
 Homebrew's `bin` directory is on PATH, then [open a project](#open-a-project).
 Use Homebrew for upgrades and removal. See the
 [tap guide](../packaging/homebrew/README.md) for commands and
 [validation limits](distribution.md#install-with-homebrew): Linux and isolated
 macOS 15/26 install, upgrade and removal were validated through v0.3.2. The
-v0.3.6 update changes the verified source pins with unchanged installation logic
+v0.3.7 update changes the verified source pins with unchanged installation logic
 and dependencies; its native source checks passed.
 
 ## Install with Cargo

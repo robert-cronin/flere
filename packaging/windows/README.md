@@ -6,7 +6,7 @@ that companion; this does not claim a native Windows core.
 
 The [v0.3.7 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.7/flere-connect-0.3.7-x86_64-pc-windows-msvc.zip)
 is published. [Flere's Scoop bucket](https://github.com/robert-cronin/scoop-flere)
-currently supplies v0.3.6. WinGet and Chocolatey catalogue publication remains pending.
+currently supplies v0.3.7. WinGet and Chocolatey catalogue publication remains pending.
 Physical Windows acceptance is tracked in
 [the handoff](../../docs/windows-acceptance-handoff.md).
 
@@ -22,8 +22,8 @@ flere ssh dev
 
 Replace `dev` with your existing OpenSSH hostname or configured alias. Both
 command names launch the companion. The published bucket at
-[commit `982c8dc`](https://github.com/robert-cronin/scoop-flere/commit/982c8dcf8666f7ae2e5cbd9d1e0c58a890e1407a)
-contains the exact native-generated v0.3.6 recipe and verified ZIP checksum.
+[commit `87dca04`](https://github.com/robert-cronin/scoop-flere/commit/87dca04f52158dd1e7434e8423657e860572bf14)
+contains the exact native-generated v0.3.7 recipe and verified ZIP checksum.
 This is Flere's own bucket, not a Scoop Main/Extras submission.
 
 Detach the companion before upgrading or removing it. Use `scoop update`, then

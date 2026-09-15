@@ -13,6 +13,11 @@ on:
         required: true
         type: string
         default: '0.3.4'
+      default_channel_launcher:
+        description: 'Also test038 default intent with the retained public037 Windows launcher'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,6 +73,13 @@ jobs:
         run: |
           python -B automation/packaging/windows/test_hosted_candidate.py
           if ($LASTEXITCODE -ne 0) { throw 'Candidate helper checks failed.' }
+      - name: Check the optional default-channel fixture guards
+        if: inputs.default_channel_launcher
+        shell: pwsh
+        run: |
+          if ($env:FLERE_CANDIDATE_VERSION -ne '0.3.8') { throw 'This opt-in fixture requires exactly0.3.8.' }
+          python -B automation/packaging/windows/default-channel-launcher.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Default-channel fixture checks failed.' }
       - id: candidate
         name: Build the selected MSVC companion and validate its private ZIP
         env:
@@ -79,6 +91,32 @@ jobs:
           $Output = Join-Path $Root ("windows-candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
           python -B automation/packaging/windows/hosted-candidate.py --checkout source --output $Output --commit $env:FLERE_CANDIDATE_COMMIT --version $env:FLERE_CANDIDATE_VERSION
           if ($LASTEXITCODE -ne 0) { throw 'Windows candidate failed; retain the failure evidence.' }
+      - id: default_launcher
+        name: Verify actual retained-launcher refusal and supporting receipt transition
+        if: inputs.default_channel_launcher
+        timeout-minutes: 7
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          FLERE_CANDIDATE_PROOF: ${{ steps.candidate.outputs.evidence }}
+        shell: pwsh
+        run: |
+          $Root = Join-Path $HOME '.cache/flere/tmp'
+          $Output = Join-Path $Root ("windows-default-launcher-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
+          python -B automation/packaging/windows/default-channel-launcher.py --candidate-proof $env:FLERE_CANDIDATE_PROOF --output $Output --commit $env:FLERE_CANDIDATE_COMMIT --version $env:FLERE_CANDIDATE_VERSION
+          if ($LASTEXITCODE -ne 0) { throw 'Default-channel launcher fixture failed; retain the original evidence.' }
+      - name: Retain bounded default-channel launcher evidence separately
+        if: always() && steps.default_launcher.outputs.evidence != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-default-launcher-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.default_launcher.outputs.evidence }}/receipt.json
+            ${{ steps.default_launcher.outputs.evidence }}/hashes.json
+            ${{ steps.default_launcher.outputs.evidence }}/records/*.json
+            ${{ steps.default_launcher.outputs.evidence }}/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false
       - name: Retain only candidate packages, manifests and bounded validation evidence
         if: always() && steps.candidate.outputs.evidence != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

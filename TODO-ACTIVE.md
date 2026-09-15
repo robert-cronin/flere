@@ -7,7 +7,7 @@
   the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
   required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
-  using the pinned, checksummed v0.3.6 release archive. Signed tap commit `c13fe92`
+  using the pinned, checksummed v0.3.7 release archive. Signed tap commit `593f84b`
   advances both formulas using the verified prepared recipe bytes;
   the core retains its Linux `zlib-ng-compat` runtime dependency.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
@@ -127,7 +127,7 @@
   identities, selections and frontend attachments were independently verified.
   No frontend reload or new physical acceptance is claimed.
 - [x] Publish the [owned Scoop bucket](https://github.com/robert-cronin/scoop-flere)
-  for v0.3.6. Signed `982c8dc` contains only the verified native recipe,
+  for v0.3.7. Signed `87dca04` contains only the verified native recipe,
   README, licence and Git attributes. All four public files and GitHub's valid
   signature were verified; recipe bytes match the producer and the public ZIP.
   This is bucket publication, not central catalogue approval or a new physical
@@ -523,7 +523,7 @@
   Windows-launcher support are checked before writing the new receipt policy,
   including rollback and recovery. Independent source review found no blocker;
   65 focused Rust case executions and 19 Python installer cases pass, with
-  strict Clippy, Windows GNU compile checks and formatting. At `d4fa4d8`,
+  strict Clippy, Windows GNU compile checks and formatting. At `dc83d22` (identical source tree after correcting unpublished commit identity),
   the full native Linux pass completed all eight required checks: 581 tests,
   both strict Clippy/formatting checks and both release builds, with unchanged
   source and no remaining owned children. Exact Linux and Mac release binaries
@@ -534,7 +534,10 @@
   version-pinned; publish supporting binaries before advancing the default-follow
   installer.
   Native Windows launcher behavior and real default-channel promotion/update
-  acceptance remain open. No live protocol or RPC capability was changed.
+  acceptance remain open. An optional Windows candidate check now exercises the
+  retained v0.3.7 launcher against a v0.3.8 worker and a supporting-launcher
+  receipt transition; seven local fixture guards and independent review passed,
+  but native execution is pending. No live protocol or RPC capability was changed.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
   an explicit commit/version pair while preserving its historical defaults,

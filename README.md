@@ -75,7 +75,7 @@ Homebrew compiles the pinned source locally. See
 upgrades and the documented platform limits.
 [Flere v0.3.7](https://github.com/robert-cronin/flere/releases/tag/v0.3.7) provides
 Linux x86_64 downloads, a Debian package and the Windows x86_64 companion ZIP.
-Homebrew source formulas now track v0.3.6. macOS arm64 prebuilt downloads remain at
+Homebrew source formulas now track v0.3.7. macOS arm64 prebuilt downloads remain at
 [v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0); notarized
 Mac prebuilts are still pending.
 
