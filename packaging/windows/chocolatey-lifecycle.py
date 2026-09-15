@@ -176,6 +176,17 @@ def local_script(script, port):
     return result
 
 
+def request_failure(method, path, status):
+    """Bounded metadata only: never retain headers, arbitrary paths, query values or parser messages."""
+    raw = path if isinstance(path, str) else ""
+    clean = raw.split("?", 1)[0].split("#", 1)[0]
+    return {"method": method if method in ("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "CONNECT", "TRACE", "PATCH") else "<other>",
+            "path": clean if clean == "/" + ZIP_NAME else "<other>",
+            "path_form": "absolute" if raw.startswith(("http://", "https://")) else "origin" if raw.startswith("/") else "other",
+            "path_characters": len(raw), "query_present": "?" in raw, "fragment_present": "#" in raw,
+            "status": status, "reason": http.server.BaseHTTPRequestHandler.responses.get(status, ("Unknown",))[0]}
+
+
 class Mirror(http.server.HTTPServer):
     """One immutable object, one loopback listener; no filesystem HTTP handler."""
     allow_reuse_address = False
@@ -191,7 +202,12 @@ class Mirror(http.server.HTTPServer):
                 super().handle_one_request()
 
             def send_error(self, code, message=None, explain=None):
-                self.server.unexpected = True
+                owner = self.server
+                owner.unexpected = True
+                if len(owner.rejections) < 8:
+                    owner.rejections.append(request_failure(getattr(self, "command", None), getattr(self, "path", None), code))
+                else:
+                    owner.rejections_dropped += 1
                 super().send_error(code, message, explain)
 
             def do_HEAD(self):
@@ -226,6 +242,7 @@ class Mirror(http.server.HTTPServer):
             self.server_close()
             raise
         self.requests, self.unexpected = [], False
+        self.rejections, self.rejections_dropped = [], 0
         self.worker = threading.Thread(target=self.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
         self.worker.start()
 
@@ -594,6 +611,9 @@ def main(output):
                 mirror.close_owned(); receipt["loopback_closed"] = True
             except BaseException as error:
                 cleanup_errors.append("loopback cleanup: " + str(error))
+            receipt["loopback_unexpected"] = mirror.unexpected
+            receipt["loopback_rejections"] = mirror.rejections
+            receipt["loopback_rejections_dropped"] = mirror.rejections_dropped
         receipt["cleanup_errors"] = cleanup_errors
         if cleanup_errors:
             receipt["status"] = "failed"
@@ -685,6 +705,20 @@ def self_test():
                     verify_removal(dict(base, aliases=dict(base["aliases"], **{"flere.exe": alias})))
             with self.assertRaisesRegex(ValueError, "both alias"):
                 verify_removal(dict(base, aliases={}))
+
+        def test_rejected_request_diagnostics_never_retain_arbitrary_text(self):
+            row = request_failure("GET", "/" + ZIP_NAME + "?token=private#private", 404)
+            self.assertEqual(row["path"], "/" + ZIP_NAME)
+            self.assertTrue(row["query_present"] and row["fragment_present"])
+            self.assertEqual((row["method"], row["status"], row["reason"]), ("GET", 404, "Not Found"))
+            self.assertNotIn("private", json.dumps(row))
+            for method, path in (("private", "/private"), (None, None),
+                                 ("GET", "http://user:private@127.0.0.1:50000/private?private")):
+                with self.subTest(method=method):
+                    result = request_failure(method, path, 400)
+                    self.assertEqual(result["path"], "<other>")
+                    self.assertNotIn("private", json.dumps(result))
+            self.assertEqual(request_failure("HEAD", "/" + ZIP_NAME, 501)["method"], "HEAD")
 
         def test_actual_powershell_progress_stays_out_of_json(self):
             # Exact first-use CLIXML progress bytes retained from native run34915209443.
