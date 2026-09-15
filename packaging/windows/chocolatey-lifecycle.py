@@ -187,6 +187,23 @@ def request_failure(method, path, status):
             "status": status, "reason": http.server.BaseHTTPRequestHandler.responses.get(status, ("Unknown",))[0]}
 
 
+def verify_mirror(responses, attempts, rejections, dropped, internal_errors):
+    """Accept only completed exact-object responses; rejected traffic is an observation."""
+    require(not internal_errors, "loopback internal error")
+    require(len(rejections) <= 8 and not dropped, "loopback diagnostic overflow")
+    require(1 <= attempts <= 8 and attempts == len(responses), "loopback response cap or incomplete transfer")
+    for row in rejections:
+        require(400 <= row["status"] <= 499 or row["status"] == 501, "unexpected loopback error status")
+    for row in responses:
+        require(row["status"] == 200 and row["path"] == "/" + ZIP_NAME
+                and row["method"] in ("GET", "HEAD") and row["content_length"] == 1771884,
+                "loopback response identity differs")
+        require((row["method"] == "GET" and row["bytes"] == 1771884 and row["sha256"] == ZIP_SHA)
+                or (row["method"] == "HEAD" and row["bytes"] == 0 and row["sha256"] is None),
+                "loopback response body differs")
+    require(any(row["method"] == "GET" for row in responses), "complete exact loopback GET was not observed")
+
+
 class Mirror(http.server.HTTPServer):
     """One immutable object, one loopback listener; no filesystem HTTP handler."""
     allow_reuse_address = False
@@ -203,12 +220,12 @@ class Mirror(http.server.HTTPServer):
 
             def send_error(self, code, message=None, explain=None):
                 owner = self.server
-                owner.unexpected = True
                 if len(owner.rejections) < 8:
                     owner.rejections.append(request_failure(getattr(self, "command", None), getattr(self, "path", None), code))
                 else:
                     owner.rejections_dropped += 1
-                super().send_error(code, message, explain)
+                # Standard error body only; never echo arbitrary parser text or filesystem data.
+                super().send_error(code)
 
             def do_HEAD(self):
                 self.respond(False)
@@ -218,19 +235,24 @@ class Mirror(http.server.HTTPServer):
 
             def respond(self, body):
                 owner = self.server
-                if self.path != "/" + ZIP_NAME or len(owner.requests) >= 8:
-                    owner.unexpected = True
+                if self.path != "/" + ZIP_NAME:
                     self.send_error(404)
                     return
-                row = {"method": self.command, "bytes": 0, "sha256": None}
-                owner.requests.append(row)
+                owner.attempts += 1
+                if owner.attempts > 8:
+                    self.send_error(429)
+                    return
+                row = {"status": 200, "method": self.command, "path": self.path,
+                       "content_length": len(data), "bytes": 0, "sha256": None}
                 self.send_response(200)
                 self.send_header("Content-Type", "application/zip")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 if body:
-                    self.wfile.write(data); self.wfile.flush()
+                    require(self.wfile.write(data) == len(data), "incomplete loopback body write")
                     row.update(bytes=len(data), sha256=sha(data))
+                self.wfile.flush()
+                owner.requests.append(row)  # No success record exists before headers/body finish writing.
         # Windows SO_EXCLUSIVEADDRUSE prevents competing binds on the owned listener.
         super().__init__(("127.0.0.1", 0), Handler, bind_and_activate=False)
         if os.name == "nt":
@@ -241,10 +263,13 @@ class Mirror(http.server.HTTPServer):
         except BaseException:
             self.server_close()
             raise
-        self.requests, self.unexpected = [], False
+        self.requests, self.attempts, self.internal_errors = [], 0, 0
         self.rejections, self.rejections_dropped = [], 0
         self.worker = threading.Thread(target=self.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
         self.worker.start()
+
+    def handle_error(self, request, client_address):
+        self.internal_errors += 1  # Fail closed without exporting exception/request text.
 
     def close_owned(self):
         self.shutdown(); self.server_close(); self.worker.join(timeout=5)
@@ -578,9 +603,7 @@ def main(output):
         uninstalled = True
         verify_removal(removal_snapshot("removal", packages("packages-after")))
         record("path-after", path_hashes()); record("state-after", candidate.tree(fixture))
-        require(not mirror.unexpected and any(row["method"] == "GET" and row["sha256"] == ZIP_SHA
-                    for row in mirror.requests), "normal checksummed loopback download was not observed")
-        receipt.update(status="lifecycle_passed", aliases_checked=6, synthetic_state_preserved=True,
+        receipt.update(status="lifecycle_complete_pending_mirror", aliases_checked=6, synthetic_state_preserved=True,
                        package_inventory_preserved=True, no_product_ownership_claim=True)
     except BaseException as error:
         receipt.update(status="failed", error=str(error), traceback=traceback.format_exc())
@@ -606,14 +629,26 @@ def main(output):
             except BaseException as error:
                 cleanup_errors.append("feature verification: " + str(error))
         if mirror is not None:
-            receipt["loopback_requests"] = mirror.requests
             try:
                 mirror.close_owned(); receipt["loopback_closed"] = True
             except BaseException as error:
                 cleanup_errors.append("loopback cleanup: " + str(error))
-            receipt["loopback_unexpected"] = mirror.unexpected
+            receipt["loopback_requests"] = mirror.requests
+            receipt["loopback_response_attempts"] = mirror.attempts
+            receipt["loopback_internal_errors"] = mirror.internal_errors
             receipt["loopback_rejections"] = mirror.rejections
             receipt["loopback_rejections_dropped"] = mirror.rejections_dropped
+            try:
+                require(receipt.get("loopback_closed") is True, "loopback must close before final verification")
+                verify_mirror(mirror.requests, mirror.attempts, mirror.rejections,
+                              mirror.rejections_dropped, mirror.internal_errors)
+                receipt["loopback_verified"] = True
+                if receipt["status"] == "lifecycle_complete_pending_mirror":
+                    receipt["status"] = "lifecycle_passed"
+            except Exception as error:
+                receipt["status"] = "failed"
+                receipt.setdefault("error", str(error))
+                receipt["loopback_verification_error"] = str(error)
         receipt["cleanup_errors"] = cleanup_errors
         if cleanup_errors:
             receipt["status"] = "failed"
@@ -705,6 +740,29 @@ def self_test():
                     verify_removal(dict(base, aliases=dict(base["aliases"], **{"flere.exe": alias})))
             with self.assertRaisesRegex(ValueError, "both alias"):
                 verify_removal(dict(base, aliases={}))
+
+        def test_mirror_accepts_exact_bytes_with_rejected_traffic(self):
+            get = {"status": 200, "method": "GET", "path": "/" + ZIP_NAME,
+                   "content_length": 1771884, "bytes": 1771884, "sha256": ZIP_SHA}
+            head = dict(get, method="HEAD", bytes=0, sha256=None)
+            verify_mirror([get, head], 2, [{"status": code} for code in (400, 404, 501)], 0, 0)
+            with self.assertRaisesRegex(ValueError, "GET"):
+                verify_mirror([head], 1, [], 0, 0)
+
+        def test_mirror_rejects_mismatched_incomplete_and_unbounded_results(self):
+            get = {"status": 200, "method": "GET", "path": "/" + ZIP_NAME,
+                   "content_length": 1771884, "bytes": 1771884, "sha256": ZIP_SHA}
+            for key, wrong in (("status", 201), ("method", "POST"), ("path", "/other"),
+                               ("content_length", 1), ("bytes", 1), ("sha256", "0" * 64)):
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    verify_mirror([dict(get, **{key: wrong})], 1, [], 0, 0)
+            with self.assertRaisesRegex(ValueError, "body"):
+                verify_mirror([dict(get, method="HEAD")], 1, [], 0, 0)
+            for args in (([get], 2, [], 0, 0), ([get] * 9, 9, [], 0, 0),
+                         ([get], 1, [], 1, 0), ([get], 1, [{"status": 400}] * 9, 0, 0), ([get], 1, [], 0, 1),
+                         ([get], 1, [{"status": 500}], 0, 0)):
+                with self.subTest(args=args[1:]), self.assertRaises(ValueError):
+                    verify_mirror(*args)
 
         def test_rejected_request_diagnostics_never_retain_arbitrary_text(self):
             row = request_failure("GET", "/" + ZIP_NAME + "?token=private#private", 404)
