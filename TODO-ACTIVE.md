@@ -347,8 +347,13 @@
   Clippy and Windows cross-compilation pass. Native MSVC candidate run
   `34931604932` at `9a9183c` passed 76 tests, both aliases and native recipe
   checks, with one physical ignore. Native installed WinGet recognition remains
-  pending; catalogue/custom-root installations stay Unknown. The Scoop
-  detector is still missing. Use actual installed-manager records and exact
+  pending. Installed check `34933659610` at workflow `d7e6619` failed:
+  normal installation and six alias checks passed, but the first owner query
+  returned Unknown. The second owner query was not reached. Normal removal,
+  state/PATH/settings preservation and loopback cleanup passed; diagnostics
+  are in progress and the failed evidence is retained. Catalogue/custom-root
+  installations stay Unknown. A normal Scoop first-install/remove check is
+  being prepared; its detector is still missing. Use installed-manager records and exact
   executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
