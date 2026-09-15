@@ -435,6 +435,19 @@ def preservation_snapshot(before_state, after_state, before_paths, after_paths):
             "path_after": after_paths}
 
 
+def verify_tool_initialization(before, after):
+    """Only observed startup additions may enter the tool-ready baseline."""
+    require(all(after.get(name) == value for name, value in before.items()),
+            "tool initialization changed existing synthetic state")
+    directories = {"AppData/Local/Microsoft", "AppData/Local/Microsoft/Windows",
+                   "AppData/Local/Microsoft/Windows/PowerShell", "temp/chocolatey"}
+    profile = "AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive"
+    for name in after.keys() - before.keys():
+        require((name in directories and after[name] == "directory") or
+                (name == profile and re.fullmatch(r"[0-9a-f]{64}", after[name]) is not None),
+                "unexpected tool initialization path or file type")
+
+
 def verify_removal(value):
     """Stored history is distinct from installed files, according to observed policy."""
     require(set(value["aliases"]) == {"flere.exe", "flere-connect.exe"}, "both alias predicates required")
@@ -627,10 +640,34 @@ def main(output, selected=LEGACY_INPUT):
             (fixture / folder).mkdir(parents=True, exist_ok=True)
         (fixture / "state/preserved.json").write_text('{"synthetic":true,"selection":"retained"}\n')
         (fixture / ".ssh/config").write_text("# synthetic sentinel; no SSH is launched\n")
-        before_state = candidate.tree(fixture); record("state-before", before_state)
+        before_state = candidate.tree(fixture)
         child_env = dict(environment, HOME=str(fixture), USERPROFILE=str(fixture),
                          LOCALAPPDATA=str(fixture / "AppData/Local"), APPDATA=str(fixture / "AppData/Roaming"),
                          XDG_CACHE_HOME=str(fixture / ".cache"), TEMP=str(fixture / "temp"), TMP=str(fixture / "temp"))
+        if selected["owner_check"]:
+            # update-status invokes these normal tools. Initialize their observed
+            # startup caches explicitly, before install or any product execution.
+            # This preserves a tool-ready profile, not cold-profile no-write behavior.
+            cold_state = before_state
+            shell = shutil.which("powershell.exe", path=child_env.get("PATH"))
+            require(shell is not None, "normal Windows PowerShell hash dependency unavailable")
+            require(command("initialize-powershell", [shell, "-NoProfile", "-NonInteractive", "-Command",
+                    "[System.Console]::Out.Write('flere-tool-baseline')"], env=child_env,
+                    seconds=30, maximum=4096, separate_stderr=True) == b"flere-tool-baseline",
+                    "Windows PowerShell initialization output differs")
+            require(command("initialize-choco-version", [choco, "--version"], env=child_env,
+                            seconds=10, maximum=128).decode().strip() == "2.7.4",
+                    "initialized Chocolatey version differs")
+            require(parse_packages(command("initialize-choco-list", [choco, "list", "--limit-output"],
+                                           env=child_env, seconds=10, maximum=65536)) == baseline_packages,
+                    "tool initialization changed package inventory")
+            before_state = candidate.tree(fixture)
+            after_paths = path_hashes()
+            record("tool-initialization-state", preservation_snapshot(cold_state, before_state, paths_before, after_paths))
+            verify_tool_initialization(cold_state, before_state)
+            require(after_paths == paths_before, "tool initialization changed PATH")
+            receipt["limits"].append("Synthetic profile preservation starts after recorded normal PowerShell/Chocolatey initialization; cold-profile no-write behavior is not claimed.")
+        record("state-before", before_state)
         if baseline_features["allowGlobalConfirmation"]:
             changed_confirmation = True  # Restore even if the command changes state then fails.
             command("require-script-confirmation", [choco, "feature", "disable", "-n", "allowGlobalConfirmation"])
@@ -829,6 +866,30 @@ def self_test():
             self.assertEqual((value["state_after_entries"], value["state_changed_entries"]), (257, 257))
             self.assertEqual((len(value["state_after"]), len(value["state_changes"])), (256, 256))
             self.assertTrue(value["state_after_truncated"] and value["state_changes_truncated"])
+
+        def test_tool_baseline_accepts_observed_startup_files_without_excluding_later_changes(self):
+            before = {"state/preserved.json": "a" * 64, ".ssh/config": "b" * 64}
+            after = dict(before, **{"AppData/Local/Microsoft": "directory",
+                "AppData/Local/Microsoft/Windows": "directory",
+                "AppData/Local/Microsoft/Windows/PowerShell": "directory",
+                "AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive": "c" * 64,
+                "temp/chocolatey": "directory"})
+            verify_tool_initialization(before, after)
+            verify_tool_initialization(before, before)
+            later = dict(after, **{"temp/chocolatey/unexpected": "d" * 64})
+            self.assertFalse(preservation_snapshot(after, later, {}, {})["synthetic_state_preserved"])
+            self.assertFalse(preservation_snapshot(after, before, {}, {})["synthetic_state_preserved"])
+
+        def test_tool_baseline_rejects_sentinel_changes_unknown_paths_and_wrong_types(self):
+            before = {"state/preserved.json": "a" * 64, ".ssh/config": "b" * 64}
+            for after in (dict(before, **{".ssh/config": "c" * 64}),
+                          {"state/preserved.json": "a" * 64},
+                          dict(before, **{"state/new.json": "d" * 64}),
+                          dict(before, **{"temp/chocolatey/file": "d" * 64}),
+                          dict(before, **{"temp/chocolatey": "d" * 64}),
+                          dict(before, **{"AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive": "directory"})):
+                with self.subTest(after=after), self.assertRaises(ValueError):
+                    verify_tool_initialization(before, after)
 
         def test_default_retains_old_recipe_pins_and_no_owner_command(self):
             default = selection()

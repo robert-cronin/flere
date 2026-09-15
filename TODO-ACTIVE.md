@@ -208,8 +208,16 @@
   unchanged. The current-candidate Chocolatey workflow now checks production
   ownership through the normally installed shim, and a separate WinGet workflow
   exercises normal install/remove with exact package records and state preservation.
-  Their 21 and 14 offline helper checks pass; native dispatch remains pending.
-  Version upgrades, Scoop and physical desktop acceptance remain separate.
+  Corrected WinGet run `34929525551` passed normal local-manifest installation,
+  all six alias calls, exact installed records, normal removal and state/PATH
+  preservation: 25 native commands passed. The original failed lookup/removal
+  run is retained. Current-candidate Chocolatey runs `34927861846` and
+  `34929532961` proved actual installed ownership and normal removal but failed
+  cold-profile equality. Retained diagnostics show only PowerShell startup data
+  and an empty Chocolatey temporary directory were added; existing state and
+  SSH files stayed unchanged. A reviewed fixture change initializes those normal
+  tools before measuring preservation; 25 helper checks pass, native validation
+  pending. Version upgrades, Scoop and physical desktop acceptance remain separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -308,8 +316,9 @@
   includes the production ownership report while preserving its existing fields;
   the added regression checks all owner kinds without changing fixture state.
   The native records informed the parser; Windows
-  all-target compilation passed, but actual installed-product recognition and
-  preparation refusal remain unverified. Custom Chocolatey roots remain Unknown;
+  all-target compilation passed. Actual installed-product recognition passed
+  through the normal shim in both retained Windows runs above; coordinated
+  preparation refusal remains unverified. Custom Chocolatey roots remain Unknown;
   WinGet and Scoop detectors are still missing. Use actual installed-manager
   records and exact executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
@@ -346,13 +355,20 @@
   pass at `19637da`: all 213 native Linux live tests passed with four threads,
   with no surviving owned children or harness errors. The prior `70083bd` run
   and its two failures remain retained; no assertions were removed or weakened.
-- [ ] Resolve the Linux executable-busy error in installer package inspection.
-  The `22555bb` follow-up passed all 215 live UI tests, including the corrected
-  sidebar scope acknowledgement and SSH card links. Update integration passed
-  12 tests, but one package-inspection spawn returned `Text file busy`; its exact
-  cause remains under investigation. Formatting, strict Clippy and doc checks
-  passed. Earlier failed receipts are retained; installation/release validation
-  remains incomplete until this separate error is resolved.
+- [x] Resolve the Linux executable-busy error in installer package inspection.
+  Metadata probes now retry only a pre-spawn executable-busy error within their
+  existing deadline; other errors and already-started commands are never replayed.
+  Exact `aa3b582` passed all 201 native Linux library tests, all 13 update tests
+  with four threads, formatting, strict Clippy and the core release build. Both
+  real held-writer regressions and the originally failing update test passed.
+  Source and locks stayed unchanged and no owned processes remained. The earlier
+  `22555bb` run's 215 live UI passes remain valid at that source; its failed
+  update receipt is retained, and the historical writer identity remains unknown.
+  The complete native macOS package at `aa3b582` passed all 527 tests and both
+  components' formatting, strict Clippy and release builds. Both managed commands
+  and the two known supervisors now run that verified local package; all five
+  exact session identities, tab selections and frontend attachments survived.
+  Existing frontends still need their normal UI reload.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. The staged producer now separates build,
   signing, resumable notarization and final signed-byte verification; 17 pure
