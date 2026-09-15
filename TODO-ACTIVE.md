@@ -229,8 +229,14 @@
   tools before measuring preservation. Corrected run `34930361884` passed
   all 28 native commands, actual installed ownership, six aliases, exact later
   state/PATH preservation and normal removal; 25 helper checks also passed.
-  Cold-profile no-write behavior is not claimed. Version upgrades, Scoop and
-  physical desktop acceptance remain separate.
+  Cold-profile no-write behavior is not claimed. Corrected WinGet installed-owner
+  run `34936386953` passed both aliases and all 28 commands at `9d53f96`,
+  with normal removal and initialized-profile/PATH preservation. Scoop run
+  `34935706908` passed the public ZIP install, six alias calls, metadata rename
+  and normal Flere removal/preservation. Its overall result remains failed
+  because extra Scoop self-removal timed out. The fixture now retains Scoop for
+  disposable VM teardown, without relaxing Flere removal checks; seven helper
+  checks pass. Version upgrades and physical desktop acceptance remain separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -346,8 +352,7 @@
   record regressions, all 306 core/companion Mac unit tests, formatting, strict
   Clippy and Windows cross-compilation pass. Native MSVC candidate run
   `34931604932` at `9a9183c` passed 76 tests, both aliases and native recipe
-  checks, with one physical ignore. Native installed WinGet recognition remains
-  pending. Installed check `34933659610` at workflow `d7e6619` failed:
+  checks, with one physical ignore. Installed check `34933659610` at workflow `d7e6619` failed:
   normal installation and six alias checks passed, but the first owner query
   returned Unknown. The second owner query was not reached. Normal removal,
   state/PATH/settings preservation and loopback cleanup passed. Diagnostic
@@ -358,14 +363,14 @@
   core/companion Mac unit tests, both format/strict Clippy checks and Windows GNU
   cross-compilation pass. Corrected native candidate `34935547435` at
   `9d53f96` passed 77 tests, six aliases and native recipe checks, with one
-  physical ignore. Its installed-owner check remains pending; both failed
-  receipts remain retained. Catalogue/custom-root installations stay
-  Unknown. A normal Scoop public-ZIP install/remove workflow is prepared;
-  its generator preserves Flere release metadata before Scoop writes its own
-  manifest. Seven helper checks and eleven manifest checks pass; the actual
-  PowerShell rename check awaits native execution. Scoop ownership detection
-  is still missing. Use installed-manager records and exact executable
-  identity. Native
+  physical ignore. Installed run `34936386953` passed both actual owner reports
+  under synthetic profile overrides, all 28 commands, exact payload/registry
+  preservation and normal removal; both failed receipts remain retained.
+  Catalogue/custom-root installations stay Unknown; UI/coordinated refusal
+  remains unverified. Scoop run `34935706908` proved native metadata preservation,
+  both aliases and normal Flere removal, while extra manager self-removal failed
+  as recorded above. Scoop ownership detection is in progress using those exact
+  installed records and executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.

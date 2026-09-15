@@ -39,7 +39,7 @@ channels retain their individual validation and publication requirements.
 | [Cargo / crates.io](https://crates.io/crates/flere/0.3.4) | Core source package for Linux/macOS | Published v0.3.4 through Trusted Publishing from the matching GitHub source. Companion excluded |
 | [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.4 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
-| [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.4 ZIP and native manifest checks passed. WinGet first local-manifest install/remove passed on the retained 422 candidate; Scoop lifecycle, upgrades, physical acceptance and catalogue publication remain pending |
+| [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.4 ZIP and native manifest checks passed. WinGet local-manifest ownership/install/remove passed at `9d53f96`. Scoop public-ZIP install/remove passed, but the overall run failed on extra manager teardown. Scoop ownership, upgrades, physical acceptance and catalogue publication remain pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Real SSH from the installed macOS companion to the Nix-built core passed; physical clipboard remains open. Not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
 | [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Native packing, first install/remove and installed ownership diagnostics passed on retained candidates. Version upgrade, physical acceptance and catalogue publication remain pending |
@@ -60,8 +60,15 @@ passed normal local-manifest install/remove and both aliases on the retained
 422 payload. Chocolatey run `34930361884` passed installed ownership diagnostics,
 normal removal and preservation of an explicitly initialized synthetic profile
 on the retained `21cf68c` candidate. These are separate payload-specific records.
-The later WinGet detector at `9a9183c` is not included in public v0.3.4; its
-native installed-owner acceptance remains pending. No Windows catalogue is published.
+The corrected WinGet detector at `9d53f96` passed both installed-owner reports,
+normal removal and preservation in
+[run 34936386953](https://github.com/robert-cronin/flere/actions/runs/34936386953).
+It is not included in public v0.3.4. Scoop public-ZIP installation, both aliases,
+metadata preservation and normal Flere removal passed in
+[run 34935706908](https://github.com/robert-cronin/flere/actions/runs/34935706908);
+the overall run remains failed because extra Scoop self-removal timed out.
+The fixture now leaves Scoop for disposable runner teardown. Scoop ownership
+and literal version upgrades remain open. No Windows catalogue is published.
 
 ### Install with Homebrew
 

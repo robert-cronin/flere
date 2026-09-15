@@ -36,8 +36,6 @@ LICENSE_SHA = "b997b4ab95fef146345de8b279c4d6dff41fc4a198d2bfe2488ba0ae0ac071d5"
 INSTALLER_COMMIT = "1e2f334083d609986d8c8bc9e31ae8e87c39fab4"
 INSTALLER_URL = f"https://raw.githubusercontent.com/ScoopInstaller/Install/{INSTALLER_COMMIT}/install.ps1"
 INSTALLER_BYTES, INSTALLER_SHA = 28743, "94f983b190438311e006b957db7c8422709e0ba62a6c2ac04e278164108f2512"
-REMOVE_TITLE = b"This will uninstall Scoop and all the programs that have been installed with Scoop!"
-REMOVE_PROMPT = b"Are you sure? (yN): "
 
 
 def hosted(environment):
@@ -56,19 +54,6 @@ def recipe():
             and value["version"] == VERSION and value["license"] == "MIT"
             and value["bin"] == ["flere.exe", "flere-connect.exe"], "Scoop recipe contract differs")
     return value
-
-
-def prompt_ready(data, answered, allow_remove):
-    text = common.clean_console(data)
-    count = text.count(REMOVE_PROMPT)
-    require(count <= 1 and text.count(b"Are you sure?") <= 1
-            and b"Continue installation?" not in text and b"Do you want to" not in text,
-            "unexpected or repeated Scoop prompt")
-    if count:
-        require(allow_remove and text.count(REMOVE_TITLE) == 1
-                and text.index(REMOVE_TITLE) < text.index(REMOVE_PROMPT)
-                and b"and all persisted data" not in text, "unreviewed manager removal prompt")
-    return count == 1 and not answered
 
 
 def verify_bytes(path, size, digest):
@@ -93,57 +78,7 @@ def payload(path):
 
 
 class Run(common.Run):
-    # Adapt the existing bounded Windows process primitive only for Scoop's one
-    # ordinary self-removal prompt. Keep separate streams and owned tree cleanup.
-    def command(self, name, argv, *, env=None, seconds=120, maximum=base.MAX_LOG, allow_remove=False, accepted=(0,)):
-        seconds = min(seconds, self.deadline - time.monotonic())
-        require(seconds > 0, "lifecycle deadline exhausted")
-        log, errlog = (self.proof / "logs" / (name + suffix) for suffix in (".log", "-stderr.log"))
-        row = {"name": name, "argv": list(map(str, argv)), "status": "running", "confirmed_remove": False}
-        self.receipt["checks"].append(row); self.save()
-        start, failure = time.monotonic(), None
-        with base.command_logs(log, separate_stderr=True) as (out, err):
-            proc = subprocess.Popen(row["argv"], cwd=self.work, env=self.env if env is None else env,
-                                    stdin=subprocess.PIPE, stdout=out, stderr=err)
-            row["pid"] = proc.pid
-            try:
-                while proc.poll() is None:
-                    require(time.monotonic() - start < seconds, name + " timed out")
-                    require(log.stat().st_size <= maximum and errlog.stat().st_size <= maximum, name + " output bound")
-                    if prompt_ready(log.read_bytes() + errlog.read_bytes(), row["confirmed_remove"], allow_remove):
-                        require(not any(item["confirmed_remove"] for item in self.receipt["checks"]), "manager removal confirmation repeated")
-                        proc.stdin.write(b"y\r\n"); proc.stdin.flush(); row["confirmed_remove"] = True
-                    time.sleep(0.05)
-            except BaseException as error:
-                failure = error
-            finally:
-                row["forced_stop"] = proc.poll() is None
-                if row["forced_stop"]:
-                    killed = subprocess.run([str(Path(os.environ["SystemRoot"])/"System32/taskkill.exe"),
-                        "/PID", str(proc.pid), "/T", "/F"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL, timeout=15)
-                    require(killed.returncode == 0, "owned Scoop child tree could not be stopped")
-                proc.wait(timeout=15); proc.stdin.close()
-        for path in (log, errlog):
-            if path.stat().st_size > maximum:
-                failure = failure or ValueError(name + " output bound")
-                with path.open("r+b") as stream:
-                    stream.truncate(maximum)
-        data, errors = log.read_bytes(), errlog.read_bytes()
-        try:
-            require(not prompt_ready(data + errors, row["confirmed_remove"], allow_remove), "prompt exited before response")
-            require(not allow_remove or row["confirmed_remove"], "normal manager removal prompt was not observed")
-        except ValueError as error:
-            failure = failure or error
-        row.update(exit=proc.returncode, seconds=round(time.monotonic()-start, 3), stdout_bytes=len(data),
-                   stdout_sha256=sha(data), stderr_bytes=len(errors), stderr_sha256=sha(errors),
-                   status="passed" if failure is None and proc.returncode in accepted else "failed")
-        self.save()
-        if failure:
-            raise failure
-        require(proc.returncode in accepted, name + " failed; inspect retained log")
-        return data
-
+    # Reuse the normal bounded command/JSON runner without a Scoop prompt adapter.
     def download(self, name, url, size, digest):
         path = self.work / name
         self.command("download-" + name, [self.curl, "--fail", "--silent", "--show-error", "--location",
@@ -201,6 +136,11 @@ def app_names(root):
     return [name for name in names if name != "scoop"]
 
 
+def aliases_absent(root):
+    return all(not any(os.path.lexists(root/"shims"/(name+suffix)) for suffix in (".exe", ".shim", ".cmd", ".ps1", ""))
+               and shutil.which(name, path=common.normal_path()) is None for name in ("flere", "flere-connect"))
+
+
 def main(output):
     hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64") and sys.version_info >= (3, 12), "native Windows/Python3.12+ required")
@@ -218,7 +158,8 @@ def main(output):
         "limits": ["Per-user installation on an elevated hosted CI VM; not unelevated desktop acceptance.",
                    "First public-ZIP install/remove and record capture; no upgrade or Scoop owner detector proof.",
                    "Normal bootstrap fetches mutable official Scoop/Main revisions, recorded separately from the pinned installer.",
-                   "No UI, clipboard, external SSH, signing, catalogue or release publication."],
+                   "No UI, clipboard, external SSH, signing, catalogue or release publication.",
+                   "Bootstrapped Scoop/config/cache and manager-ready PATH remain until disposable VM teardown."],
         "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
                     "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
     run = Run(work, proof, receipt)
@@ -226,7 +167,7 @@ def main(output):
     config = Path(os.environ["USERPROFILE"])/".config/scoop"
     global_root = Path(os.environ["ProgramData"])/"scoop"
     run.entry = root/"apps/scoop/current/bin/scoop.ps1"
-    boot_attempted = package_attempted = removed = manager_removed = False
+    boot_attempted = package_attempted = removed = False
     initial_paths = initial_inventory = during_paths = state_before = None
     fixture = work/"synthetic-home"; fixture.mkdir()
     for name in (".cache/flere/state", "AppData/Local", "AppData/Roaming", "temp"):
@@ -262,6 +203,7 @@ def main(output):
         manager_revisions(run, root, "before")
         run.scoop("version", "--version")
         during_paths = base.path_hashes()
+        run.record("manager-ready-path", during_paths)
         require(during_paths["machine"] == initial_paths["machine"] and common.registry_inventory() == initial_inventory,
                 "bootstrap changed system PATH or unrelated packages")
         package_attempted = True
@@ -302,8 +244,7 @@ def main(output):
         listing = run.scoop("removed-list", "list", "^flere$", accepted=(0, 1))
         list_absent = b"There aren't any apps installed." in common.clean_console(listing)
         value = {"application_absent": not os.path.lexists(root/"apps/flere"),
-                 "aliases_absent": all(not any(os.path.lexists(root/"shims"/(name+suffix)) for suffix in (".exe", ".shim", ".cmd", ".ps1", ""))
-                                       and shutil.which(name, path=common.normal_path()) is None for name in ("flere", "flere-connect")),
+                 "aliases_absent": aliases_absent(root),
                  "list_absent": list_absent, "unrelated_inventory_preserved": common.registry_inventory() == initial_inventory,
                  "path_preserved": base.path_hashes() == during_paths, "state_preserved": candidate.tree(fixture) == state_before}
         run.record("removal", value); verify_removal(value)
@@ -313,17 +254,19 @@ def main(output):
     finally:
         run.deadline = time.monotonic() + 180
         try:
-            if boot_attempted and run.entry.is_file():
-                if package_attempted and not removed and os.path.lexists(root/"apps/flere"):
-                    run.scoop("cleanup-package", "uninstall", "flere")
-                require(not app_names(root), "manager still contains an application; no whole-manager removal")
-                run.scoop("remove-manager", "uninstall", "scoop", allow_remove=True)
-                manager_removed = True
+            if package_attempted and not removed and run.entry.is_file() and os.path.lexists(root/"apps/flere"):
+                run.scoop("cleanup-package", "uninstall", "flere")
             if boot_attempted:
-                residual = {str(path.relative_to(root)): base.file_record(path) for path in root.iterdir()} if root.exists() else {}
-                run.record("manager-residue", {"root_entries": residual, "config": base.file_record(config/"config.json") if (config/"config.json").is_file() else None})
-                require(manager_removed and not run.entry.exists() and base.path_hashes() == initial_paths,
-                        "normal bootstrap removal/PATH restoration incomplete")
+                require(run.entry.is_file() and not app_names(root) and aliases_absent(root), "normal Flere removal is incomplete")
+                retained = {"disposition": "Retained until disposable hosted VM teardown",
+                            "manager_entry": base.file_record(run.entry),
+                            "root_entries": sorted(path.name for path in root.iterdir()),
+                            "config": base.file_record(config/"config.json") if (config/"config.json").is_file() else None,
+                            "cache": [base.file_record(path) for path in base.owned_paths(root/"cache")] if (root/"cache").exists() else []}
+                run.record("retained-manager", retained)
+                require(during_paths is not None and base.path_hashes() == during_paths,
+                        "manager-ready PATH changed during package lifecycle")
+                receipt["manager_retained_for_vm_teardown"] = True
             if initial_inventory is not None:
                 require(common.registry_inventory() == initial_inventory and candidate.tree(fixture) == state_before,
                         "final unrelated inventory or synthetic state changed")
@@ -365,16 +308,6 @@ def self_test():
                 with mock.patch.object(packager, "scoop_manifest", return_value=changed), self.assertRaises(ValueError):
                     recipe()
 
-        def test_only_normal_self_removal_prompt_at_all_splits(self):
-            data = REMOVE_TITLE+b"\r\n"+REMOVE_PROMPT
-            for split in range(len(data)):
-                self.assertFalse(prompt_ready(data[:split], False, True))
-                self.assertTrue(prompt_ready(data[:split]+data[split:], False, True))
-            self.assertFalse(prompt_ready(data, True, True))
-            for invalid, allowed in ((data,False),(data+data,True),(REMOVE_PROMPT,True),(b"Continue installation? [Y/n]",False)):
-                with self.assertRaises(ValueError):
-                    prompt_ready(invalid, False, allowed)
-
         def test_exact_scoop_records_distinct_from_original_manifest(self):
             value = recipe(); source = Path("fixture")/"flere.json"
             install = {"architecture":"64bit", "url":str(source)}
@@ -400,6 +333,24 @@ def self_test():
             for key in good:
                 with self.assertRaises(ValueError):
                     verify_removal(dict(good, **{key:False}))
+
+        def test_retained_manager_does_not_relax_package_alias_removal(self):
+            cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home()/".cache"))/"flere/tests"
+            cache.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=cache) as folder, mock.patch.object(common, "normal_path", return_value=""), mock.patch.object(shutil, "which", return_value=None):
+                root = Path(folder)
+                (root/"apps/scoop").mkdir(parents=True)
+                (root/"cache").mkdir(); (root/"cache/public-zip").write_bytes(b"retained cache")
+                (root/"shims").mkdir()
+                self.assertEqual(app_names(root), [])
+                self.assertTrue(aliases_absent(root))
+                (root/"shims/flere.shim").write_bytes(b"residual")
+                self.assertFalse(aliases_absent(root))
+                (root/"shims/flere.shim").unlink()
+                with mock.patch.object(shutil, "which", return_value="unexpected-alias"):
+                    self.assertFalse(aliases_absent(root))
+                (root/"apps/flere").mkdir()
+                self.assertEqual(app_names(root), ["flere"])
 
         def test_exact_download_hash_and_size_are_both_required(self):
             root = Path(os.environ.get("XDG_CACHE_HOME", Path.home()/".cache"))/"flere/tests"

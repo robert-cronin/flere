@@ -81,10 +81,11 @@ Historical source `422058c` passed its build and six aliases in
 then failed on WinGet warnings. The unchanged ZIP's corrected recipes passed
 [run 34912671194](https://github.com/robert-cronin/flere/actions/runs/34912671194).
 Later `21cf68c` candidate checks and separate Chocolatey ownership acceptance
-remain tied to those exact bytes. The newer `9a9183c` candidate contains the
-WinGet ownership detector and passed native candidate checks in
-[run 34931604932](https://github.com/robert-cronin/flere/actions/runs/34931604932);
-its installed-owner check is still pending. **It is not the public v0.3.4 ZIP.**
+remain tied to those exact bytes. The corrected `9d53f96` candidate passed native checks in
+[run 34935547435](https://github.com/robert-cronin/flere/actions/runs/34935547435)
+and both installed WinGet owner reports, normal removal and initialized-profile
+preservation in [run 34936386953](https://github.com/robert-cronin/flere/actions/runs/34936386953).
+**It is not the public v0.3.4 ZIP.**
 Its release-shaped recipe URL must not be used to substitute the different public
 ZIP for candidate testing.
 
@@ -140,9 +141,13 @@ runs passed normal Chocolatey install/remove and both shims. Run `34930361884`
 also verified actual installed ownership diagnostics on `21cf68c` and preserved
 an explicitly initialized synthetic PowerShell/Chocolatey profile. Cold-profile
 no-write behavior is not claimed. WinGet run `34929525551` passed normal
-local-manifest install/remove and both aliases on `422058c`. Those receipts do
-not silently validate another payload: version upgrades, Scoop lifecycle,
-current WinGet detector acceptance and catalogue publication remain open.
+local-manifest install/remove and both aliases on `422058c`; corrected installed
+ownership passed on `9d53f96` as recorded above. Scoop run `34935706908` passed
+public-ZIP install, both aliases, the release-manifest preservation hook and normal
+Flere removal/preservation. Its overall result remains failed because extra
+Scoop self-removal timed out. Subsequent fixtures retain Scoop for disposable VM
+teardown. These receipts remain tied to their exact payloads: Scoop ownership,
+version upgrades, physical acceptance and catalogue publication remain open.
 
 Before publishing a package-manager channel, on Windows:
 
