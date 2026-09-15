@@ -213,8 +213,9 @@
   the exact five-member `.nupkg`, logs and source provenance were independently
   inspected. It reused the byte-identical ZIP from run `34911230794`, without
   rebuilding or executing the companion. Both earlier failures remain retained.
-- [ ] Complete Windows package-manager install/upgrade/remove and ownership
-  checks before publication. Chocolatey runs `34918170067` and `34919246013`
+- [x] Validate Windows local-recipe install/upgrade/remove and installed-owner
+  reports at the exact candidate sources below. Chocolatey runs `34918170067`
+  and `34919246013`
   proved normal installation, six shim calls, removal, unchanged synthetic state,
   PATH, unrelated package inventory and feature restoration. Historical records
   remained as required by the observed retention setting. Both overall runs
@@ -260,8 +261,9 @@
   normal removal/preservation of all 456 unrelated registry records. The private
   installer projected the verified baseline ProductCode and runner-local URL;
   the provisioned community-only source set remained until VM teardown.
-  These three lifecycle routes are verified; ordinary catalogue/bucket ownership
-  support and physical Windows acceptance remain open.
+  These three local-recipe lifecycle routes are verified. Remaining bucket and
+  catalogue ownership/UI checks are consolidated below; physical Windows
+  acceptance remains separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -360,16 +362,24 @@
   ancestry and lack of an open branch PR were checked before deleting the fully
   merged branch with an exact-tip lease; only `main` remains. Recheck for new
   branch work before future releases.
-- [ ] Implement and validate Windows package-manager ownership recognition.
-  Source now recognizes ordinary Scoop bucket records and the fixed official
-  WinGet community origin, while preserving the verified local-manifest routes.
+- [ ] Complete native Windows ownership acceptance for bucket/catalogue installs
+  and UI/coordinated update refusal. Source `4f3b693` implements ordinary Scoop
+  bucket records and the fixed official WinGet community origin, while preserving
+  the verified local-manifest routes.
   Scoop accepts mutually exclusive bucket/local-file metadata; WinGet selects
   one fixed registry key from the actual executable's package directory. Existing
   profile, manifest, payload and path checks remain; unknown/custom roots keep
-  Apply disabled. Focused tests, formatting and strict host/Windows compilation
-  pass. Combined integration and native Scoop bucket acceptance are pending;
-  actual WinGet catalogue acceptance requires a normally accepted package.
-  Public and installed v0.3.5 still contain the earlier local-manifest detector.
+  Apply disabled. Combined `4f3b693` integration passed all 549 native macOS
+  tests (214 core unit, 212 live, 13 install-model, 110 companion), both format
+  checks, both strict all-target Clippy checks and both release builds: all eight
+  checks passed once, with all 388 tracked files unchanged. Focused Windows
+  compilation also passed. Native candidate run `34946722404` passed 85 Windows
+  tests, six alias checks, WinGet validation and Chocolatey packing; one physical
+  clipboard test remains ignored. Its source and artifact were independently
+  verified. Native Scoop bucket acceptance and actual WinGet
+  catalogue acceptance remain pending; the latter needs a normally accepted
+  package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
+  detectors and does not contain these source changes.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
   guidance and Apply disabled. The companion's existing `update-status` JSON now
@@ -400,18 +410,19 @@
   physical ignore. Installed run `34936386953` passed both actual owner reports
   under synthetic profile overrides, all 28 commands, exact payload/registry
   preservation and normal removal; both failed receipts remain retained.
-  Catalogue/custom-root installations stay Unknown; UI/coordinated refusal
-  remains unverified. Scoop run `34935706908` proved native metadata preservation,
+  At that source, catalogue/custom-root installations stay Unknown;
+  UI/coordinated refusal remains unverified. Scoop run `34935706908` proved
+  native metadata preservation,
   both aliases and normal Flere removal, while extra manager self-removal failed
-  as recorded above. Scoop ownership detection now checks default-user local
-  manifests, the active junction, both alias shims and exact release/build/payload
+  as recorded above. Scoop ownership detection at `7e43fa1` checks default-user
+  local manifests, the active junction, both alias shims and exact release/build/payload
   identity without executing package metadata. Missing, stale or unsupported
   records remain Unknown with Apply disabled. The shared profile extraction
   preserves the corrected WinGet resolver. Thirty-two focused manager tests,
   formatting and strict companion/Windows Clippy pass. Native Scoop recognition
   and actual Scoop/Chocolatey 0.3.4 → 0.3.5 upgrades passed as recorded above;
-  WinGet local-manifest upgrade passed below; catalogue/bucket support and
-  actual Windows UI/coordinated refusal remain separate. Integrated
+  WinGet local-manifest upgrade passed below; native catalogue/bucket and
+  actual Windows UI/coordinated refusal acceptance remain separate. Integrated
   source `7e43fa1` passed all 541 native macOS tests and both release builds;
   strict checks and formatting pass. Normal Scoop/WinGet upgrade workflows
   are prepared with exact version/build/alias and preservation checks; all 64

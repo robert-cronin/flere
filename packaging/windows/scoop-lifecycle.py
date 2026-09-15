@@ -68,6 +68,29 @@ OWNER_INPUT = {'artifact': 10383739920,
  'zip_sha': 'fc3e8fab4e951d596b57300bdf1bf67e98543ea416bff1e0fa89492238229809',
  'name': 'candidate-scoop-owner',
  'owner_check': True}
+BUCKET_INPUT_NAME = "candidate-scoop-bucket-owner"
+BUCKET_INPUT = {'artifact': 10387960002,
+ 'artifact_bytes': 1898970,
+ 'artifact_entries': 33,
+ 'artifact_name': 'windows-candidate-34946722404-1',
+ 'artifact_sha': 'b25723e6fd8c973be1ea6d6ab1e7c6fc992f432c0943634b2dedb70f50d2240c',
+ 'manifest_sha': '2bd4c2f2ce6772e073577e55e4e1678bf8a572ff26ebeb4cc750e2f4a40043f3',
+ 'name': 'candidate-scoop-bucket-owner',
+ 'nupkg_sha': '55b5aa6510f12a799b267a9422c80ff741135b877a79008db13a09494a071aff',
+ 'nuspec_sha': '7ef58bc1b5b39271e9fce4b3ff635df3eca59ab6d880eca7c971b2e96b4fcf69',
+ 'owner_check': True,
+ 'payload_sha': 'eb349307dfbcdc768d4daa71c9d879bf8944b8fd84f7be143fb5e53a6e516ece',
+ 'product': '4f3b693914dd291da5d7f103e5166f37f8691d1f',
+ 'receipt_sha': 'ea32f6b9e56648e56a2675ae86b0cb3d1d4d85dfc83a9109f218b5f58582dfb2',
+ 'run': 34946722404,
+ 'script_sha': '8991a20903ebafa2f6c50b0582801880ea6b63e9960828ecfb39916a9ed89baf',
+ 'source': '7f6ee23dfedf7e25fc5e70450c5ad6b905bd7db7b5ce4dff2abda34cd8f7cc5a',
+ 'source_entries': 388,
+ 'version': '0.3.5',
+ 'workflow': '4f3b693914dd291da5d7f103e5166f37f8691d1f',
+ 'zip_bytes': 1856404,
+ 'zip_sha': '0df6bd01ecb3e0a5cb9a2259f97ad33f7d4b3025806257e31083ce561078d56f'}
+BUCKET_NAME = "flere-fixture"
 OWNER_KEYS = {"name", "version", "owner_check", "run", "artifact", "artifact_bytes", "artifact_name",
     "workflow", "artifact_sha", "product", "source", "zip_sha", "zip_bytes", "payload_sha", "manifest_sha",
     "nuspec_sha", "script_sha", "nupkg_sha", "receipt_sha", "source_entries", "artifact_entries"}
@@ -78,8 +101,9 @@ OWNER_GUIDANCE = ("Local Scoop: This companion is installed by Scoop. Use Scoop 
 def selection(name=DEFAULT_INPUT):
     if name == DEFAULT_INPUT:
         return copy.deepcopy(PUBLIC_INPUT)
-    require(name == OWNER_INPUT_NAME and isinstance(OWNER_INPUT, dict), "reviewed Scoop owner candidate pins are not configured")
-    value = copy.deepcopy(OWNER_INPUT)
+    configured = OWNER_INPUT if name == OWNER_INPUT_NAME else BUCKET_INPUT if name == BUCKET_INPUT_NAME else None
+    require(isinstance(configured, dict), "reviewed Scoop owner candidate pins are not configured")
+    value = copy.deepcopy(configured)
     require(set(value) == OWNER_KEYS and value["name"] == name and value["version"] == "0.3.5"
             and value["owner_check"] is True, "Scoop owner candidate identity differs")
     for key in ("workflow", "product"):
@@ -91,6 +115,9 @@ def selection(name=DEFAULT_INPUT):
         require(type(value[key]) is int and 0 < value[key] <= maximum, "candidate bound differs")
     require(value["artifact_name"] == f"windows-candidate-{value['run']}-1"
             and value["product"] != PRODUCT and value["payload_sha"] != PAYLOAD_SHA, "candidate must be a distinct reviewed035 build")
+    if name == BUCKET_INPUT_NAME:
+        require(value["product"] != OWNER_INPUT["product"] and value["payload_sha"] != OWNER_INPUT["payload_sha"],
+                "the old local-manifest candidate does not contain the bucket owner fix")
     return value
 
 
@@ -165,9 +192,11 @@ def verify_cli(flag, data, manifest):
         require(b"--build-info" in data and b"ssh" in data, "alias help missing")
 
 
-def installed_record(value, install, expected, manifest_path):
+def installed_record(value, install, expected, manifest_path, *, bucket=None):
     require(value == expected, "installed Scoop manifest differs")
-    require(install == {"architecture": "64bit", "url": str(manifest_path)}, "installed Scoop source/architecture differs")
+    require(bucket in (None, BUCKET_NAME), "unexpected fixture bucket")
+    source = {"url": str(manifest_path)} if bucket is None else {"bucket": bucket}
+    require(install == dict(architecture="64bit", **source), "installed Scoop source/architecture differs")
 
 
 def verify_removal(value):
@@ -190,6 +219,57 @@ def manager_revisions(run, root, label):
     return result
 
 
+def bucket_names(root):
+    names = sorted(path.name for path in (root/"buckets").iterdir())
+    require(len(names) <= 8, "unexpected bucket inventory bound")
+    return names
+
+
+def commit_bucket(run, source, value, label, *, initialize=False):
+    """Commit only the reviewed fixture recipe; no installed records are edited."""
+    if initialize:
+        require(not source.exists(), "fresh fixture bucket source required")
+        (source/"bucket").mkdir(parents=True)
+        (source/".gitattributes").write_bytes(b"* -text\n")
+        run.command(label+"-bucket-init", [run.git, "init", "--initial-branch=main", source], seconds=30)
+    path = source/"bucket/flere.json"
+    path.write_text(json.dumps(value, indent=2)+"\n", encoding="utf-8")
+    run.command(label+"-bucket-add", [run.git, "-C", source, "-c", "core.autocrlf=false", "add", "--", ".gitattributes", "bucket/flere.json"], seconds=30)
+    run.command(label+"-bucket-commit", [run.git, "-C", source, "-c", "user.name=Flere fixture",
+        "-c", "user.email=flere-fixture@example.invalid", "-c", "commit.gpgsign=false",
+        "commit", "-m", "Fixture Flere " + value["version"]], seconds=30)
+    head = run.command(label+"-bucket-source-head", [run.git, "-C", source, "rev-parse", "HEAD"], seconds=30).decode().strip()
+    require(re.fullmatch(r"[0-9a-f]{40}", head), "fixture commit identity differs")
+    run.record(label+"-bucket-source", {"commit": head, "origin": source.resolve().as_uri(), "recipe": base.file_record(path)})
+    return head
+
+
+def inspect_bucket(run, root, source, expected_head, label):
+    checkout = root/"buckets"/BUCKET_NAME
+    require(checkout.is_dir() and not checkout.is_symlink() and not checkout.is_junction()
+            and {path.name for path in checkout.iterdir()} == {".git", ".gitattributes", "bucket"}
+            and {path.name for path in (checkout/"bucket").iterdir()} == {"flere.json"}, "cloned fixture bucket inventory differs")
+    head = run.command(label+"-bucket-head", [run.git, "-C", checkout, "rev-parse", "HEAD"], seconds=30).decode().strip()
+    origin = run.command(label+"-bucket-origin", [run.git, "-C", checkout, "remote", "get-url", "origin"], seconds=30).decode().strip()
+    dirty = run.command(label+"-bucket-status", [run.git, "-C", checkout, "status", "--porcelain", "--untracked-files=all"], seconds=30)
+    path = checkout/"bucket/flere.json"
+    require(head == expected_head and origin == source.resolve().as_uri() and not dirty.strip()
+            and (checkout/".gitattributes").read_bytes() == (source/".gitattributes").read_bytes() == b"* -text\n"
+            and packager.read_regular(path, 65536) == packager.read_regular(source/"bucket/flere.json", 65536),
+            "normal bucket synchronization did not select the exact committed recipe")
+    run.record(label+"-bucket-checkout", {"commit": head, "origin": origin, "recipe": base.file_record(path)})
+
+
+def remove_bucket(run, root, baseline):
+    require(BUCKET_NAME not in baseline, "fixture bucket overlapped baseline")
+    if os.path.lexists(root/"buckets"/BUCKET_NAME):
+        require(bucket_names(root) == sorted([*baseline, BUCKET_NAME]), "unexpected bucket added during fixture")
+        run.scoop("cleanup-bucket", "bucket", "rm", BUCKET_NAME, seconds=60)
+    require(not os.path.lexists(root/"buckets"/BUCKET_NAME) and bucket_names(root) == baseline,
+            "normal fixture bucket removal changed unrelated registrations")
+    run.record("bucket-removal", {"removed": BUCKET_NAME, "baseline": baseline, "remaining": bucket_names(root)})
+
+
 def app_names(root):
     apps = root/"apps"
     if not apps.exists():
@@ -204,7 +284,7 @@ def aliases_absent(root):
                and shutil.which(name, path=common.normal_path()) is None for name in ("flere", "flere-connect"))
 
 
-def inspect_installed(run, root, manifest, manifest_path, expected_recipe, selected, environment, prefix=""):
+def inspect_installed(run, root, manifest, manifest_path, expected_recipe, selected, environment, prefix="", *, bucket=None):
     version = base.input_version(selected)
     listing = run.scoop(prefix+"installed-list", "list", "^flere$")
     require(re.search((rb"(?m)^\s*flere\s+"+re.escape(version.encode())+rb"(?:\s|$)"), common.clean_console(listing)), "normal installed list lacks exact package/version")
@@ -217,7 +297,7 @@ def inspect_installed(run, root, manifest, manifest_path, expected_recipe, selec
     for name in ("manifest.json", "flere-release.manifest.json", "install.json"):
         (run.proof/"records"/(prefix+"installed-"+name)).write_bytes((version_dir/name).read_bytes())
     installed_record(json.loads((version_dir/"manifest.json").read_text(encoding="utf-8-sig")),
-                     json.loads((version_dir/"install.json").read_text(encoding="utf-8-sig")), expected_recipe, manifest_path)
+                     json.loads((version_dir/"install.json").read_text(encoding="utf-8-sig")), expected_recipe, manifest_path, bucket=bucket)
     require(records["flere-release.manifest.json"]["sha256"] == selected["manifest_sha"]
             and records["LICENSE"]["sha256"] == LICENSE_SHA, "release manifest/license bytes changed")
     run.record(prefix+"current-junction", {"path": str(current), "target": str(current.resolve()), "version": version})
@@ -309,6 +389,12 @@ def main(output, selected=PUBLIC_INPUT):
         "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
                     "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
     run = Run(work, proof, receipt)
+    bucket = BUCKET_NAME if selected["name"] == BUCKET_INPUT_NAME else None
+    if bucket:
+        receipt["install_route"] = "registered-disposable-git-bucket"
+        receipt["limits"].append("Normal bucket add/install, Git sync/update and bucket removal use an owned local file URL, not a published bucket. Normal Scoop update may fetch mutable official manager/Main revisions.")
+    bucket_source = work/"bucket-source"
+    bucket_attempted = False; baseline_buckets = None
     root = Path(os.environ["USERPROFILE"])/"scoop"
     config = Path(os.environ["USERPROFILE"])/".config/scoop"
     global_root = Path(os.environ["ProgramData"])/"scoop"
@@ -370,18 +456,31 @@ def main(output, selected=PUBLIC_INPUT):
         run.record("manager-ready-path", during_paths)
         require(during_paths["machine"] == initial_paths["machine"] and common.registry_inventory() == initial_inventory,
                 "bootstrap changed system PATH or unrelated packages")
+        if bucket:
+            baseline_buckets = bucket_names(root)
+            require(baseline_buckets == ["main"], "unexpected post-bootstrap bucket baseline")
+            head = commit_bucket(run, bucket_source, recipe(), "initial", initialize=True)
+            bucket_attempted = True
+            run.scoop("bucket-register", "bucket", "add", bucket, bucket_source.resolve().as_uri(), seconds=60)
+            require(bucket_names(root) == sorted([*baseline_buckets, bucket]), "bucket registration differs")
+            inspect_bucket(run, root, bucket_source, head, "initial")
         package_attempted = True
-        run.scoop("install", "install", manifest_path, seconds=240, maximum=1024*1024)
-        initial = inspect_installed(run, root, manifest, manifest_path, recipe(), PUBLIC_INPUT, binary_env)
+        run.scoop("install", "install", bucket+"/flere" if bucket else manifest_path, seconds=240, maximum=1024*1024)
+        initial = inspect_installed(run, root, manifest, manifest_path, recipe(), PUBLIC_INPUT, binary_env, bucket=bucket)
         if selected["owner_check"]:
             mirror = base.Mirror(candidate_data, selected)
             local_url = f"http://127.0.0.1:{mirror.server_port}/{base.zip_name(selected)}"
             upgraded_recipe = recipe(selected, local_url)
             require(dict(upgraded_recipe, architecture=recipe(selected)["architecture"]) == recipe(selected), "candidate recipe changed beyond one URL")
-            manifest_path.write_text(json.dumps(upgraded_recipe, indent=2)+"\n", encoding="utf-8")
+            if bucket:
+                head = commit_bucket(run, bucket_source, upgraded_recipe, "upgraded")
+                run.scoop("bucket-sync", "update", seconds=180, maximum=1024*1024)
+                inspect_bucket(run, root, bucket_source, head, "upgraded")
+            else:
+                manifest_path.write_text(json.dumps(upgraded_recipe, indent=2)+"\n", encoding="utf-8")
             run.record("upgrade-recipe", upgraded_recipe)
             run.scoop("upgrade", "update", "flere", seconds=240, maximum=1024*1024)
-            upgraded = inspect_installed(run, root, candidate_manifest, manifest_path, upgraded_recipe, selected, binary_env, "upgraded-")
+            upgraded = inspect_installed(run, root, candidate_manifest, manifest_path, upgraded_recipe, selected, binary_env, "upgraded-", bucket=bucket)
             verify_upgrade(initial, upgraded); run.record("actual-version-upgrade", {"before":initial["version"], "after":upgraded["version"],
                 "before_build":initial["build"], "after_build":upgraded["build"], "before_payload_sha256":initial["payload_sha"], "after_payload_sha256":upgraded["payload_sha"]})
             version_dir = root/"apps/flere"/selected["version"]
@@ -423,6 +522,9 @@ def main(output, selected=PUBLIC_INPUT):
         try:
             if package_attempted and not removed and run.entry.is_file() and os.path.lexists(root/"apps/flere"):
                 run.scoop("cleanup-package", "uninstall", "flere")
+            if bucket_attempted:
+                remove_bucket(run, root, baseline_buckets)
+                receipt["fixture_bucket_removed"] = True
             if boot_attempted:
                 require(run.entry.is_file() and not app_names(root) and aliases_absent(root), "normal Flere removal is incomplete")
                 retained = {"disposition": "Retained until disposable hosted VM teardown",
@@ -452,7 +554,7 @@ def main(output, selected=PUBLIC_INPUT):
         receipt["status"] = "passed" if receipt.get("package_lifecycle_passed") and receipt.get("cleanup_passed") and "error" not in receipt else "failed"
         run.save()
         files = [path for path in proof.rglob("*") if path.is_file()]
-        require(len(files) <= 128 and sum(path.stat().st_size for path in files) <= 16*1024*1024, "proof inventory bound")
+        require(len(files) <= (160 if bucket else 128) and sum(path.stat().st_size for path in files) <= 16*1024*1024, "proof inventory bound")
         (proof/"hashes.json").write_text(json.dumps({str(path.relative_to(proof)): {"bytes": path.stat().st_size, "sha256": sha(path.read_bytes())} for path in files}, indent=2)+"\n")
     require(receipt["status"] == "passed", "Scoop lifecycle failed; inspect retained proof")
 
@@ -480,6 +582,90 @@ def self_test():
                            {"artifact_bytes":17*1024*1024}, {"extra":"not allowed"}):
                 with mock.patch.dict(globals(), OWNER_INPUT=dict(value, **change)), self.assertRaises(ValueError):
                     selection(OWNER_INPUT_NAME)
+
+        def test_bucket_slot_requires_new_reviewed_artifact_not_old_owner_payload(self):
+            with mock.patch.dict(globals(), BUCKET_INPUT=None), self.assertRaises(ValueError):
+                selection(BUCKET_INPUT_NAME)
+            value = dict(OWNER_INPUT, name=BUCKET_INPUT_NAME)
+            with mock.patch.dict(globals(), BUCKET_INPUT=value), self.assertRaises(ValueError):
+                selection(BUCKET_INPUT_NAME)
+            value.update(product="d"*40, payload_sha="e"*64)
+            with mock.patch.dict(globals(), BUCKET_INPUT=value):
+                self.assertEqual(selection(BUCKET_INPUT_NAME), value)
+                self.assertEqual(selection(OWNER_INPUT_NAME), OWNER_INPUT)
+                self.assertEqual(selection(), PUBLIC_INPUT)
+            for change in ({"owner_check":False}, {"version":"0.3.4"}, {"name":OWNER_INPUT_NAME},
+                           {"product":OWNER_INPUT["product"]}, {"payload_sha":OWNER_INPUT["payload_sha"]}):
+                with mock.patch.dict(globals(), BUCKET_INPUT=dict(value, **change)), self.assertRaises(ValueError):
+                    selection(BUCKET_INPUT_NAME)
+
+        def test_bucket_records_are_exact_and_never_local_url_records(self):
+            for version in ("0.3.4", "0.3.5"):
+                value = recipe(dict(PUBLIC_INPUT, version=version))
+                record = {"architecture":"64bit", "bucket":BUCKET_NAME}
+                installed_record(value, record, value, Path("unused.json"), bucket=BUCKET_NAME)
+                for bad in ({}, dict(record, architecture="32bit"), dict(record, bucket="main"),
+                            dict(record, url="unused.json"), {"architecture":"64bit", "url":"unused.json"}):
+                    with self.assertRaises(ValueError):
+                        installed_record(value, bad, value, Path("unused.json"), bucket=BUCKET_NAME)
+                with self.assertRaises(ValueError):
+                    installed_record(dict(value, version="changed"), record, value, Path("unused.json"), bucket=BUCKET_NAME)
+
+        @unittest.skipUnless(shutil.which("git"), "owned local Git transport check requires existing Git")
+        def test_owned_file_uri_clone_and_sync_preserve_exact_recipe_bytes(self):
+            from types import SimpleNamespace
+            cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home()/".cache"))/"flere/tests"
+            cache.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=cache) as folder:
+                work=Path(folder); source=work/"bucket source ü"; root=work/"manager"
+                (root/"buckets").mkdir(parents=True)
+                # Fixture commits never use the operator's identity, config or signing keys.
+                env = {key:value for key,value in os.environ.items() if not key.startswith("GIT_")}
+                env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+                commands=[]
+                def command(name, argv, **unused):
+                    commands.append(list(map(str,argv)))
+                    return subprocess.run(argv, env=env, check=True, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30).stdout
+                run=SimpleNamespace(git=shutil.which("git"), command=command, record=lambda *args:None)
+                first=commit_bucket(run,source,recipe(),"initial",initialize=True)
+                uri=source.resolve().as_uri()
+                # Same URI syntax/regex as the retained official Convert-RepositoryUri.
+                pattern=r"(?:@|/{1,3})(?:www\.|.*@)?(?P<provider>[^/]+?)(?::\d+)?[:/](?P<user>.+)/(?P<repo>.+?)(?:\.git)?/?$"
+                self.assertRegex(uri,pattern)
+                checkout=root/"buckets"/BUCKET_NAME
+                command("clone",[run.git,"-c","core.autocrlf=true","clone",uri,checkout])
+                with mock.patch.object(Path,"is_junction",return_value=False,create=True):
+                    inspect_bucket(run,root,source,first,"initial")
+                    second=commit_bucket(run,source,recipe(dict(PUBLIC_INPUT,version="0.3.5")),"upgraded")
+                    self.assertNotEqual(first,second)
+                    with self.assertRaises(ValueError):
+                        inspect_bucket(run,root,source,second,"stale")
+                    command("sync",[run.git,"-C",checkout,"pull","--ff-only"])
+                    inspect_bucket(run,root,source,second,"upgraded")
+                self.assertEqual(json.loads((checkout/"bucket/flere.json").read_bytes())["version"],"0.3.5")
+                self.assertTrue(any("-c" in argv and "core.autocrlf=true" in argv for argv in commands))
+
+        def test_normal_bucket_cleanup_removes_only_owned_registration(self):
+            from types import SimpleNamespace
+            cache=Path(os.environ.get("XDG_CACHE_HOME",Path.home()/".cache"))/"flere/tests"
+            cache.mkdir(parents=True,exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=cache) as folder:
+                root=Path(folder); (root/"buckets/main").mkdir(parents=True)
+                owned=root/"buckets"/BUCKET_NAME; owned.mkdir()
+                calls=[]
+                def scoop(name,*args,**unused):
+                    calls.append(args); owned.rmdir()
+                run=SimpleNamespace(scoop=scoop,record=lambda *args:None)
+                with self.assertRaises(ValueError):
+                    remove_bucket(run,root,["main",BUCKET_NAME])
+                other=root/"buckets/other"; other.mkdir()
+                with self.assertRaises(ValueError):
+                    remove_bucket(run,root,["main"])
+                self.assertEqual(calls,[]); other.rmdir()
+                remove_bucket(run,root,["main"])
+                self.assertEqual(calls,[("bucket","rm",BUCKET_NAME)])
+                self.assertEqual(bucket_names(root),["main"])
 
         def test_candidate_recipe_keeps_hash_and_hook_for_one_loopback_url(self):
             selected = dict(PUBLIC_INPUT, version="0.3.5", zip_sha="a"*64)
@@ -645,7 +831,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", nargs="?", type=Path)
     parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--input", choices=(DEFAULT_INPUT, OWNER_INPUT_NAME), default=DEFAULT_INPUT)
+    parser.add_argument("--input", choices=(DEFAULT_INPUT, OWNER_INPUT_NAME, BUCKET_INPUT_NAME), default=DEFAULT_INPUT)
     args = parser.parse_args()
     if args.self_test:
         self_test()

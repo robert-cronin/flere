@@ -165,9 +165,11 @@ owner reports, normal removal and initialized-profile/PATH/package preservation.
 The target manifest used the exact observed baseline ProductCode and a checksummed
 runner-local ZIP URL. The disposable VM removed the Store source before recording
 its community-only source baseline and retained that setup until VM teardown.
-Default two-source and catalogue upgrades remain outside that proof. WinGet
-catalogue-installed ownership detection remains unsupported; the verified
-detector scope is the local-manifest route above.
+Default two-source and catalogue upgrades remain outside that proof. Published
+v0.3.5 supports the local-manifest owner routes above. Later source `4f3b693`
+adds ordinary default-user Scoop bucket and official WinGet community ownership
+recognition; all eight macOS checks and 549 tests passed. Native bucket/catalogue
+acceptance is pending, and those changes are not in the public ZIP.
 Physical acceptance, update UI/coordinated refusal and catalogue publication
 remain open. The public v0.3.5 ZIP is rebuilt from `8744d35`; its hashes differ
 from the `7e43fa1` candidate used in those manager checks.

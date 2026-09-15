@@ -77,10 +77,13 @@ Those checks used local recipes and checksummed runner-local target downloads;
 the rebuilt public v0.3.5 ZIP has different hashes. WinGet used an explicit
 local manifest carrying the observed baseline ProductCode. Its disposable runner
 removed the Store source before the preservation baseline, retaining the Microsoft
-community source until VM teardown. WinGet catalogue-installed ownership
-detection remains unsupported. These runs do not establish catalogue upgrades,
-physical acceptance or update UI/coordinated refusal. No Windows catalogue is
-published.
+community source until VM teardown. Published v0.3.5 retains local-manifest
+ownership detection. Later source `4f3b693` adds ordinary Scoop bucket and official
+WinGet community ownership recognition; its 549 macOS tests and all eight checks
+passed, while native bucket/catalogue acceptance remains pending. These source
+changes are not in the published ZIP. The earlier runs do not establish catalogue
+upgrades, physical acceptance or update UI/coordinated refusal. No Windows
+catalogue is published.
 
 ### Install with Homebrew
 
