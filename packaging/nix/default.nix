@@ -3,11 +3,11 @@
 
 let
   inherit (pkgs) lib;
-  version = "0.3.3";
+  version = "0.3.5";
   src = pkgs.fetchurl {
     url = "https://github.com/robert-cronin/flere/releases/download/v${version}/flere-${version}-source.tar.gz";
     # SHA-256 of the compressed release archive, not an unpacked/NAR hash.
-    hash = "sha256-Rhu+Hj+ogCfC6nGRw0rb1+zqrb9vCRonB2mxzcCtap4=";
+    hash = "sha256-tH4LdB0+FXlamP+dEHQw6U8D1HE+k0HV57dH8DlhQsU=";
   };
 
   coreDeps = pkgs.rustPlatform.importCargoLock { lockFile = ./locks/core-Cargo.lock; };
@@ -61,9 +61,7 @@ let
         "--bin"
         pname
       ];
-      # Reviewed production fix: a closing delimiter can wrap after a path
-      # fills the terminal row. Keep this separate from fixture substitutions.
-      patches = [ ./patches/wrapped-path-delimiter.patch ];
+      # The published 0.3.5 source already contains the wrapped-path fix.
 
       # NixOS does not provide this FHS path. Retain an absolute, trusted helper.
       postPatch = ''
@@ -136,7 +134,7 @@ let
     };
 in
 assert lib.assertMsg (lib.versionAtLeast pkgs.rustc.version "1.98.0")
-  "Flere v0.3.3 requires Rust 1.98 or newer; provide a compatible nixpkgs package set.";
+  "Flere v0.3.5 requires Rust 1.98 or newer; provide a compatible nixpkgs package set.";
 {
   flere = mkPackage {
     pname = "flere";

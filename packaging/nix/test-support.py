@@ -12,6 +12,8 @@ MODULES = {
     'src/server/transfers.rs': '#[cfg(test)]\nmod tests {',
     'src/ui/github.rs': '#[cfg(test)]\nmod tests {',
     'src/install/ownership.rs': '#[cfg(test)]\nmod tests {',
+    'src/install/mod.rs': '#[cfg(test)]\nmod inspection_tests {',
+    'src/install/ownership/nix.rs': '#[cfg(all(test, unix))]\nmod tests {',
     'companion/src/ports.rs': '#[cfg(all(test, unix))]\nmod tests {',
     'companion/src/update.rs': '#[cfg(all(test, unix))]\nmod tests {',
 }

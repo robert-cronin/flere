@@ -156,8 +156,9 @@
 - [ ] Complete physical desktop clipboard acceptance before promoting the Nix
   draft to supported status. TCG is emulated core
   runtime evidence; native Nix-on-Ubuntu profile upgrades do not establish
-  NixOS/Home Manager activation. The pinned v0.3.3 recipe still lacks the newer
-  ownership code and was not repinned.
+  NixOS/Home Manager activation. The draft now pins verified public v0.3.5,
+  including Nix ownership code; only offline recipe/fixture checks are recorded
+  for that repin, with no new Nix build or runtime acceptance claim.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The public v0.3.5 ZIP is available from exact source `8744d35`; its native

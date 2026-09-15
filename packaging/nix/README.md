@@ -1,8 +1,12 @@
 # Nix packaging draft
 
-This draft pins the published **v0.3.3** full source archive with the explicit
-production correction below. Native strict-sandbox builds, all **485 tests** and
-both output inventories passed in hosted run
+This draft now pins the published **v0.3.5** source at `8744d35`, including
+proof-based Nix ownership and the corrected path parser. The updated recipe has
+only offline fixture/source checks so far; no v0.3.5 Nix build or runtime result
+is claimed. Physical clipboard acceptance remains open.
+
+Historical v0.3.3 plus the explicit parser correction passed native
+strict-sandbox builds, all **485 tests** and both output inventories in hosted run
 [34869221522](https://github.com/robert-cronin/flere/actions/runs/34869221522)
 at workflow commit `2d52985845ed322b1c6c0f3018eaedf38d6bcead`. Separate native
 Nix-on-Ubuntu ownership/profile acceptance passed for the newer v0.3.4 development
@@ -45,27 +49,32 @@ AppArmor, sysctl, KVM, or fallback workaround. A namespace refusal fails the job
 See [GitHub's hosted VM documentation](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 and the [Nix sandbox settings](https://nix.dev/manual/nix/2.33/command-ref/conf-file.html#conf-sandbox).
 
-The [v0.3.3 source archive](https://github.com/robert-cronin/flere/releases/download/v0.3.3/flere-0.3.3-source.tar.gz)
-contains source commit `ce6bb62ca6051d8bfc385c2df16bc62cbd65c738` and is pinned by
-the compressed-file SHA-256:
+The current [v0.3.5 source archive](https://github.com/robert-cronin/flere/releases/download/v0.3.5/flere-0.3.5-source.tar.gz)
+contains source commit `8744d358e62632490bbca10ddd9e82aa5b9c5e94`. Its compressed
+SHA-256 is `b47e0b741d3e15795a98ff9d107430e94f03d4713e9341d5e7b747f0396142c5`;
+all 388 source files were independently verified during publication. Both exact
+lockfiles are copied below. Their external dependency/checksum sets are unchanged
+from v0.3.3. The existing Nix vendor helper can reuse those locked dependencies.
 
-```text
-461bbe1e3fa88027c2ea7191c34adbd7eceaadbf6f091a270769b1cdc0ad6a9e
-```
-
-The derivations also apply the reviewed
+The historical [v0.3.3 archive](https://github.com/robert-cronin/flere/releases/download/v0.3.3/flere-0.3.3-source.tar.gz)
+at `ce6bb62ca6051d8bfc385c2df16bc62cbd65c738`, compressed SHA-256
+`461bbe1e3fa88027c2ea7191c34adbd7eceaadbf6f091a270769b1cdc0ad6a9e`, remains
+explicitly pinned with its original locks for the separate previous-version
+profile fixture. Only that previous pair still applies the reviewed
 [wrapped-path delimiter patch](patches/wrapped-path-delimiter.patch), SHA-256
 `3e1bcd7b259d047974a85f2ff0cd8aae965e90207ceba1253e9637e8ef701275`.
 It fixes a production parser bug where a clicked path fills a terminal row and
 its closing delimiter wraps to the next row, and adds a focused regression.
-The existing failing remote image assertion remains unchanged. This is v0.3.3
-plus that explicit patch and the three existing hash-helper substitutions,
-not an unmodified v0.3.3 runtime. The published source archive is unchanged.
+The historical runtime was v0.3.3 plus that explicit patch and the three existing
+hash-helper substitutions; its original assertions and archive stayed unchanged.
+The v0.3.5 parser file already matches the corrected bytes, so the current recipe
+does not apply the patch again. Both versions retain the three hash-helper
+substitutions below.
 
 | Archive member | Copied lockfile SHA-256 |
 | --- | --- |
-| `Cargo.lock` | `7a6a0ec936b4cd0a7fd82b85b08c5b2dbd52356fb6e8b8b8f0b8b9eebaa7c789` |
-| `companion/Cargo.lock` | `659e826726ecaadc8ea1a5b19fa95770e1ac286f4e4a3353b58416004003a0cb` |
+| `Cargo.lock` | `2c202a6d18dc1f1d6f581c0b1bcee22eeb385abf3eed9acdc80f74e7f0567b6c` |
+| `companion/Cargo.lock` | `df6bbddda223ede91dc5fdea5f24a9fdb7df7a6e39845a2575d820fb855cef4e` |
 
 `default.nix` exposes `flere` and optional `flere-connect`. It accepts `pkgs`,
 otherwise using `<nixpkgs>`, and requires Rust 1.98 or newer. Each derivation
@@ -95,6 +104,10 @@ semantics; explicit Bash fixtures still use Bash. The two full shell-return
 path expectations include their exact 80-column capture wrap, with their
 existing assertions and deadlines retained.
 
+The current adapter additionally maps the newer installer inspection and Nix
+ownership unit-test shell fixtures to declared Dash paths. Production code before
+those test modules, assertions and deadlines remain unchanged.
+
 The three existing production hash-helper replacements retain absolute trusted
 Nix coreutils paths. No runtime PATH wrapper is added. The core declares zlib.
 Git, configured shells/editors, OpenSSH and optional desktop tools remain user
@@ -114,9 +127,11 @@ substitute a previous result for this acceptance run. No user profile, Flere
 session, native model or release is installed or launched. Fixtures exercise the
 product using owned stand-ins. A failed check remains failed.
 
-Five focused Python fixture/vendor/patch regressions and a dependency-free
-offline Cargo output-layout reproduction also passed during preparation. These
-are distinct from the subsequent native hosted full-suite acceptance above.
+The v0.3.5 preparation checks the exact copied/current and historical lockfiles,
+fixture scope, vendor conflicts and already-integrated parser fix. These offline
+checks are not a Nix evaluation/build or full-suite result. The historical five
+Python regressions and offline Cargo output-layout reproduction remain separate
+from the subsequent v0.3.3 hosted acceptance above.
 
 The separate [installed-owner workflow](../../.github/workflows/nix-owner-acceptance.yml)
 passed [run 34874904110](https://github.com/robert-cronin/flere/actions/runs/34874904110)
@@ -149,8 +164,10 @@ cleanup preserved synthetic state. A successful no-op is rejected by the checks.
 All four derivations passed a complete closure/disk gate before realization and
 built under the same strict sandbox and limits. The previous pair skipped full
 suites only for this separate fixture and retained install checks; its fresh
-bytes are not the recorded 485-test outputs. The default recipe and full-suite
-workflow remain unchanged. This is native Nix-on-Ubuntu profile acceptance,
+bytes are not the recorded 485-test outputs. That run left the then-v0.3.3 default recipe and full-suite workflow unchanged.
+The previous pair is now bound explicitly in `owner-build.nix`, so advancing the
+current draft cannot change the historical 0.3.3 → 0.3.4 fixture. This is native
+Nix-on-Ubuntu profile acceptance,
 not live old-process refresh or NixOS/Home Manager activation; no channel was repinned.
 
 The initial [run 34874043087](https://github.com/robert-cronin/flere/actions/runs/34874043087)
@@ -183,11 +200,12 @@ failures remain retained. This container used its unchanged default
 `sandbox = false`; it does not replace the strict-sandbox evidence above.
 
 Physical desktop clipboard remains open. The Nix-packaged companion was not used
-in that SSH check; the emulated guest tested the core only. The pinned v0.3.3 recipe
-still lacks proof-based Nix update ownership: do not use its installation controls
-to replace Nix-owned files. No profile or NixOS/Home Manager upgrade command can
-be inferred safely from a store path alone. The published recipe remains
-v0.3.3 plus its explicit parser patch, separate from the newer ownership proof.
+in that SSH check; the emulated guest tested the core only. The current v0.3.5
+draft includes the proof-based ownership code; it has not yet been built or tested
+under Nix. Earlier v0.3.3 outputs lack that owner code and must not use the in-app
+updater to replace Nix-owned files. No profile or NixOS/Home Manager upgrade command
+can be inferred safely from a store path alone. All historical results retain their
+recorded versions and scopes.
 
 The build script embeds a random/time/process build identity. Pinned source and
 dependencies do not imply bit-identical executable outputs.

@@ -120,8 +120,8 @@ for component in ('flere', 'flere-connect'):
         entries[name] = {'bytes': info.st_size, 'mode': mode, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
     outputs[component] = {'output': str(root), 'derivation': (proof / f'{component}.drv').read_text().strip(), 'files': entries, 'test_summaries': [[int(n) for n in row] for row in summaries]}
 receipt = {'schema': 'flere-nix-sandbox-acceptance-v1', 'status': 'passed', **context,
-           'source_version': '0.3.3', 'source_commit': 'ce6bb62ca6051d8bfc385c2df16bc62cbd65c738',
-           'source_archive_sha256': '461bbe1e3fa88027c2ea7191c34adbd7eceaadbf6f091a270769b1cdc0ad6a9e',
+           'source_version': '0.3.5', 'source_commit': '8744d358e62632490bbca10ddd9e82aa5b9c5e94',
+           'source_archive_sha256': 'b47e0b741d3e15795a98ff9d107430e94f03d4713e9341d5e7b747f0396142c5',
            'nixpkgs': subprocess.check_output(['git', '-C', 'nixpkgs', 'rev-parse', 'HEAD'], text=True).strip(),
            'workflow_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
            'sandbox': True, 'sandbox_fallback': False, 'cargo_offline': True,
