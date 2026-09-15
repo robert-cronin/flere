@@ -75,8 +75,15 @@ impl Bridge {
             .write(self.input.as_mut().unwrap())
             .unwrap();
     }
-    fn until(&mut self, mut pred: impl FnMut(&Packet, &Terminal) -> bool) -> Packet {
-        let end = Instant::now() + Duration::from_secs(4);
+    fn until(&mut self, pred: impl FnMut(&Packet, &Terminal) -> bool) -> Packet {
+        self.until_timeout(Duration::from_secs(4), pred)
+    }
+    fn until_timeout(
+        &mut self,
+        timeout: Duration,
+        mut pred: impl FnMut(&Packet, &Terminal) -> bool,
+    ) -> Packet {
+        let end = Instant::now() + timeout;
         loop {
             let packet = self
                 .packets
@@ -449,7 +456,7 @@ fn remote_refresh_handshake_discards_inflight_chunks_without_native_replay() {
     assert_eq!(f.snapshot().session().unwrap().run, t.run);
 }
 
-fn companion_binary() -> &'static PathBuf {
+pub(super) fn companion_binary() -> &'static PathBuf {
     static BINARY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     BINARY.get_or_init(|| {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("companion");

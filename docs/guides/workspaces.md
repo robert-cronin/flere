@@ -22,10 +22,11 @@ Cards have independent workflow status, project colors, issue/PR symbols and ord
 
 ## Cards and the inspector
 
-Cards have three content rows with a blank row between them. Long titles wrap;
+Sidebar cards have three content rows and adjacent borders, with no extra blank spacer row. Long titles wrap;
 short titles leave room for project or branch context. Workflow and runtime are
 separate: **Working** is an observation, and **no agent** stays explicit.
-Sidebar and board use the same presentation.
+Clicking a visible card keeps the sidebar at its current scroll position; keyboard
+navigation scrolls to reveal its selection. The board retains its separate grid layout.
 
 Click **Files / Git / Details** to select an inspector, or press **i** in navigation
 to cycle. Files supports Home/End and Page Up/Down as well as j/k and the wheel.
@@ -34,6 +35,8 @@ The selected-file panel shows context without changing selection when clicked.
 issue/PR links, directory, terminals, and connection capabilities. Scroll with
 j/k, the wheel, Home/End, or Page Up/Down. **Ctrl+Space → e** edits the card;
 Details scroll position belongs to the current attachment.
+
+Issue and PR links appear at the top of card details: click a link, or press **Ctrl+Space, h**, select a card, press **?**, then **i** or **p** to open it. Updated SSH companions open the browser on your local computer. See [workspace details](../workspace-details.md) for navigation and compatibility.
 
 ## Project logos
 

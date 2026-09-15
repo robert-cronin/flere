@@ -2297,6 +2297,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                     .write(&mut io::stdout().lock())?;
                 }
             }
+            ui.emit_card_links()?;
             dirty = false;
         }
         if ui.remote.as_ref().is_some_and(|r| r.avatar_capable) {

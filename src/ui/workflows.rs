@@ -131,7 +131,6 @@ pub(super) enum SideRow {
         tab: u64,
         run: String,
     },
-    Gap,
 }
 pub(super) fn tint(status: Workflow) -> (Color, Color) {
     match status {
@@ -332,7 +331,6 @@ impl Ui {
                         id: w.id,
                         top: false,
                     });
-                    rows.push(SideRow::Gap);
                 }
             }
         }

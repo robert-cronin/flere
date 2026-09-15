@@ -364,13 +364,12 @@ fn sidebar_clicks_follow_disclosures_details_children_and_inert_box_edges() {
             (1, review_y),
             (left - 2, review_y),
             (7, bottom),
-            (7, bottom + 1),
         ] {
             ui.click(x, y);
             assert_eq!(
                 (f.snapshot().active, f.snapshot().tab),
                 (scene.first, scene.first_tabs[1].id),
-                "inert border/gap ({x},{y}) changed focus"
+                "inert border/gutter ({x},{y}) changed focus"
             );
         }
         let (_, title_y) = ui.find("Flere");

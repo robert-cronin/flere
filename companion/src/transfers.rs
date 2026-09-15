@@ -69,12 +69,15 @@ pub fn launch(value: &str) -> io::Result<()> {
     let program = "xdg-open";
     #[cfg(windows)]
     let program = "explorer.exe";
-    std::process::Command::new(program)
+    let mut child = std::process::Command::new(program)
         .arg(value)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
 }
 fn nonce(id: u64) -> String {

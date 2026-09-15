@@ -1671,6 +1671,24 @@ fn actual_ui_sidebar_wheel_moves_viewport_preserves_draft_and_tracks_clicks() {
     wait_current_ui(&mut master, &mut screen, |_| {
         f.snapshot().active == cards[2].0
     });
+    // Selecting an already-visible card must not realign it at the bottom,
+    // including after subsequent supervisor snapshots and repeated clicks.
+    pump_ui_bytes(&mut master, &mut screen, 150);
+    assert!(
+        screen.grid.line(y).contains("Wheel 2"),
+        "{}",
+        screen.capture(30)
+    );
+    master
+        .write_all(format!("\x1b[<0;4;{}M", y + 1).as_bytes())
+        .unwrap();
+    pump_ui_bytes(&mut master, &mut screen, 150);
+    assert_eq!(f.snapshot().active, cards[2].0);
+    assert!(
+        screen.grid.line(y).contains("Wheel 2"),
+        "{}",
+        screen.capture(30)
+    );
     // Clamp at the bottom, and let a keyboard move reveal its selected card again.
     master
         .write_all(b"\x1b[<65;4;8M".repeat(30).as_slice())
@@ -6686,7 +6704,7 @@ fn actual_ui_compact_cards_attention_and_action_search_preserve_native_draft() {
     let beta_y = (3..30)
         .find(|y| screen.grid.line(*y).contains("Beta review"))
         .unwrap();
-    assert_eq!(beta_y - alpha_y, 5); // Two content rows, enclosing borders and one gap.
+    assert_eq!(beta_y - alpha_y, 4); // Two content rows and adjacent enclosing borders.
     assert!(screen.grid.line(alpha_y + 1).contains("feat/compact"));
     // Both lines of the second card resolve to that exact workspace.
     master

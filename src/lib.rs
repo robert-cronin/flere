@@ -38,3 +38,5 @@ pub mod avatar;
 pub mod pet;
 // Shared bounded encoder for Flere-owned graphics.
 pub mod sixel;
+
+pub mod browser_links;
