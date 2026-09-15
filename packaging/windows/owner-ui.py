@@ -206,6 +206,13 @@ def no_stage(home):
     require(not os.path.lexists(home/"AppData/Local/Flere/install"), "local installer staging observed")
 
 
+def console_stream(fd, name):
+    require(name in ("CONIN$", "CONOUT$"), "unknown owned console stream")
+    # Explicit raw FileIO avoids os.fdopen's automatic _WindowsConsoleIO wrapper:
+    # CPython3.12 rejects reading CONOUT$ and borrows integer console fds.
+    return io.FileIO(fd, "rb" if name == "CONIN$" else "wb", closefd=True)
+
+
 class Console:
     """Win32 x64 console ABI; owned CONIN$/CONOUT$ handles, never a user console."""
     def __init__(self):
@@ -246,11 +253,11 @@ class Console:
                 require(handle not in (None,ctypes.c_void_p(-1).value), "owned console open failed")
                 # open_osfhandle transfers handle ownership to the file object.
                 try:
-                    fd=msvcrt.open_osfhandle(handle,os.O_BINARY)
+                    fd=msvcrt.open_osfhandle(handle,os.O_BINARY | (os.O_RDONLY if name == "CONIN$" else os.O_WRONLY))
                 except BaseException:
                     self.api.CloseHandle(handle); raise
                 try:
-                    self.files.append(os.fdopen(fd,"r+b",buffering=0))
+                    self.files.append(console_stream(fd,name))
                 except BaseException:
                     os.close(fd); raise
             self.input,self.output=[msvcrt.get_osfhandle(value.fileno()) for value in self.files]
@@ -473,6 +480,31 @@ def self_test():
             state.receive(1,0,state.hello+struct.pack(">HH",80,25))
             state.receive(8,0,PROBE)
             return state
+        def test_directional_raw_streams_own_and_close_their_descriptors(self):
+            import tempfile
+            cache=Path(os.environ.get("XDG_CACHE_HOME",Path.home()/".cache"))/"flere/tests"
+            cache.mkdir(parents=True,exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=cache) as folder:
+                for name in ("CONIN$", "CONOUT$"):
+                    path=Path(folder)/("input.bin" if name=="CONIN$" else "output.bin"); path.write_bytes(b"old")
+                    fd=os.open(path,os.O_RDWR)
+                    try:
+                        stream=console_stream(fd,name)
+                    except BaseException:
+                        os.close(fd); raise
+                    with stream:
+                        self.assertIs(type(stream),io.FileIO); self.assertTrue(stream.closefd)
+                        self.assertEqual(stream.fileno(),fd)
+                        self.assertEqual((stream.readable(),stream.writable()),(name=="CONIN$",name=="CONOUT$"))
+                        if name=="CONIN$":
+                            self.assertEqual(stream.read(),b"old")
+                            with self.assertRaises(io.UnsupportedOperation):stream.write(b"bad")
+                        else:
+                            self.assertEqual(stream.write(b"new"),3)
+                            with self.assertRaises(io.UnsupportedOperation):stream.read(1)
+                    with self.assertRaises(OSError):os.fstat(fd)
+                with self.assertRaises(ValueError):console_stream(-1,"other")
+
         def test_frame_partial_reads_and_bounds(self):
             class Short(io.BytesIO):
                 def read(self,n=-1): return super().read(min(n,2))

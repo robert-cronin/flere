@@ -178,23 +178,25 @@ Physical acceptance, update UI/coordinated refusal and catalogue publication
 remain open. The public v0.3.5 ZIP is rebuilt from `8744d35`; its hashes differ
 from the `7e43fa1` candidate used in those manager checks.
 
-Before publishing a package-manager channel, on Windows:
+Package-manager publication and physical acceptance are separate tracks. Keep
+physical clipboard, SSH, draft-retention and image/resize/cleanup checks open
+against their exact payload digest until observed; catalogue availability does
+not prove them. The deferred arcade investigation is not a release requirement.
 
-1. Complete physical clipboard, SSH, draft-retention and image/resize/cleanup
-   acceptance against the exact payload digest. The deferred arcade held-control
-   investigation is not a release requirement.
-2. Run `winget validate` on the generated version directory. Test install,
+For each package-manager channel:
+
+1. Run `winget validate` on the generated version directory. Test install,
    command aliases, upgrade and removal in a disposable Windows user/profile.
-3. Test the generated Scoop manifest and both aliases in an isolated Scoop setup.
-4. Run `choco pack .\flere-connect.nuspec` from the generated Chocolatey recipe
+2. Test the generated Scoop manifest and both aliases in an isolated Scoop setup.
+3. Run `choco pack .\flere-connect.nuspec` from the generated Chocolatey recipe
    directory. Inspect the `.nupkg` inventory: NuGet metadata, the spec and only
    `tools/chocolateyInstall.ps1`; no embedded executable or local files.
-5. Keep recipes bound to an anonymously verified published ZIP. Public v0.3.5
+4. Keep recipes bound to an anonymously verified published ZIP. Public v0.3.5
    satisfies that download step; future versions require their own verification.
    Preserve user state and SSH configuration through normal version upgrades.
    Retain the exact recipe/download scope of the candidate upgrade checks above;
    they do not establish catalogue installation or a different download route.
-6. Publish the Scoop bucket and submit the WinGet and Chocolatey packages through
+5. Publish the Scoop bucket and submit the WinGet and Chocolatey packages through
    their normal contribution processes. Keep pending/accepted status explicit.
 
 Use Scoop/WinGet/Chocolatey to upgrade their installations. The in-app updater owns a

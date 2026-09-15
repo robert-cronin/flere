@@ -162,14 +162,18 @@
   declared install checks and executable/license inventories under effective
   strict sandbox settings. Independent review verified all retained evidence.
   This repin does not extend the earlier profile, NixOS or SSH runtime scopes.
-- [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
-  publish the companion through Scoop and submit a WinGet manifest.
+- [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance.
+  Keep the exact tested payload and physical limitations explicit.
   The public v0.3.5 ZIP is available from exact source `8744d35`; its native
   producer passed 81 MSVC tests and six alias checks with one physical clipboard
   ignore. Manager lifecycle results below use the earlier candidate `7e43fa1`;
   runtime code matches, but public release bytes have their own verified hashes.
-  The physical handoff is updated to the actual public ZIP. Catalogue submissions
-  remain pending.
+  The physical handoff is updated to the actual public ZIP.
+- [ ] Publish the companion through an owned Scoop bucket and submit a WinGet
+  manifest from a verified public release. This can proceed independently of
+  physical acceptance; installing through a catalogue does not establish desktop
+  compatibility. Verify actual catalogue ownership after acceptance. Chocolatey
+  submission additionally needs its publisher account/access.
 - [x] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. Run `34911230794` tested exact public source `422058c`:
   native MSVC formatting, strict Clippy, 59 tests and release build passed, with
@@ -386,7 +390,11 @@
   state, PATH and 456 unrelated registry records preserved. Independent inspection
   verified all 158 retained file hashes. This used an owned local Git bucket on
   disposable Windows CI; public bucket and physical desktop acceptance remain
-  separate. Actual WinGet catalogue acceptance needs a normally accepted package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
+  separate. The first actual UI attempt, run `34952666337`, failed in the Python
+  console wrapper before Flere or its peer launched. Normal failure cleanup
+  removed the package and bucket and closed the listener. The fixture now uses
+  directional raw streams with explicit descriptor ownership; ten focused checks
+  pass. UI refusal still needs a successful native run. Actual WinGet catalogue acceptance needs a normally accepted package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
   detectors and does not contain these source changes.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
