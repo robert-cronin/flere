@@ -187,8 +187,16 @@
   inspected. It reused the byte-identical ZIP from run `34911230794`, without
   rebuilding or executing the companion. Both earlier failures remain retained.
 - [ ] Complete Windows package-manager install/upgrade/remove and ownership
-  checks before publication. Native recipe validation is not lifecycle or
-  physical desktop acceptance; additional channels need their own checks/access.
+  checks before publication. Chocolatey runs `34918170067` and `34919246013`
+  proved normal installation, six shim calls, removal, unchanged synthetic state,
+  PATH, unrelated package inventory and feature restoration. Historical records
+  remained as required by the observed retention setting. Both overall runs
+  remain failed: the loopback monitor rejected incidental malformed HTTP traffic,
+  whose source is unproven. The corrected monitor verifies completed exact-ZIP
+  responses after shutdown and records rejected traffic separately; 14 pure and
+  five owned-loopback checks pass. A fresh native run is still required; earlier
+  receipts remain unchanged. Version upgrades and product ownership remain open.
+  WinGet/Scoop and physical desktop acceptance remain separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -268,10 +276,22 @@
   and the exact container was removed. Formulas used the verified source via a
   private local URL; published Homebrew remains v0.3.2. No active-session or
   external SSH acceptance is claimed.
+- [x] Integrate the reviewed session-reliability branch: UI watches tolerate
+  temporary output stalls without corrupting partial frames, SSH failures report
+  their exit status, and automatic approval-review activity renders correctly.
+  The final four-thread core run passed all 424 tests; 89 companion tests, strict
+  Clippy/format checks and Windows companion compilation also passed. The earlier
+  long fixture-path failure, one transient probe timeout and toolchain stripping
+  warning remain retained; corrected release relinks passed. Local installation
+  and a new native Windows candidate are follow-ups to this source validation.
 - [ ] Implement and validate Windows package-manager ownership recognition.
-  Chocolatey, WinGet and Scoop detectors are still missing; the current Unknown
-  refusal does not establish manager recognition or correct upgrade guidance.
-  Use actual installed-manager records and exact executable identity. Native
+  Chocolatey detection now binds the running payload and manifest to the ordinary
+  default installation and an exact active package query, with fixed upgrade
+  guidance and Apply disabled. The native records informed the parser; Windows
+  all-target compilation passed, but actual installed-product recognition and
+  preparation refusal remain unverified. Custom Chocolatey roots remain Unknown;
+  WinGet and Scoop detectors are still missing. Use actual installed-manager
+  records and exact executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
@@ -284,9 +304,12 @@
   Ordinary pushes do not publish. Earlier failed receipts remain retained.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
-  an explicit commit/version pair while preserving its historical defaults;
-  27 focused candidate, packaging and lifecycle-helper checks pass. The complete
-  multi-target artifact assembly and Release wiring remain to be implemented.
+  an explicit commit/version pair while preserving its historical defaults,
+  including the manual candidate workflow. Linux/Windows artifact assembly now
+  validates one complete eleven-file release from matching source/version/run
+  evidence; 78 offline release/packaging checks pass and historical schema 1/2
+  behavior is retained. A real matching candidate pair, macOS producer/signing,
+  whole-release workflow wiring and external catalogue updates remain unfinished.
   The Linux manual Release path is complete; v0.3.0 remains latest, and
   macOS/Windows channels were not advanced by v0.3.3.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
