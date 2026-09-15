@@ -585,7 +585,7 @@ impl Server {
             return self.waiting(id, "waiting-for-idle", "Idle boundary is settling.");
         }
         let target = match self.proof(session, &run) {
-            Ok(t) if t == hook.target => t,
+            Ok(t) if t == hook.target && m.for_conversation(Some(&t.uuid)) => t,
             _ => {
                 return self.waiting(
                     id,
