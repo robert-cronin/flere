@@ -45,16 +45,16 @@ wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/ins
 
 No Rust or source checkout is required. The bootstrap verifies the published
 installer before running it. Default downloads are selected per platform: Linux
-v0.3.6 and the unsigned macOS arm64 v0.3.0 prebuilt. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
+v0.3.7 and the unsigned macOS arm64 v0.3.0 prebuilt. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
 for curl, `--core-only`, PATH setup and existing-installation rules.
 
 With Rust 1.98+ and a system C linker, install the core from crates.io:
 
 ```sh
-cargo install flere --locked --version 0.3.6
+cargo install flere --locked --version 0.3.7
 ```
 
-The [Cargo package](https://crates.io/crates/flere/0.3.6) builds locally on Linux
+The [Cargo package](https://crates.io/crates/flere/0.3.7) builds locally on Linux
 or macOS and excludes the separate SSH/clipboard companion. See
 [Cargo setup](docs/getting-started.md#install-with-cargo) for platform requirements.
 
@@ -73,7 +73,7 @@ brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard c
 Homebrew compiles the pinned source locally. See
 [installation channels and validation limits](docs/distribution.md) for setup,
 upgrades and the documented platform limits.
-[Flere v0.3.6](https://github.com/robert-cronin/flere/releases/tag/v0.3.6) provides
+[Flere v0.3.7](https://github.com/robert-cronin/flere/releases/tag/v0.3.7) provides
 Linux x86_64 downloads, a Debian package and the Windows x86_64 companion ZIP.
 Homebrew source formulas now track v0.3.6. macOS arm64 prebuilt downloads remain at
 [v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0); notarized

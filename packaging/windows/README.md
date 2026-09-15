@@ -4,9 +4,9 @@ The native Windows package is the OpenSSH/clipboard **companion**. It connects
 to a Linux or macOS workbench. Both `flere.exe` and `flere-connect.exe` launch
 that companion; this does not claim a native Windows core.
 
-The [v0.3.6 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.6/flere-connect-0.3.6-x86_64-pc-windows-msvc.zip)
-and [Flere's Scoop bucket](https://github.com/robert-cronin/scoop-flere) are
-published. WinGet and Chocolatey catalogue publication remains pending.
+The [v0.3.7 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.7/flere-connect-0.3.7-x86_64-pc-windows-msvc.zip)
+is published. [Flere's Scoop bucket](https://github.com/robert-cronin/scoop-flere)
+currently supplies v0.3.6. WinGet and Chocolatey catalogue publication remains pending.
 Physical Windows acceptance is tracked in
 [the handoff](../../docs/windows-acceptance-handoff.md).
 
@@ -41,9 +41,9 @@ checksum, then extract:
 ```powershell
 $Download = Join-Path $env:LOCALAPPDATA ('Flere\downloads\' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Download | Out-Null
-$Zip = Join-Path $Download 'flere-connect-0.3.6-x86_64-pc-windows-msvc.zip'
-Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.6/flere-connect-0.3.6-x86_64-pc-windows-msvc.zip' -OutFile $Zip
-if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne 'e1d4a75467a30e55452fa85be6f56ab2aab349517771449c07a448067043ce0a') { throw 'ZIP checksum differs.' }
+$Zip = Join-Path $Download 'flere-connect-0.3.7-x86_64-pc-windows-msvc.zip'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.7/flere-connect-0.3.7-x86_64-pc-windows-msvc.zip' -OutFile $Zip
+if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne '1f579d6c3c0fd78b7d085dd28cbe1a4e6c6988b4eaea66e9e5113fa5c98d7389') { throw 'ZIP checksum differs.' }
 $Portable = Join-Path $Download 'app'
 Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
 $env:Path = "$Portable;$env:Path"  # This PowerShell session only.
@@ -52,9 +52,9 @@ flere ssh dev
 ```
 
 Replace `dev` with your SSH hostname or configured alias. `flere-connect ssh dev`
-is equivalent. The ZIP is 1,856,627 bytes and contains only `flere.exe`,
+is equivalent. The ZIP is 1,900,739 bytes and contains only `flere.exe`,
 `flere-connect.exe`, `manifest.json` and `LICENSE`. Both executable aliases have
-SHA-256 `19346b7b524bba24f224c253b90ea30c78563d581959671b88e93389ff5bad4e`.
+SHA-256 `14bcdf024d2df200b906220d8dec0dd2fb99bccf6d92f6d841c82d79d9990f08`.
 No Rust build, WSL or package-manager catalogue is required. Add the extracted
 folder to your user PATH separately if desired; these commands change only the
 current terminal's PATH. Keep the folder outside an existing managed installation
@@ -84,12 +84,15 @@ above provides both command names.
 
 ## Release and candidate evidence
 
-The public v0.3.6 ZIP was built from exact source `8729733` in
-[run 34953872776](https://github.com/robert-cronin/flere/actions/runs/34953872776).
-Native MSVC formatting, strict Clippy, 85 tests, release packaging, six portable
+The public v0.3.7 ZIP was built from exact source `48e209ba` in
+[run 34958704741](https://github.com/robert-cronin/flere/actions/runs/34958704741).
+Native MSVC formatting, strict Clippy, 93 tests, release packaging, six portable
 alias checks, WinGet validation and Chocolatey packing passed. One physical
 clipboard test was explicitly ignored. All 11 release downloads, including this
 ZIP and its source/manifest, were independently verified without authentication.
+The earlier public v0.3.6 ZIP at `8729733` passed 85 native tests in
+[run 34953872776](https://github.com/robert-cronin/flere/actions/runs/34953872776),
+with its separate physical clipboard test ignored.
 The earlier public v0.3.5 ZIP at `8744d35` passed 81 native tests in
 [run 34941117734](https://github.com/robert-cronin/flere/actions/runs/34941117734),
 with its separate physical clipboard test ignored.
@@ -140,7 +143,7 @@ manifest and the MIT license. Extra files in the input directory are excluded.
 
 Generated outputs include a Scoop bucket manifest, three WinGet manifests for
 `RobertCronin.FlereConnect`, a Chocolatey recipe for `flere-connect`, checksums
-and a preparation receipt. Public v0.3.6 uses the verified immutable ZIP above;
+and a preparation receipt. Public v0.3.7 uses the verified immutable ZIP above;
 a newly generated recipe for an unpublished version is not evidence that its URL
 exists or that a catalogue has accepted it.
 Neither generator nor manifests invokes the managed self-installer, modifies SSH
@@ -165,7 +168,7 @@ Use `choco upgrade flere-connect` and `choco uninstall flere-connect` once that
 channel is available. Do not combine channels that provide the same aliases.
 
 The generator prepares recipe sources; native `choco pack` and exact `.nupkg`
-inventory checks passed in the public v0.3.6 producer. Separate retained-candidate
+inventory checks passed in the public v0.3.7 producer. Separate retained-candidate
 runs passed normal Chocolatey install/remove and both shims. Run `34930361884`
 also verified actual installed ownership diagnostics on `21cf68c` and preserved
 an explicitly initialized synthetic PowerShell/Chocolatey profile. Cold-profile
@@ -215,7 +218,7 @@ normal package/bucket cleanup passed.
 
 Physical acceptance, remote-core refusal, WinGet/Chocolatey UI refusal and their
 catalogue publication remain open. Scoop's owned public bucket is available.
-The public v0.3.6 ZIP is rebuilt from `8729733`; its hashes differ from the
+The public v0.3.7 ZIP is rebuilt from `48e209ba`; its hashes differ from the
 candidates used in those manager checks.
 
 Package-manager publication and physical acceptance are separate tracks. Keep
@@ -231,7 +234,7 @@ For each package-manager channel:
 3. Run `choco pack .\flere-connect.nuspec` from the generated Chocolatey recipe
    directory. Inspect the `.nupkg` inventory: NuGet metadata, the spec and only
    `tools/chocolateyInstall.ps1`; no embedded executable or local files.
-4. Keep recipes bound to an anonymously verified published ZIP. Public v0.3.6
+4. Keep recipes bound to an anonymously verified published ZIP. Public v0.3.7
    satisfies that download step; future versions require their own verification.
    Preserve user state and SSH configuration through normal version upgrades.
    Retain the exact recipe/download scope of the candidate upgrade checks above;

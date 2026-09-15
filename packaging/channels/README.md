@@ -1,7 +1,7 @@
 # Default release selection
 
 `stable.json` selects independently verified releases per platform. Linux and
-Windows currently select 0.3.6. macOS arm64 explicitly retains the unsigned
+Windows currently select 0.3.7. macOS arm64 explicitly retains the unsigned
 0.3.0 prebuilt; current Mac source builds are available through Homebrew.
 Intel Mac prebuilt selection is unavailable.
 
@@ -12,8 +12,8 @@ before using the existing package checks. An invalid or unavailable channel stop
 selection; it does not silently choose an older release. A compatible existing
 remote installation still attaches without channel discovery.
 
-Published companion binaries through 0.3.6 retain their previous discovery
-behavior. The new Rust resolver requires a subsequent binary release. The shell
+Companion binaries from 0.3.7 use this index for missing-remote bootstrap.
+Earlier binaries retain their previous discovery behavior. The shell
 loader pins the self-contained Python installer at commit `5297628` with its
 verified size and SHA-256. Old saved loader copies keep their original pin.
 

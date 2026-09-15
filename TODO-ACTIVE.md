@@ -117,6 +117,15 @@
   Native Windows passed 85 tests and six alias checks with one physical ignore;
   native Linux passed the required checks. Homebrew source formulas are published
   at signed `c13fe92`. Latest remains 0.3.0; platform discovery is separate.
+- [x] Publish immutable v0.3.7 from signed `48e209b`. Run `34958704741`
+  passed all nine required jobs, including the new channel artifact preparation;
+  six Mac jobs were skipped. Independent verification bound all 11 public assets,
+  402 source files, 133 Cargo files and ten generated recipes. Windows passed
+  93 native tests and six alias checks, with one physical ignore. Exact channel
+  promotion preserves the Mac records. Local Mac packages from the same source
+  were installed through the normal updater; all seven sessions, supervisor
+  identities, selections and frontend attachments were independently verified.
+  No frontend reload or new physical acceptance is claimed.
 - [x] Publish the [owned Scoop bucket](https://github.com/robert-cronin/scoop-flere)
   for v0.3.6. Signed `982c8dc` contains only the verified native recipe,
   README, licence and Git attributes. All four public files and GitHub's valid
@@ -493,7 +502,7 @@
   including the Debian package and core Cargo OIDC publication. Earlier retries
   reconciled the original assets/uploads without rebuilding or publishing twice.
   Ordinary pushes do not publish. Earlier failed receipts remain retained.
-- [ ] Finish per-platform default discovery and its release rollout. The Unix
+- [x] Finish per-platform default discovery and its release rollout. The Unix
   installer and Rust bootstrap now implement the same bounded channel schema,
   exact manifest pins and immutable URLs; explicit sources remain available.
   The prepared channel selects verified Linux/Windows 0.3.6, retains explicitly
@@ -501,8 +510,18 @@
   consumer and promotion checks pass. The parser/index are published in signed
   commit `5297628` and exact anonymous bytes match. The shell loader now pins
   that immutable installer; all eight piped-shell/argument/hash-failure checks
-  pass. Release the new Rust consumer next; existing released companions retain
-  their old discovery until updated.
+  pass. Public v0.3.7 includes the Rust bootstrap consumer. A real isolated Linux
+  core-only install through the published loader selected v0.3.6, verified its
+  exact manifest/payload and left the original installation unchanged; the
+  disposable home was removed. The verified release workflow artifact now
+  promotes Linux/Windows to v0.3.7 while retaining both Mac records.
+- [ ] Preserve default-channel intent for future updates. Default installation
+  and missing-remote bootstrap currently save the resolved immutable manifest URL,
+  so subsequent local or coordinated Update remains pinned to that version.
+  Record default-channel selection distinctly, resolve it again for an explicit
+  Update action, and retain explicit URL/local-package pinning. Existing compatible
+  SSH connections must keep attaching without checking for an update. Validate
+  receipt/wire compatibility and update both core and companion paths.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
   an explicit commit/version pair while preserving its historical defaults,
