@@ -7,8 +7,8 @@
   the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
   required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
-  using the pinned, checksummed v0.3.2 archive. Signed tap commit `97cbcff`
-  advances both formulas after native Linux and isolated macOS validation;
+  using the pinned, checksummed v0.3.4 release archive. Signed tap commit `cdd0b5f`
+  advances both formulas using the verified prepared recipe bytes;
   the core retains its Linux `zlib-ng-compat` runtime dependency.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
   companion: install, formula tests, stateless CLI checks, same-source revision
@@ -43,7 +43,7 @@
   `7f5c5eb`. Normal Cargo publication succeeded; the registry checksum and
   anonymous archive both match the reviewed 124-file package. After the hosted
   release below, the current core command is
-  `cargo install flere --locked --version 0.3.3`. The exact GitHub Trusted
+  `cargo install flere --locked --version 0.3.4`. The exact GitHub Trusted
   Publisher is configured for subsequent releases.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
@@ -93,6 +93,15 @@
   including Cargo OIDC and the corrected upload-archive check. Independent
   downloads verified all eight assets, 333 source files/modes and all 124 Cargo
   source files. Existing immutable releases and the v0.3.0 latest pointer stayed unchanged.
+- [x] Publish immutable v0.3.4 with the explicit Linux/Windows profile from
+  `32108e3`. Run `34930826557` passed native producers, publication, anonymous
+  verification, Cargo OIDC publication and hosted recipe generation. Independent
+  review matched all 11 public assets, all 383 source files/modes and all 129
+  Cargo source/metadata files. The separate ten-file recipe artifact is verified
+  `prepared_not_published`. The public Windows MSVC ZIP includes both companion
+  aliases; no Windows core is included.
+  Latest remains v0.3.0; the separate Homebrew tap update publishes v0.3.4.
+  Mac signing/notarization and package-manager catalogue publication remain separate.
 - [ ] Configure the AUR maintainer identity and publishing access.
 - [x] Check the intended AUR package name: official AUR exact-info/name-search
   and Arch package APIs returned no matching `flere-bin` package on 2026-09-14
@@ -143,9 +152,10 @@
   ownership code and was not repinned.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
-  The unpublished v0.3.4 source is reserved for the next Windows acceptance
-  payload. Do not publish it with the Linux-only workflow before all intended
-  Windows assets are ready: v0.3.3 is immutable and cannot receive extra files.
+  The public v0.3.4 ZIP is available from exact source `32108e3`; its native
+  producer passed 74 MSVC tests and six alias checks with one physical clipboard
+  ignore. The later WinGet detector source `9a9183c` is a separate candidate,
+  not part of that immutable release. Catalogue submissions remain pending.
 - [x] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. Run `34911230794` tested exact public source `422058c`:
   native MSVC formatting, strict Clippy, 59 tests and release build passed, with
@@ -154,7 +164,7 @@
   job then failed on WinGet manifest warnings; recipe validation and physical
   acceptance remain separate. Earlier private-source and failed-run evidence
   are retained.
-- [x] Build and verify the current Windows candidate from exact public source
+- [x] Build and verify the Windows candidate from exact public source
   `21cf68c`. Run `34922477345` passed all 65 native MSVC tests, formatting,
   strict Clippy, release packaging and six portable alias checks. One physical
   screenshot/clipboard test was explicitly ignored. Real WinGet manifest
@@ -228,8 +238,8 @@
   Release job now prepares an allowlisted Linux/Homebrew recipe artifact after
   public verification, with exact source/descriptor pins and a
   `prepared_not_published` receipt. Seven offline checks and generation from the
-  verified v0.3.3 assets passed; hosted execution remains pending. It does not
-  publish recipes or advance the checked-in channel pins.
+  verified v0.3.3 assets passed; hosted v0.3.4 generation passed in run
+  `34930826557`. It does not publish recipes or advance checked-in channel pins.
 - [x] Connect the configured crates.io Trusted Publisher to the manual Release
   workflow. The dedicated core job uses normal Cargo verification, exact source
   selection and short-lived OIDC credentials. A real read-only retry verified the
@@ -246,8 +256,9 @@
 - [x] Correct Homebrew companion ownership: the executable and formula must
   match, and the companion retains its own `brew upgrade` command. The regression
   first reproduced Unknown ownership; all 486 macOS tests, strict Clippy/format
-  checks and Linux/Windows compile checks now pass. This correction is unreleased;
-  published Homebrew v0.3.2 still contains the earlier parser.
+  checks and Linux/Windows compile checks now pass. The correction is included
+  in public v0.3.4 and the current Homebrew source formulas; the historical
+  v0.3.2 tap contained the earlier parser.
 - [x] Implement verified local Nix ownership for core and companion, with
   commandless owning-configuration guidance and in-app Apply disabled. Exact
   registered-content queries passed on native Nix 2.35.2 as root and an ordinary
@@ -255,11 +266,12 @@
   The default root-controlled daemon/store is the verified scope. Actual core
   and companion ownership/UI/profile checks also passed on native Nix 2.33.3 in
   run `34874904110`, separately from the v0.3.3 full-suite recipe. This source
-  change remains unreleased.
+  change is included in public v0.3.4; the Nix draft remains separately pinned.
 - [x] Correct wrapped image-path selection when the closing delimiter occupies
   its own row. The regression reproduced the defect, and exact caption checks
   pass at 32/33/64/65 columns while unrelated clicks/text stay rejected. This
-  source change is unreleased; the Nix recipe carries it as an explicit patch.
+  source change is included in public v0.3.4; the older Nix recipe retains it
+  as an explicit patch.
 - [x] Extend installation-owner checks to coordinated remote updates, including
   explicit manual adoption, stale-action rejection and owner rechecks under the
   installation lock. Older endpoints/candidates and unknown or manager-owned
@@ -277,7 +289,8 @@
   release builds passed. Both managed commands match the reviewed payloads;
   both known supervisors applied the update with all five exact session identities
   preserved. Existing frontends remain attached and need their normal UI reload.
-  The unidentified legacy runtime was excluded. v0.3.4 remains unpublished.
+  The unidentified legacy runtime was excluded. This installation predates the
+  separately published v0.3.4 release at `32108e3`.
 - [x] Validate actual native Linux Cargo v0.3.3 installed ownership: normal
   registry installation, exact empty supervisor/frontend owner reports,
   coordinated preparation rejected before staging, and normal Cargo uninstall.
@@ -293,12 +306,12 @@
   exact child/container cleanup passed. The published tap/source remained pinned;
   companion, rendered-modal and active-session behavior were not part of this check.
 - [x] Validate native Linux Homebrew core and companion ownership at exact
-  unreleased v0.3.4 source `2d52985`. Both normal source installs, formula tests,
+  then-unreleased v0.3.4 source `2d52985`. Both normal source installs, formula tests,
   six stateless checks, actual owner UIs and preparation refusal before staging
   passed. Binaries, manager receipts and synthetic state stayed unchanged; both
   frontends, the local bridge and supervisor exited normally, both kegs uninstalled
   and the exact container was removed. Formulas used the verified source via a
-  private local URL; published Homebrew remains v0.3.2. No active-session or
+  private local URL; the published tap was then v0.3.2. No active-session or
   external SSH acceptance is claimed.
 - [x] Integrate the reviewed session-reliability branch: UI watches tolerate
   temporary output stalls without corrupting partial frames, SSH failures report
@@ -312,6 +325,10 @@
   symbol-stripping invocation, both verified packages were installed and applied
   to the two known supervisors: all five exact session identities and selections
   survived. The two attached frontends still need their own UI reload.
+  Subsequent branch tip `f30ab18` was merged in `fc7a864` and pushed. Its exact
+  ancestry and lack of an open branch PR were checked before deleting the fully
+  merged branch with an exact-tip lease; only `main` remains. Recheck for new
+  branch work before future releases.
 - [ ] Implement and validate Windows package-manager ownership recognition.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
@@ -327,8 +344,10 @@
   and exact manifest/build/payload identity. It invokes no WinGet catalogue query
   and provides commandless manifest guidance with Apply disabled. Two functional
   record regressions, all 306 core/companion Mac unit tests, formatting, strict
-  Clippy and Windows cross-compilation pass. Native installed WinGet recognition
-  remains pending; catalogue/custom-root installations stay Unknown. The Scoop
+  Clippy and Windows cross-compilation pass. Native MSVC candidate run
+  `34931604932` at `9a9183c` passed 76 tests, both aliases and native recipe
+  checks, with one physical ignore. Native installed WinGet recognition remains
+  pending; catalogue/custom-root installations stay Unknown. The Scoop
   detector is still missing. Use actual installed-manager records and exact
   executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
@@ -355,8 +374,9 @@
   producers, aggregate and publisher. Twelve focused orchestration tests,
   workflow linting and independent review pass. The complete profile requires
   Apple configuration before builds and retains an exact submission checkpoint
-  for resume-only notarization. First hosted profile execution, native signing
-  and external catalogue updates remain unfinished.
+  for resume-only notarization. The first hosted Linux/Windows profile passed
+  as the v0.3.4 release above; complete-profile native signing and external
+  catalogue updates remain unfinished.
   The Linux manual Release path is complete; v0.3.0 remains latest, and
   macOS/Windows channels were not advanced by v0.3.3.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive

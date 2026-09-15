@@ -107,9 +107,13 @@ immutable release; adding another target later requires another unused version.
 Historical schema 1/2 runs retain their original workflow, validation and release
 text, including failed-job retries of those original artifacts.
 
-This orchestration has offline boundary checks. Its first hosted profile runs and
-Mac signing/notarization acceptance are still pending; wiring a job does not
-establish those runtime claims.
+The `linux-windows` profile passed in
+[run 34930826557](https://github.com/robert-cronin/flere/actions/runs/34930826557),
+publishing immutable v0.3.4 from exact source/workflow `32108e3`. Independent
+anonymous verification matched all 11 assets and all 383 source files/modes.
+Cargo v0.3.4 publication and the separate prepared-recipe job also passed.
+The `complete` profile and Mac signing/notarization acceptance remain pending;
+this run supplied no Mac asset and left latest at v0.3.0.
 
 ## Debian wrapper support
 
@@ -257,6 +261,14 @@ the eight schema 2 assets, all 333 source files/modes and all 124 Cargo source
 files. The earlier successful v0.3.2 retry exercised registry reconciliation. Offline fixtures cover missing, delayed,
 conflicting and matching registry data. No owner API token is needed for future releases.
 
+Run `34930826557` subsequently published core v0.3.4 from `32108e3`, after the
+matching immutable schema 3 GitHub release and anonymous 11-asset verification.
+Independent registry API/index/archive checks matched all 129 packaged
+source/metadata files and the exact 1,802,678-byte crate checksum
+`355459c2a68bc5b4c346e062f8b2845543e3b86590041cb421f79bfde8966863`.
+The separate signed Homebrew tap update now publishes v0.3.4 source formulas.
+The v0.3.0 latest pointer remains unchanged.
+
 ## Prepared recipe artifacts
 
 After `verify-public`, the read-only `prepare-recipes` job consumes the same numeric
@@ -273,7 +285,8 @@ fresh private home-cache directory; upload names are explicit, and unexpected fi
 or links stop preparation.
 
 Seven offline checks and actual generation from the verified v0.3.3 assets passed,
-with the sealed input bytes unchanged. The first hosted execution is still pending.
+with the sealed input bytes unchanged. Hosted generation passed for v0.3.4 in
+run `34930826557`, retaining its exact ten-file `prepared_not_published` artifact.
 This artifact is for channel review and lifecycle testing: it does not append
 immutable release assets, publish a catalogue, write the tap, update Nix/Windows
 recipes or advance any checked-in channel pin.
@@ -286,8 +299,8 @@ recipes or advance any checked-in channel pin.
 | macOS x86-64 prebuilt | Native Intel acceptance plus the same signing/notarization requirements. Cross-compilation alone does not qualify. |
 | Windows x86-64 companion | Native MSVC/portable CLI checks are required by both profiles. Physical clipboard, SSH, draft, image, resize and cleanup acceptance remain separate; no Windows core claim. |
 | Homebrew source formulas | Exact source archive, real formula install/test/removal and narrowly scoped tap writer. Existing source formulas remain the current strategy. |
-| crates.io | Core v0.3.3 is published through the configured Trusted Publisher and independently verified. Exact version/commit selection and a matching core package layout are required for subsequent releases. |
-| Debian/AUR | The verified v0.3.3 Debian download is published by schema 2. The standalone checked-in recipe lock still pins v0.3.0; AUR needs its own account setup and submission. No APT repository is configured. |
+| crates.io | Core v0.3.4 is published through the configured Trusted Publisher from matching source `32108e3`. Exact version/commit selection and a matching core package layout are required for subsequent releases. |
+| Debian/AUR | The verified v0.3.4 Debian download is published with the schema 3 profile. The standalone checked-in recipe lock still pins v0.3.0; AUR needs its own account setup and submission. No APT repository is configured. |
 | Scoop/WinGet | Physical Windows acceptance, native validators/install tests and catalogue publishing authority. Submission and acceptance remain separate statuses. |
 | Managed latest feed | Target-specific public-download/runtime acceptance and a reviewed pointer update. This workflow keeps the existing latest release. |
 

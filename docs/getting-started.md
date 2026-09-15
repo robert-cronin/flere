@@ -2,10 +2,10 @@
 
 # Your first five minutes
 
-Flere 0.3.0 is a clean rename. Commands, package IDs, hooks, environment markers
-and new private folders use `flere`; old Railhand installations are separate.
+Flere uses `flere` for commands, package IDs, hooks, environment markers and
+new private folders. Older Railhand installations are separate.
 
-Choose the prebuilt terminal installer, Homebrew or Cargo below. See
+Choose the prebuilt terminal installer, Windows download, Homebrew or Cargo below. See
 [installation channels](distribution.md) for other package-manager status.
 The development workflow uses a source checkout.
 
@@ -44,8 +44,16 @@ workbench features.
 Existing installations are not automatically adopted. Keep package-manager
 installs under their manager; pass `--adopt` only when intentionally adopting an
 existing manual user installation. Other installer arguments are forwarded
-unchanged. Intel macOS prebuilt packages and Windows publication remain pending;
+unchanged. Intel macOS prebuilts and notarized Mac downloads remain pending;
 see [platform limits](reference/compatibility.md) and the source build below.
+
+## Install on Windows
+
+[Download and verify the public v0.3.4 ZIP](../packaging/windows/README.md#install-the-public-windows-zip),
+then run `flere ssh dev` with your OpenSSH hostname or configured alias. Both
+`flere.exe` and `flere-connect.exe` launch the native Windows companion for a
+Linux/macOS workbench. No Rust build or WSL is required. WinGet, Scoop and
+Chocolatey catalogue publication remains pending.
 
 ## Install with Homebrew
 
@@ -67,22 +75,24 @@ flere-connect --version
 ```
 
 The [published tap](https://github.com/robert-cronin/homebrew-flere) builds the
-pinned v0.3.2 source locally and supplies Rust as a build dependency. Ensure
+pinned v0.3.4 source locally and supplies Rust as a build dependency. Ensure
 Homebrew's `bin` directory is on PATH, then [open a project](#open-a-project).
 Use Homebrew for upgrades and removal. See the
 [tap guide](../packaging/homebrew/README.md) for commands and
 [validation limits](distribution.md#install-with-homebrew): Linux and isolated
-macOS upgrades to v0.3.2 passed; fresh macOS dependency provisioning remains open.
+macOS 15/26 install, upgrade and removal were validated through v0.3.2. The
+v0.3.4 update changes the verified source pins with unchanged installation logic
+and dependencies; its native source checks passed.
 
 ## Install with Cargo
 
-The published [flere 0.3.3 crate](https://crates.io/crates/flere/0.3.3) builds the
+The published [flere 0.3.4 crate](https://crates.io/crates/flere/0.3.4) builds the
 core locally on Linux x86_64 or macOS with **Rust 1.98+** and a system C linker.
 macOS needs Xcode Command Line Tools. Intel macOS has compile-check evidence;
 see [platform limits](reference/compatibility.md).
 
 ```sh
-cargo install flere --locked --version 0.3.3
+cargo install flere --locked --version 0.3.4
 flere --version
 ```
 

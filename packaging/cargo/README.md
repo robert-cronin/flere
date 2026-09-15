@@ -11,20 +11,20 @@ external programs; agent CLIs are optional and run only when explicitly opened.
 
 ## Install from crates.io
 
-Install the published version:
+Install the newest published core version:
 
 ```sh
-cargo install flere --locked --version 0.3.3
+cargo install flere --locked
 ```
 
-[Version 0.3.3](https://crates.io/crates/flere/0.3.3) is published from the matching
-GitHub release at `ce6bb62`. Its public registry checksum and anonymous archive
-match the verified upload. Installation needs no crates.io account and normally
-places `flere` in `~/.cargo/bin`; use Cargo for upgrades and removal.
+The [registry page](https://crates.io/crates/flere) lists available versions.
+Add `--version X.Y.Z` when you need a particular published version. Installation
+needs no crates.io account and normally places `flere` in `~/.cargo/bin`; use
+Cargo for upgrades and removal.
 
 ## Build from the source package
 
-After extracting `flere-0.3.3.crate`, enter its `flere-0.3.3` directory:
+After extracting a downloaded `.crate` archive, enter its versioned `flere` directory:
 
 ```sh
 cargo build --release --locked

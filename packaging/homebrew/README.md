@@ -20,7 +20,7 @@ brew install robert-cronin/flere/flere-connect
 flere-connect --version
 ```
 
-Homebrew downloads the pinned v0.3.2 full source archive and its Rust build
+Homebrew downloads the pinned v0.3.4 full source archive and its Rust build
 dependencies, then compiles each executable locally. The first install takes
 longer than downloading a prebuilt binary and needs Rust 1.98 or newer, which
 Homebrew supplies as a build dependency. Dependencies follow the checked-in lock
@@ -71,6 +71,20 @@ signature. A future macOS binary channel needs signing, notarization and fresh
 runtime acceptance.
 
 ## Maintain and validate
+
+The current formulas use the immutable [v0.3.4 source release](https://github.com/robert-cronin/flere/releases/tag/v0.3.4).
+Both recipes were verified against the released archive and maintained generator;
+only their source URLs, versions and SHA-256 values changed from v0.3.2. Install
+commands, dependencies, target restrictions, license handling and formula tests
+are unchanged. The Cargo manifests and dependency locks differ only in Flere's
+own version fields.
+
+The matching Rust sources and test inputs passed a macOS arm64 developer-package
+run with 527 tests and all core/companion checks. The [v0.3.4 native Linux release
+run](https://github.com/robert-cronin/flere/actions/runs/34930826557) passed the
+core/companion checks and final package verification. A new Homebrew
+`0.3.2` to `0.3.4` install/upgrade/remove run was not performed; the established
+package-manager lifecycle baseline below remains explicitly versioned.
 
 Native Linux x86_64 and hosted macOS arm64 checks completed source installation,
 both formula tests, stateless CLI and license checks, upgrade from core `0.3.0_1`
@@ -123,7 +137,8 @@ In this standalone tap, run the same commands without `packaging/homebrew/`; use
 hashes the archive and checks that the core, companion, shared build inputs and
 licenses are present. It never extracts, installs, commits or publishes anything.
 
-Run Homebrew style, installation and formula tests on disposable machines for each
+Changes to installation behavior, dependencies or supported platforms need
+Homebrew style, installation and formula tests on disposable machines for each
 supported OS, keeping build/test state in disposable home-cache directories. The
 [manual macOS workflow](https://github.com/robert-cronin/flere/blob/main/.github/workflows/homebrew-macos.yml)
 checks fresh direct Rust provisioning, the default prefix and literal version upgrade.
