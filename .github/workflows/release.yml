@@ -7,6 +7,12 @@ on:
         description: Unused X.Y.Z matching both Cargo manifests
         required: true
         type: string
+      profile:
+        description: Explicit target set; complete requires configured Apple signing and notarization
+        required: true
+        type: choice
+        default: linux-windows
+        options: [linux-windows, complete]
       commit:
         description: Reviewed full 40-character commit SHA on main
         required: true
@@ -28,11 +34,14 @@ env:
 
 jobs:
   select:
-    if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main'
+    if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.select.outputs.version }}
       commit: ${{ steps.select.outputs.commit }}
+      profile: ${{ steps.profile.outputs.profile }}
+      schema: ${{ steps.profile.outputs.schema }}
     steps:
       # Official action implementations are pinned; never execute a dispatch SHA
       # before checking its main ancestry and both version declarations as data.
@@ -41,6 +50,8 @@ jobs:
           ref: ${{ github.workflow_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check orchestration boundaries offline
+        run: python3 -B scripts/test_release_workflow.py
       - id: select
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -51,9 +62,45 @@ jobs:
           python3 scripts/release-automation.py select \
             --checkout . --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
             --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: profile
+        env:
+          RELEASE_PROFILE: ${{ inputs.profile }}
+        run: python3 scripts/release-workflow.py profile --profile "$RELEASE_PROFILE"
+
+  macos-config:
+    needs: select
+    if: needs.select.outputs.profile == 'complete'
+    runs-on: macos-26
+    timeout-minutes: 5
+    environment: release
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Require complete Apple configuration before any target builds
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MACOS_DEVELOPER_ID_SHA1: ${{ secrets.MACOS_DEVELOPER_ID_SHA1 }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_PRIVATE_KEY: ${{ secrets.MACOS_NOTARY_PRIVATE_KEY }}
+        run: |
+          python3 automation/scripts/release-workflow.py preflight \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
 
   linux:
-    needs: select
+    needs: [select, macos-config]
+    if: ${{ !cancelled() && needs.select.result == 'success' && (needs.select.outputs.profile == 'linux-windows' || needs.macos-config.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
@@ -102,8 +149,453 @@ jobs:
           compression-level: 0
           overwrite: false
 
+  windows:
+    needs: [select, macos-config]
+    if: ${{ !cancelled() && needs.select.result == 'success' && (needs.select.outputs.profile == 'linux-windows' || needs.macos-config.result == 'success') }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      receipt_sha256: ${{ steps.pin.outputs.windows_receipt_sha256 }}
+    env:
+      FLERE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      FLERE_CANDIDATE_COMMIT: ${{ needs.select.outputs.commit }}
+      FLERE_CANDIDATE_VERSION: ${{ needs.select.outputs.version }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      # Match Git blob bytes; test CRLF bootstrap behavior through its regression.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - name: Require a disposable hosted Windows job before setup
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:FLERE_RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+              $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REPOSITORY -ne 'robert-cronin/flere' -or
+              $env:GITHUB_REF -ne 'refs/heads/main' -or $env:RUNNER_OS -ne 'Windows' -or
+              $env:RUNNER_ARCH -ne 'X64' -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
+            throw 'Only the hosted manual Windows AMD64 job is supported.'
+          }
+          if ($env:FLERE_CANDIDATE_COMMIT -cnotmatch '^[0-9a-f]{40}$' -or
+              $env:FLERE_CANDIDATE_VERSION -cnotmatch '^(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})$') {
+            throw 'An exact commit and package version are required before checkout.'
+          }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.select.outputs.commit }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check candidate integrity helpers
+        shell: pwsh
+        run: |
+          python -B automation/packaging/windows/test_hosted_candidate.py
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate helper checks failed.' }
+      - id: candidate
+        name: Build the selected MSVC companion and validate its private ZIP
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: pwsh
+        run: |
+          $Root = Join-Path $HOME '.cache/flere/tmp'
+          New-Item -ItemType Directory -Force -Path $Root | Out-Null
+          $Output = Join-Path $Root ("windows-candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
+          python -B automation/packaging/windows/hosted-candidate.py --checkout source --output $Output --commit $env:FLERE_CANDIDATE_COMMIT --version $env:FLERE_CANDIDATE_VERSION
+          if ($LASTEXITCODE -ne 0) { throw 'Windows candidate failed; retain the failure evidence.' }
+      - id: pin
+        name: Bind the Windows receipt independently for aggregation
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          CANDIDATE_DIRECTORY: ${{ steps.candidate.outputs.evidence }}
+        shell: pwsh
+        run: |
+          python -B automation/scripts/release-workflow.py windows-pin --directory $env:CANDIDATE_DIRECTORY --version $env:FLERE_CANDIDATE_VERSION --commit $env:FLERE_CANDIDATE_COMMIT --run-id $env:GITHUB_RUN_ID --workflow-sha $env:FLERE_WORKFLOW_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Windows receipt identity differs.' }
+      - id: upload
+        name: Retain only candidate packages, manifests and bounded validation evidence
+        if: always() && steps.candidate.outputs.evidence != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.candidate.outputs.evidence }}/candidate.json
+            ${{ steps.candidate.outputs.evidence }}/source.json
+            ${{ steps.candidate.outputs.evidence }}/source-receipt.json
+            ${{ steps.candidate.outputs.evidence }}/logs/*.log
+            ${{ steps.candidate.outputs.evidence }}/windows/*.zip
+            ${{ steps.candidate.outputs.evidence }}/windows/*.json
+            ${{ steps.candidate.outputs.evidence }}/windows/SHA256SUMS.windows
+            ${{ steps.candidate.outputs.evidence }}/windows/winget/manifests/r/RobertCronin/FlereConnect/*/*.yaml
+            ${{ steps.candidate.outputs.evidence }}/windows/scoop/bucket/flere.json
+            ${{ steps.candidate.outputs.evidence }}/windows/chocolatey/flere-connect/flere-connect.nuspec
+            ${{ steps.candidate.outputs.evidence }}/windows/chocolatey/flere-connect/tools/chocolateyInstall.ps1
+            ${{ steps.candidate.outputs.evidence }}/windows/chocolatey-package/*.nupkg
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+
+  macos-build:
+    needs: [select, macos-config]
+    if: needs.select.outputs.profile == 'complete'
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      receipt_sha256: ${{ steps.build.outputs.build_receipt_sha256 }}
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      RUSTUP_TOOLCHAIN: 1.98.0
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.select.outputs.commit }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Provision pinned compiler and locked dependencies before offline checks
+        working-directory: source
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+          cargo fetch --locked --target aarch64-apple-darwin
+          cargo fetch --locked --target aarch64-apple-darwin --manifest-path companion/Cargo.toml
+      - id: build
+        name: Full offline native checks and raw Mac packages without Apple credentials
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          python3 automation/scripts/release-workflow.py build --checkout source \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.build.outputs.directory }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+  macos-sign:
+    needs: [select, macos-build]
+    if: needs.select.outputs.profile == 'complete'
+    runs-on: macos-26
+    timeout-minutes: 15
+    environment: release
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      receipt_sha256: ${{ steps.sign.outputs.signed_receipt_sha256 }}
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      BUILD_RECEIPT_SHA: ${{ needs.macos-build.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.macos-build.outputs.artifact_id }}
+          path: macos-built
+          merge-multiple: true
+      - id: sign
+        name: Sign fixed bytes and verify owned keychain restoration
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MACOS_DEVELOPER_ID_SHA1: ${{ secrets.MACOS_DEVELOPER_ID_SHA1 }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          python3 automation/scripts/release-workflow.py sign --directory macos-built \
+            --build-receipt-sha256 "$BUILD_RECEIPT_SHA" \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-signed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.sign.outputs.directory }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+  # A successful checkpoint job is intentionally separate from acceptance. A
+  # failed polling-job rerun uses this exact artifact/pin and cannot submit again.
+  macos-submit:
+    name: macos-submit
+    needs: [select, macos-sign]
+    if: needs.select.outputs.profile == 'complete'
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      receipt_sha256: ${{ steps.submit.outputs.notary_receipt_sha256 }}
+      status: ${{ steps.submit.outputs.checkpoint_status }}
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      SIGNED_RECEIPT_SHA: ${{ needs.macos-sign.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.macos-sign.outputs.artifact_id }}
+          path: macos-signed
+          merge-multiple: true
+      - name: Refuse ambiguous or duplicate submission across attempts
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 automation/scripts/release-workflow.py notary-guard \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: submit
+        name: Submit once and retain checkpoint
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_PRIVATE_KEY: ${{ secrets.MACOS_NOTARY_PRIVATE_KEY }}
+        run: |
+          python3 automation/scripts/release-workflow.py notary-submit --directory macos-signed \
+            --signed-receipt-sha256 "$SIGNED_RECEIPT_SHA" \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-submission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.submit.outputs.state }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+  macos-notary:
+    needs: [select, macos-sign, macos-submit]
+    if: needs.select.outputs.profile == 'complete'
+    runs-on: macos-26
+    timeout-minutes: 25
+    environment: release
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      receipt_sha256: ${{ steps.notary.outputs.notary_receipt_sha256 }}
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      SIGNED_RECEIPT_SHA: ${{ needs.macos-sign.outputs.receipt_sha256 }}
+      CHECKPOINT_SHA: ${{ needs.macos-submit.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.macos-sign.outputs.artifact_id }}
+          path: macos-signed
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.macos-submit.outputs.artifact_id }}
+          path: macos-checkpoint
+          merge-multiple: true
+      - id: notary
+        name: Resume only the pinned submission and require acceptance
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_PRIVATE_KEY: ${{ secrets.MACOS_NOTARY_PRIVATE_KEY }}
+        run: |
+          python3 automation/scripts/release-workflow.py notary-resume --directory macos-signed \
+            --notary-state macos-checkpoint --notary-receipt-sha256 "$CHECKPOINT_SHA" \
+            --signed-receipt-sha256 "$SIGNED_RECEIPT_SHA" \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        if: always() && steps.notary.outputs.state != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-notary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.notary.outputs.state }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+  macos-verify:
+    needs: [select, macos-sign, macos-notary]
+    if: needs.select.outputs.profile == 'complete'
+    runs-on: macos-26
+    timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      receipt_sha256: ${{ steps.verify.outputs.accepted_receipt_sha256 }}
+      signed_artifact_id: ${{ needs.macos-sign.outputs.artifact_id }}
+      signed_sha256: ${{ needs.macos-sign.outputs.receipt_sha256 }}
+      notary_artifact_id: ${{ needs.macos-notary.outputs.artifact_id }}
+      notary_sha256: ${{ needs.macos-notary.outputs.receipt_sha256 }}
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      SIGNED_RECEIPT_SHA: ${{ needs.macos-sign.outputs.receipt_sha256 }}
+      NOTARY_RECEIPT_SHA: ${{ needs.macos-notary.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.macos-sign.outputs.artifact_id }}
+          path: macos-signed
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.macos-notary.outputs.artifact_id }}
+          path: macos-notary
+          merge-multiple: true
+      - id: verify
+        name: Credential-free Gatekeeper, CLI and managed install checks of signed bytes
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          python3 automation/scripts/release-workflow.py verify --directory macos-signed \
+            --notary-state macos-notary --notary-receipt-sha256 "$NOTARY_RECEIPT_SHA" \
+            --signed-receipt-sha256 "$SIGNED_RECEIPT_SHA" \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-accepted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.verify.outputs.directory }}/accepted.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+  aggregate:
+    needs: [select, linux, windows, macos-verify]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success' && ((needs.select.outputs.profile == 'linux-windows' && needs.macos-verify.result == 'skipped') || (needs.select.outputs.profile == 'complete' && needs.macos-verify.result == 'success')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      descriptor_sha256: ${{ steps.aggregate.outputs.descriptor_sha256 }}
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      RELEASE_PROFILE: ${{ needs.select.outputs.profile }}
+      RELEASE_SCHEMA: ${{ needs.select.outputs.schema }}
+      LINUX_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+      WINDOWS_RECEIPT_SHA: ${{ needs.windows.outputs.receipt_sha256 }}
+      MACOS_SIGNED_SHA: ${{ needs.macos-verify.outputs.signed_sha256 }}
+      MACOS_NOTARY_SHA: ${{ needs.macos-verify.outputs.notary_sha256 }}
+      MACOS_ACCEPTED_SHA: ${{ needs.macos-verify.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: linux
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.windows.outputs.artifact_id }}
+          path: windows
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.select.outputs.profile == 'complete'
+        with:
+          artifact-ids: ${{ needs.macos-verify.outputs.signed_artifact_id }}
+          path: macos-signed
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.select.outputs.profile == 'complete'
+        with:
+          artifact-ids: ${{ needs.macos-verify.outputs.notary_artifact_id }}
+          path: macos-notary
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.select.outputs.profile == 'complete'
+        with:
+          artifact-ids: ${{ needs.macos-verify.outputs.artifact_id }}
+          path: macos-accepted
+          merge-multiple: true
+      - id: aggregate
+        name: Seal the explicit complete target set without executing any payload
+        run: |
+          macos=()
+          case "$RELEASE_PROFILE:$RELEASE_SCHEMA" in
+            linux-windows:3) ;;
+            complete:4)
+              macos=(--macos-directory macos-signed --macos-notary-state macos-notary
+                --macos-accepted-receipt macos-accepted/accepted.json
+                --macos-signed-receipt-sha256 "$MACOS_SIGNED_SHA"
+                --macos-notary-receipt-sha256 "$MACOS_NOTARY_SHA"
+                --macos-accepted-receipt-sha256 "$MACOS_ACCEPTED_SHA") ;;
+            *) echo 'Explicit target profile/schema differs' >&2; exit 1 ;;
+          esac
+          python3 automation/scripts/release-aggregate.py --linux-directory linux --windows-directory windows \
+            --schema "$RELEASE_SCHEMA" --linux-descriptor-sha256 "$LINUX_DESCRIPTOR_SHA" \
+            --windows-receipt-sha256 "$WINDOWS_RECEIPT_SHA" "${macos[@]}" \
+            --output "$HOME/.cache/flere/tmp/release-aggregate-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" \
+            --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.aggregate.outputs.asset_directory }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
   publish:
-    needs: [select, linux]
+    needs: [select, aggregate]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.aggregate.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release
@@ -113,7 +605,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.select.outputs.version }}
       RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
       RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
-      RELEASE_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.aggregate.outputs.descriptor_sha256 }}
     steps:
       # The privileged job checks out only the trusted workflow revision. No
       # build/test/install or candidate executable runs with publication access.
@@ -124,7 +616,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          artifact-ids: ${{ needs.aggregate.outputs.artifact_id }}
           path: candidate
           merge-multiple: true
       - name: Verify and publish the complete draft without replacing assets
@@ -137,14 +629,15 @@ jobs:
             --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA"
 
   verify-public:
-    needs: [select, linux, publish]
+    needs: [select, aggregate, publish]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.aggregate.result == 'success' && needs.publish.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       RELEASE_VERSION: ${{ needs.select.outputs.version }}
       RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
       RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
-      RELEASE_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.aggregate.outputs.descriptor_sha256 }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -153,7 +646,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          artifact-ids: ${{ needs.aggregate.outputs.artifact_id }}
           path: candidate
           merge-multiple: true
       - name: Download every public version URL anonymously and compare final bytes
@@ -164,14 +657,15 @@ jobs:
             --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA" >> "$GITHUB_STEP_SUMMARY"
 
   prepare-recipes:
-    needs: [select, linux, verify-public]
+    needs: [select, aggregate, verify-public]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.aggregate.result == 'success' && needs.verify-public.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       RELEASE_VERSION: ${{ needs.select.outputs.version }}
       RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
       RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
-      RELEASE_DESCRIPTOR_SHA: ${{ needs.linux.outputs.descriptor_sha256 }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.aggregate.outputs.descriptor_sha256 }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -180,7 +674,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          artifact-ids: ${{ needs.aggregate.outputs.artifact_id }}
           path: candidate
           merge-multiple: true
       - id: recipes
@@ -214,7 +708,7 @@ jobs:
 
   publish-core:
     needs: [select, verify-public]
-    if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.verify-public.result == 'success' && github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release

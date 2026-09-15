@@ -205,8 +205,11 @@
   commands and final download/removal/preservation checks on the retained exact
   `422058c` ZIP. Its three completed downloads matched the reviewed hash; two
   rejected requests remain recorded observations. Earlier failed receipts remain
-  unchanged. Version upgrades and current-product ownership remain open.
-  WinGet/Scoop and physical desktop acceptance remain separate.
+  unchanged. The current-candidate Chocolatey workflow now checks production
+  ownership through the normally installed shim, and a separate WinGet workflow
+  exercises normal install/remove with exact package records and state preservation.
+  Their 21 and 14 offline helper checks pass; native dispatch remains pending.
+  Version upgrades, Scoop and physical desktop acceptance remain separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -328,9 +331,13 @@
   behavior is retained. Complete-release assembly additionally requires all
   sixteen Linux/Windows/macOS assets and pinned accepted macOS signing/notary
   evidence; it checks every companion against both core protocols and preserves
-  historical formats. All 101 offline release tests pass. Real matching candidate
-  assembly, native macOS signing,
-  whole-release workflow wiring and external catalogue updates remain unfinished.
+  historical formats. All 101 offline release tests pass. The manual workflow
+  now connects explicit `linux-windows` and `complete` profiles to the maintained
+  producers, aggregate and publisher. Twelve focused orchestration tests,
+  workflow linting and independent review pass. The complete profile requires
+  Apple configuration before builds and retains an exact submission checkpoint
+  for resume-only notarization. First hosted profile execution, native signing
+  and external catalogue updates remain unfinished.
   The Linux manual Release path is complete; v0.3.0 remains latest, and
   macOS/Windows channels were not advanced by v0.3.3.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
@@ -343,8 +350,10 @@
   Apple enrollment and credential setup. The staged producer now separates build,
   signing, resumable notarization and final signed-byte verification; 17 pure
   boundary tests pass. Entitlement output is bounded, and signing cleanup checks
-  the restored keychain search list and removal. Native Apple execution and
-  Release workflow integration remain unverified. Current binary casks are not
+  the restored keychain search list and removal. The complete Release profile
+  now wires these phases with separate credential scopes and exact artifact pins;
+  actual Apple execution and hosted checkpoint retries remain unverified.
+  Current binary casks are not
   published: ordinary Gatekeeper blocked their unnotarized executable in testing.
 
 ## Add project

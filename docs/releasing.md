@@ -3,7 +3,7 @@
 # Release process
 
 The selected trigger is the **Release button**, with an explicit unused version
-and full reviewed `main` commit. The
+and full reviewed `main` commit, plus an explicit target profile. The
 [workflow](../.github/workflows/release.yml) runs only on `workflow_dispatch` from
 `main`; ordinary pushes, pull requests and version tags do not publish releases.
 Both Cargo manifests must already declare the requested `X.Y.Z`. Existing tags,
@@ -12,7 +12,7 @@ the existing v0.3.0 assets must not be rebuilt, relabeled or overwritten.
 
 ## Current automation scope
 
-The first implementation builds the Linux x86-64 GNU core and companion on native
+The Linux producer builds the x86-64 GNU core and companion on native
 Ubuntu 24.04, using Rust 1.98.0. Compiler components and locked dependencies are
 provisioned explicitly before offline formatting, strict Clippy, tests and release
 builds. It records the actual runner image, compiler, linker, source fingerprint
@@ -77,6 +77,40 @@ without authentication and checks the same hashes. The workflow explicitly leave
 the `latest` designation unchanged, so the existing managed installer feed does
 not silently advance to this narrower platform release.
 
+## Explicit target profiles
+
+New dispatches select one target set before any build. Both profiles require the
+Linux core/companion and Windows x86-64 MSVC companion to pass their native
+producers. An absent Windows candidate fails the run; there is no target fallback.
+The Windows producer also checks six portable CLI alias invocations and prepares
+recipes. It does not install managers, submit catalogues or establish physical UI,
+clipboard or external SSH acceptance.
+
+- `linux-windows` seals schema 3: the eight Linux/Debian files plus
+  `flere-connect-x86_64-pc-windows-msvc`, its `.manifest.json`, and
+  `flere-connect-X.Y.Z-x86_64-pc-windows-msvc.zip` (11 public files).
+  No Apple credentials or Mac jobs are required; Mac acceptance remains open.
+- `complete` seals schema 4: those 11 files plus both
+  `flere-aarch64-apple-darwin` and `flere-connect-aarch64-apple-darwin`, their
+  `.manifest.json` files, and `flere-X.Y.Z-aarch64-apple-darwin.zip` (16 public files).
+  This profile requires the staged signing, notarization and native verification
+  below. Missing Apple configuration fails before any producer builds. There is
+  no unsigned Mac fallback and no Intel Mac or Windows core payload.
+
+The [aggregate helper](../scripts/release-aggregate.py) consumes the exact producer
+artifact IDs and independently recorded receipt digests. It checks source,
+version, workflow/run identity, shared licenses, protocol compatibility and final
+bytes as data before sealing the selected schema. The privileged GitHub publisher
+receives only this sealed set; private build/signing/notary logs are not assets.
+Both profiles leave `latest` unchanged. They cannot extend an already published
+immutable release; adding another target later requires another unused version.
+Historical schema 1/2 runs retain their original workflow, validation and release
+text, including failed-job retries of those original artifacts.
+
+This orchestration has offline boundary checks. Its first hosted profile runs and
+Mac signing/notarization acceptance are still pending; wiring a job does not
+establish those runtime claims.
+
 ## Debian wrapper support
 
 Schema 2 adds `flere_X.Y.Z-1_amd64.deb` to the seven files above. The optional
@@ -93,7 +127,7 @@ inspection. Schema 2's final checksum list, immutable retry and anonymous downlo
 checks cover all eight files. Historical schema 1 releases retain their exact
 seven-file validation and release text.
 
-The workflow now activates schema 2 after native Ubuntu installation, upgrade
+The Linux producer activates schema 2 after native Ubuntu installation, upgrade
 from v0.3.0 to v0.3.2, ownership detection, removal and purge passed. Adding
 a `.deb` to a future release does not submit AUR recipes, create an APT repository
 or change the latest-release pointer. Published immutable releases remain unchanged.
@@ -105,7 +139,9 @@ Before the first dispatch, enable
 GitHub freezes assets and the associated tag when an immutable release is
 published. Upload every intended file before that step. The workflow never edits
 repository settings and needs only `contents: write` in its publication job; the
-remaining jobs use repository read access. Restrict the `release` environment to
+asset-production jobs use repository read access. Apple secrets are scoped to
+their individual Mac steps; Cargo has the separate OIDC permission below. Restrict
+the `release` environment to
 `main` and configure reviewer approval if required by repository policy.
 
 The immutable-settings API requires administration read access, which is not
@@ -117,15 +153,17 @@ verification apply regardless of the repository setting. This is a known
 activation limitation, not a pre-publication guarantee about GitHub settings.
 
 Choose **Actions → Release → Run workflow**, select `main`, and enter the unused
-`X.Y.Z` and its complete lowercase 40-character commit SHA. The source commit and
+`X.Y.Z`, its complete lowercase 40-character commit SHA and the target profile.
+The source commit and
 workflow revision must both be ancestors of the fetched `main`. The run summary
 shows the sealed descriptor digest and target/channel readiness. Dispatch requests
-publication of the currently supported Linux assets once these checks pass; it
+publication of the explicitly selected target set once these checks pass; it
 is not an ordinary build button.
 
 The workflow's actions are pinned to exact official implementation commits. The
-runner label is `ubuntu-24.04`, whose image can change; the receipt records the
-actual image version. [Run 34837935289](https://github.com/robert-cronin/flere/actions/runs/34837935289)
+runner labels are `ubuntu-24.04`, `windows-2025` and, for `complete`, `macos-26`
+arm64. Their images can change; producer receipts record actual runner/tool
+identities. [Run 34837935289](https://github.com/robert-cronin/flere/actions/runs/34837935289)
 published immutable v0.3.1 from `7f5c5eb`. Its first attempt completed builds and
 publication, then an immediate tag lookup returned HTTP 404. Rerunning only the
 failed jobs verified the same tag/assets and passed every anonymous public-download
@@ -154,6 +192,29 @@ job from starting. The Cargo job publishes only the explicitly selected core
 version; it does not change a moving channel pointer. Future package-manager jobs
 must consume verified release bytes and serialize their own monotonic updates.
 Keep mutable channel acceptance status outside the frozen release descriptor.
+
+### Notarization retries
+
+The successful `macos-submit` job retains the immutable signed input and an
+independently pinned submission checkpoint even when Apple still reports pending
+or the submission response is ambiguous. It is a checkpoint, not acceptance.
+The separate `macos-notary` job requires `Accepted` for that exact ZIP/UUID before
+credential-free runtime verification or publication can proceed.
+
+Rerun only the failed polling/downstream jobs: they reuse the original successful
+checkpoint job's outputs and artifact. Polling uses the same UUID and never
+submits again. Missing UUIDs and rejected submissions stop with recovery guidance.
+A read-only prior-attempt check refuses to restart any submission step that already
+started, including a lost runner or checkpoint upload. Do not rerun successful
+signing/submission jobs or use a whole-run rerun to work around this guard. The
+history check is bounded to 20 attempts and 50 jobs per prior attempt; unavailable
+or ambiguous history fails closed.
+
+If a response is lost before its submission ID is recorded, this workflow has no
+automatic recovery route: retain the run and recover the exact Apple submission
+identity and matching signed ZIP before a reviewed recovery. Do not guess an ID
+or make a duplicate submission. The workflow never substitutes a newly built or
+re-signed generation for the retained bytes.
 
 ## Core Cargo Trusted Publishing
 
@@ -223,16 +284,16 @@ recipes or advance any checked-in channel pin.
 | --- | --- |
 | macOS arm64 prebuilt | Developer ID Application identity, accepted notarization and ordinary quarantined download/Gatekeeper acceptance. No unsigned fallback. |
 | macOS x86-64 prebuilt | Native Intel acceptance plus the same signing/notarization requirements. Cross-compilation alone does not qualify. |
-| Windows x86-64 companion | Physical clipboard, SSH, draft, image, resize, held-control and cleanup acceptance tied to final payload hashes. No Windows core claim. |
+| Windows x86-64 companion | Native MSVC/portable CLI checks are required by both profiles. Physical clipboard, SSH, draft, image, resize and cleanup acceptance remain separate; no Windows core claim. |
 | Homebrew source formulas | Exact source archive, real formula install/test/removal and narrowly scoped tap writer. Existing source formulas remain the current strategy. |
 | crates.io | Core v0.3.3 is published through the configured Trusted Publisher and independently verified. Exact version/commit selection and a matching core package layout are required for subsequent releases. |
 | Debian/AUR | The verified v0.3.3 Debian download is published by schema 2. The standalone checked-in recipe lock still pins v0.3.0; AUR needs its own account setup and submission. No APT repository is configured. |
 | Scoop/WinGet | Physical Windows acceptance, native validators/install tests and catalogue publishing authority. Submission and acceptance remain separate statuses. |
 | Managed latest feed | Target-specific public-download/runtime acceptance and a reviewed pointer update. This workflow keeps the existing latest release. |
 
-These exclusions appear in the run summary and `release.json`; they are not
-silently counted as successful targets. RPM, Nix and Chocolatey remain outside
-the supported channel set.
+The selected descriptor records platform evidence and remaining limits separately.
+A partial profile does not complete Mac acceptance. RPM, Nix and Chocolatey
+publication remain outside this workflow.
 
 ## macOS signing and notarization setup
 
@@ -243,13 +304,27 @@ environment. Credentials must never enter the repository, release archive, build
 logs or chat. Homebrew source builds and Linux packages do not require Apple
 membership. [Developer ID setup](https://developer.apple.com/help/account/certificates/create-developer-id-certificates).
 
-A future isolated signing job must consume the selected binaries and pre-signing
-digests without compiling or executing repository code while Apple credentials
-are present. Sign both executables with a secure timestamp and hardened runtime,
-verify signatures, submit their ZIP with `xcrun notarytool`, and require an
-`Accepted` result. A timeout remains pending. Remove temporary keychains and
-credentials before runtime testing. Signing changes bytes: regenerate payload
-manifests and every wrapper/catalogue checksum afterward.
+The complete profile uses fresh hosted Mac jobs for build, sign, submit/poll and
+verify. Only the build job checks out the selected source. Signing/notary jobs
+run trusted workflow helpers and native Apple tools over hash-bound data; they
+never build, install or execute candidate programs with Apple credentials.
+Signing restores the exact prior keychain search list and verifies removal of its
+temporary keychain. Signing changes bytes, so manifests and the ZIP are regenerated
+from the final signed executables before notarization and all later checks.
+
+Configure these secret names in the existing `release` environment through the
+account holder's normal secure settings flow; never paste their values into logs:
+
+- Signing: `MACOS_DEVELOPER_ID_SHA1`, `MACOS_TEAM_ID`,
+  `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`.
+- Notarization: `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID`,
+  `MACOS_NOTARY_PRIVATE_KEY`.
+
+The early preflight checks presence and bounded syntax, not successful Apple
+authentication. Signing receives only the signing keys; notarization receives only
+the notary keys. Credential-free verification checks ordinary quarantine,
+Gatekeeper, the exact signed build identities and disposable managed
+install/reinstall. Successful Apple submission alone does not satisfy this phase.
 
 Bare command-line executables and ZIP archives cannot be stapled. A future
 stapled DMG/PKG channel requires its own packaging and acceptance work. Verify the
@@ -259,4 +334,5 @@ on the signing host is insufficient.
 
 Developer ID enrollment, signing credentials, physical acceptance receipts and
 first registry/catalogue onboarding remain external prerequisites. This workflow
-does not provision them or claim the Mac/Windows pipeline is implemented.
+does not provision credentials, pay for enrollment or establish physical acceptance.
+An unconfigured Apple account does not block the explicit `linux-windows` profile.
