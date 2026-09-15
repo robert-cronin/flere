@@ -362,7 +362,7 @@
   ancestry and lack of an open branch PR were checked before deleting the fully
   merged branch with an exact-tip lease; only `main` remains. Recheck for new
   branch work before future releases.
-- [ ] Complete native Windows ownership acceptance for bucket/catalogue installs
+- [ ] Complete native Windows ownership acceptance for WinGet catalogue installs
   and UI/coordinated update refusal. Source `4f3b693` implements ordinary Scoop
   bucket records and the fixed official WinGet community origin, while preserving
   the verified local-manifest routes.
@@ -376,9 +376,13 @@
   compilation also passed. Native candidate run `34946722404` passed 85 Windows
   tests, six alias checks, WinGet validation and Chocolatey packing; one physical
   clipboard test remains ignored. Its source and artifact were independently
-  verified. Native Scoop bucket acceptance and actual WinGet
-  catalogue acceptance remain pending; the latter needs a normally accepted
-  package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
+  verified. Registered Scoop bucket run `34947765377` passed normal 0.3.4 to
+  candidate 0.3.5 installation/upgrade, both owner reports and normal package/bucket
+  removal: 56 commands, 12 alias checks, exact source records and payloads, with
+  state, PATH and 456 unrelated registry records preserved. Independent inspection
+  verified all 158 retained file hashes. This used an owned local Git bucket on
+  disposable Windows CI; public bucket and physical desktop acceptance remain
+  separate. Actual WinGet catalogue acceptance needs a normally accepted package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
   detectors and does not contain these source changes.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade

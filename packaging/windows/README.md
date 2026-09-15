@@ -168,8 +168,12 @@ its community-only source baseline and retained that setup until VM teardown.
 Default two-source and catalogue upgrades remain outside that proof. Published
 v0.3.5 supports the local-manifest owner routes above. Later source `4f3b693`
 adds ordinary default-user Scoop bucket and official WinGet community ownership
-recognition; all eight macOS checks and 549 tests passed. Native bucket/catalogue
-acceptance is pending, and those changes are not in the public ZIP.
+recognition; all eight macOS checks and 549 tests passed. The native Windows
+candidate passed 85 tests (one physical clipboard test ignored). Registered
+Scoop bucket [run 34947765377](https://github.com/robert-cronin/flere/actions/runs/34947765377)
+passed normal installation, upgrade, both installed-owner reports and removal,
+with state and PATH preserved. It used an owned local Git bucket; WinGet
+catalogue acceptance remains pending. These changes are not in the public ZIP.
 Physical acceptance, update UI/coordinated refusal and catalogue publication
 remain open. The public v0.3.5 ZIP is rebuilt from `8744d35`; its hashes differ
 from the `7e43fa1` candidate used in those manager checks.

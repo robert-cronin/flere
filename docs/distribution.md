@@ -80,8 +80,12 @@ removed the Store source before the preservation baseline, retaining the Microso
 community source until VM teardown. Published v0.3.5 retains local-manifest
 ownership detection. Later source `4f3b693` adds ordinary Scoop bucket and official
 WinGet community ownership recognition; its 549 macOS tests and all eight checks
-passed, while native bucket/catalogue acceptance remains pending. These source
-changes are not in the published ZIP. The earlier runs do not establish catalogue
+passed. The native Windows candidate passed 85 tests with one physical clipboard
+ignore. Registered Scoop bucket [run 34947765377](https://github.com/robert-cronin/flere/actions/runs/34947765377)
+passed installation, upgrade, both owner reports and normal removal with state
+and PATH preserved. Its owned local Git bucket does not establish public
+catalogue or desktop acceptance; WinGet catalogue checks remain pending. These
+source changes are not in the published ZIP. The earlier runs do not establish catalogue
 upgrades, physical acceptance or update UI/coordinated refusal. No Windows
 catalogue is published.
 
