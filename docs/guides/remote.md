@@ -46,6 +46,21 @@ cancelling. This requires the guarded Flere update endpoint; an unrecognized pee
 is left unchanged. Old Railhand peers require a fresh Flere installation.
 See [setup and updates](../getting-started.md#update-from-flere).
 
+## Disconnects under load
+
+A busy terminal or SSH connection can temporarily stop consuming screen updates.
+The supervisor allows 30 seconds without output progress before closing a stalled
+UI stream. It retains one bounded snapshot per UI and keeps draining the hosted
+programs. Losing only the UI connection leaves those programs running; reconnect
+with the same command.
+
+The companion waits briefly for SSH's final exit status and reports a failed
+connection as an error. An intentional detach remains a successful exit. Its
+printed diagnostic path identifies the local log; matching remote logs are under
+`STATE/diagnostics/`. A supervisor `client-timeout` entry records whether the
+connection was a UI watch and how many bytes were pending, without recording
+screen contents or input.
+
 ## Copy the whole Flere view
 
 Press **Ctrl+Space, s** to export Flere's full composed frame to the local
