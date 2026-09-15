@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Normal first WinGet portable install/remove on one disposable hosted Windows VM.
 
-Exact retained 422 ZIP; no public URL, upgrade, owner-detector, UI or SSH claim.
+Two fixed retained inputs; the default preserves the earlier 422 lifecycle.
+The selected 9a918 candidate also checks installed ownership with a synthetic
+profile. No public URL, upgrade, UI, coordinated-refusal or SSH claim.
 The community source is contacted normally. Only LocalManifestFiles may change,
 through normal settings commands with readback and original-state restoration.
 """
@@ -13,7 +15,7 @@ import io
 import json
 import ntpath
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import platform
 import re
 import shutil
@@ -39,10 +41,87 @@ MANIFESTS = {
     PACKAGE + ".locale.en-US.yaml": "782cdfeff696c8fc19920270acef8b7cc5ab6d950c5eab5bbb9b282491ddd8a9",
     PACKAGE + ".yaml": "4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049",
 }
+# Fixed reviewed artifact identities; never accept a caller-provided URL or tuple.
+DEFAULT_INPUT = base.DEFAULT_INPUT
+LEGACY_INPUT = dict(base.LEGACY_INPUT, winget=MANIFESTS)
+CURRENT_INPUT = {'name': 'candidate-9a9183c',
+ 'run': 34931604932,
+ 'artifact': 10380984686,
+ 'artifact_bytes': 1876464,
+ 'artifact_name': 'windows-candidate-34931604932-1',
+ 'workflow': '9a9183c7708666e20d8790fb149fbd75204e0a85',
+ 'artifact_sha': 'c6110bfe3348a936039831d93a0f17aebb1bc11c34509d96b70bf6907e0e7d0d',
+ 'product': '9a9183c7708666e20d8790fb149fbd75204e0a85',
+ 'source': '20502c15ff90b9fb78edc20ae7573bbf6b441397bc6b8b6728ba402254b96715',
+ 'zip_sha': '101787975330d19a73828397ef314d0563cc98634e74cec1899fb6b991831da7',
+ 'zip_bytes': 1834036,
+ 'payload_sha': '5505cd13c6f55024588a9601f75aa7dfce12c456b8c71bd550dcdbe794d57b83',
+ 'manifest_sha': 'de16659f48453d10b108692823240c96ac2d036aa9fcdbaf54954c021ac614ac',
+ 'nuspec_sha': '8ba0dd77f894cdfebfa093019dad91e3bd50aafe7c1f180a2665c0a5bc6dc681',
+ 'script_sha': '1aaff6d0e29adaf4aeb4f2cb31dd18b12a68532a1db573574059cdb2a9724542',
+ 'nupkg_sha': '2eba4e4aa4270ee257c31f46d13a00251f1a74cf8b50f49da55be0779eb2974f',
+ 'receipt_sha': 'ef098422b127cafa7fa527bb0c994f7669757738ef0948a105900030bc38d9c8',
+ 'source_entries': 384,
+ 'artifact_entries': 33,
+ 'winget': {'RobertCronin.FlereConnect.installer.yaml': '0c788459ef4645a3b12fa57e313da0f84a140133ec377fb3591ba2c9a25fe61b',
+            'RobertCronin.FlereConnect.locale.en-US.yaml': '782cdfeff696c8fc19920270acef8b7cc5ab6d950c5eab5bbb9b282491ddd8a9',
+            'RobertCronin.FlereConnect.yaml': '4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049'},
+ 'owner_check': True}
+INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT)}
+
+
+def selection(name=DEFAULT_INPUT):
+    require(name in INPUTS, "only an exact reviewed retained input may be selected")
+    return copy.deepcopy(INPUTS[name])
+
+
 SOURCE_TITLE = b"The `winget` source requires that you view the following agreements before using."
 SOURCE_PROMPT = b"Do you agree to all the source agreements terms?"
 OPTIONS = b"[Y] Yes  [N] No: "
 ARP = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
+
+
+GUIDANCE = ("Local WinGet: This companion is installed as a WinGet portable package. Use WinGet "
+            "with the next reviewed Flere manifest/package, then reopen the companion. In-app Apply is disabled.")
+
+
+def windows_path(value):
+    require(isinstance(value, str) and not any(ord(c) < 32 or ord(c) == 127 for c in value), "unsafe Windows path")
+    path = PureWindowsPath(value.removeprefix("\\\\?\\"))
+    require(path.is_absolute() and ".." not in path.parts, "absolute Windows path required")
+    return path
+
+
+def verify_installed_owner(value, manifest, executable):
+    require(isinstance(value, dict) and {k: v for k, v in value.items() if k != "ownership"} == {
+        "schema_version": 1, "running_build": manifest["build"], "installation": None,
+        "other_frontends": "untracked"}, "installed status fields/full build differ")
+    owner = value.get("ownership")
+    require(isinstance(owner, dict) and windows_path(owner.get("executable")) == windows_path(str(executable)),
+            "owner executable is not the selected installed alias payload")
+    require(owner == {"kind": "manager", "executable": owner["executable"],
+                      "sha256": manifest["payload"]["sha256"], "attempt": None, "guidance": GUIDANCE},
+            "verified WinGet owner/guidance differs")
+    return owner
+
+
+def verify_synthetic_override(environment, executable):
+    home = windows_path(environment["HOME"])
+    require(windows_path(environment["USERPROFILE"]) == home, "fixture profile differs")
+    actual_appdata = windows_path(str(executable)).parents[4]
+    require(str(actual_appdata).lower().endswith("\\appdata\\local"), "installed default user package path differs")
+    for key in ("LOCALAPPDATA", "APPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TEMP", "TMP"):
+        require(windows_path(environment[key]).is_relative_to(home), "fixture environment escaped: " + key)
+    require(windows_path(environment["LOCALAPPDATA"]) != actual_appdata,
+            "test must override LOCALAPPDATA instead of using the installed manager root")
+    return {key: environment[key] for key in ("HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
+                                            "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TEMP", "TMP")}
+
+
+def verify_powershell_initialization(before, after):
+    base.verify_tool_initialization(before, after)
+    require("temp/chocolatey" not in after.keys() - before.keys(),
+            "WinGet owner checks do not initialize Chocolatey")
 
 
 def clean_console(data):
@@ -112,9 +191,9 @@ def verify_user_settings(value):
                 and type(group.get(key, default)) is type(default), "unsupported custom setting: " + key)
 
 
-def local_manifest(name, original, port):
+def local_manifest(name, original, port, selected=LEGACY_INPUT):
     require(type(port) is int and 49152 <= port <= 65535, "owned high loopback port required")
-    require(name in MANIFESTS and sha(original) == MANIFESTS[name], "frozen manifest differs")
+    require(name in selected["winget"] and sha(original) == selected["winget"][name], "frozen manifest differs")
     updated = original
     if name.endswith(".installer.yaml"):
         require(original.count(base.PUBLIC_URL) == 1, "one installer URL required")
@@ -124,16 +203,16 @@ def local_manifest(name, original, port):
     return updated
 
 
-def local_manifests(archive_bytes, destination, port):
-    require(len(archive_bytes) == base.ARTIFACT_BYTES and sha(archive_bytes) == base.ARTIFACT_SHA,
+def local_manifests(archive_bytes, destination, port, selected=LEGACY_INPUT):
+    require(len(archive_bytes) == selected["artifact_bytes"] and sha(archive_bytes) == selected["artifact_sha"],
             "recipe artifact differs")
     original_prefix = "windows/winget/manifests/r/RobertCronin/FlereConnect/0.3.4/"
     destination.mkdir()
     changes = {}
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-        for name, digest in MANIFESTS.items():
+        for name, digest in selected["winget"].items():
             original = archive.read(original_prefix + name)
-            updated = local_manifest(name, original, port)
+            updated = local_manifest(name, original, port, selected)
             (destination / name).write_bytes(updated)
             changes[name] = {"original_sha256": digest, "private_sha256": sha(updated)}
     return changes
@@ -329,7 +408,7 @@ class Run:
         return json.loads(self.command(name, [self.pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]))
 
 
-def main(output):
+def main(output, selected=LEGACY_INPUT):
     candidate.hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64") and sys.version_info >= (3, 12), "native Windows AMD64 required")
     require(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=candidate.PROJECT, text=True, timeout=15).strip()
@@ -342,10 +421,13 @@ def main(output):
         stream.write("evidence=" + str(proof) + "\n")
     receipt = {"schema": "flere-winget-lifecycle-v1", "status": "running", "checks": [],
         "workflow_sha": os.environ["FLERE_WORKFLOW_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
-        "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "input_artifact": base.ARTIFACT,
-        "artifact_sha256": base.ARTIFACT_SHA, "product_commit": base.PRODUCT, "source_sha256": base.SOURCE,
-        "zip_sha256": base.ZIP_SHA, "limits": ["First private-loopback install/remove; no public URL or upgrade proof.",
-        "No WinGet detector/update-refusal, signing, physical UI, clipboard or SSH claim.",
+        "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "input_selection": selected["name"],
+        "installed_owner_check_required": selected["owner_check"], "input_artifact": selected["artifact"],
+        "artifact_sha256": selected["artifact_sha"], "product_commit": selected["product"], "source_sha256": selected["source"],
+        "zip_sha256": selected["zip_sha"], "limits": ["First private-loopback install/remove; no public URL or upgrade proof.",
+        ("Installed owner JSON only; UI/coordinated refusal remains unverified." if selected["owner_check"] else
+         "No WinGet detector/update-refusal claim."),
+        "No signing, physical UI, clipboard or SSH claim.",
         "Normal Microsoft community-source network access and OS archive malware scanning are enabled."],
         "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
                     "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
@@ -391,12 +473,14 @@ def main(output):
 
     try:
         gh = shutil.which("gh.exe"); require(gh, "existing GitHub CLI missing")
-        api = f"repos/{base.REPO}/actions/artifacts/{base.ARTIFACT}"
+        api = f"repos/{base.REPO}/actions/artifacts/{selected['artifact']}"
         value = json.loads(run.command("artifact-api", [gh,"api",api], env=os.environ.copy(), maximum=65536))
-        base.verify_api(value); run.record("artifact-api", value)
+        base.verify_api(value, selected); run.record("artifact-api", value)
         artifact = run.command("artifact-download", [gh,"api",api+"/zip"], env=os.environ.copy(),
-                               destination=work/"artifact.zip", maximum=base.ARTIFACT_BYTES)
-        portable, _, _, manifest, payload, original = base.inputs(artifact, work)
+                               destination=work/"artifact.zip", maximum=selected["artifact_bytes"])
+        portable, _, _, manifest, payload, original = base.inputs(artifact, work, selected)
+        if selected["owner_check"]:
+            require(sha(payload["manifest.json"]) == selected["manifest_sha"], "candidate manifest bytes differ")
         run.record("input-recipe-receipt", original); run.record("manifest", manifest)
         run.pwsh = Path(shutil.which("pwsh.exe") or "missing"); require(run.pwsh.is_file(), "native PowerShell7 unavailable")
         info = run.ps("machine", "$i=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=[Security.Principal.WindowsPrincipal]$i; "
@@ -439,13 +523,33 @@ def main(output):
             (fixture/name).mkdir(parents=True, exist_ok=True)
         (fixture/"state/preserved.json").write_text('{"synthetic":true,"selection":"retained"}\n')
         (fixture/".ssh/config").write_text("# synthetic sentinel; no SSH is launched\n")
-        before_state = candidate.tree(fixture); run.record("state-before", before_state)
+        before_state = candidate.tree(fixture)
+        child_env = dict(run.env, PATH=before_normal_path, HOME=str(fixture), USERPROFILE=str(fixture),
+            LOCALAPPDATA=str(fixture/"AppData/Local"), APPDATA=str(fixture/"AppData/Roaming"),
+            XDG_CACHE_HOME=str(fixture/".cache"), TEMP=str(fixture/"temp"), TMP=str(fixture/"temp"))
+        if selected["owner_check"]:
+            child_env.update(XDG_CONFIG_HOME=str(fixture/"AppData/Roaming"),
+                XDG_DATA_HOME=str(fixture/"AppData/Local"), XDG_STATE_HOME=str(fixture/"state"))
+            # Explicitly initialize only the product's normal PowerShell dependency
+            # before install or product execution, then preserve that recorded baseline.
+            cold_state = before_state
+            shell = shutil.which("powershell.exe", path=child_env["PATH"])
+            require(shell is not None, "normal Windows PowerShell dependency unavailable")
+            require(run.command("initialize-powershell", [shell,"-NoProfile","-NonInteractive","-Command",
+                    "[System.Console]::Out.Write('flere-tool-baseline')"], env=child_env,
+                    seconds=30, maximum=4096) == b"flere-tool-baseline", "PowerShell initialization output differs")
+            before_state = candidate.tree(fixture); after_paths = base.path_hashes()
+            run.record("tool-initialization-state", base.preservation_snapshot(cold_state, before_state, before_path, after_paths))
+            verify_powershell_initialization(cold_state, before_state)
+            require(after_paths == before_path, "tool initialization changed PATH")
+            receipt["limits"].append("Synthetic profile preservation starts after recorded normal PowerShell initialization; cold-profile no-write behavior is not claimed.")
+        run.record("state-before", before_state)
         if not setting_value(settings_before):
             changed_setting = True
             run.command("enable-local-manifest", [winget,"settings","--enable","LocalManifestFiles"])
         verify_settings(settings_before, settings("settings-during"), True)
-        mirror = base.Mirror(portable)
-        run.record("private-manifests", local_manifests(artifact, manifests, mirror.server_port))
+        mirror = base.Mirror(portable, selected)
+        run.record("private-manifests", local_manifests(artifact, manifests, mirror.server_port, selected))
         run.command("validate", [winget,"validate",manifests])
         attempted = True
         run.command("install", [winget,"install","--manifest",manifests,"--scope","user","--architecture","x64"], seconds=180)
@@ -462,14 +566,12 @@ def main(output):
         require(extras[0].stat().st_size <= 512*1024, "portable index exceeds bound")
         (proof/"records/portable-index.bin").write_bytes(extras[0].read_bytes())
         run.record("installed-layout", {"registry": owned, "files": installed_files,
-                   "index_retained": "portable-index.bin", "identity_note": "Observed native file IDs/hashes; no product manager detector claim."})
+                   "index_retained": "portable-index.bin", "identity_note": "Observed native file IDs/hashes; any owner-query results are recorded separately."})
         listing = run.command("installed-list-exact", [winget, *local_package_args(owned)], source_prompt=True)
         require(PACKAGE.encode() in clean_console(listing) and VERSION.encode() in listing, "normal installed manager identity missing")
         after_links = link_inventory(links)
         require({k:v for k,v in after_links.items() if k not in ("flere.exe","flere-connect.exe")} == before_links, "unrelated portable links changed")
-        child_env = dict(run.env, PATH=normal_path(), HOME=str(fixture), USERPROFILE=str(fixture),
-            LOCALAPPDATA=str(fixture/"AppData/Local"), APPDATA=str(fixture/"AppData/Roaming"),
-            XDG_CACHE_HOME=str(fixture/".cache"), TEMP=str(fixture/"temp"), TMP=str(fixture/"temp"))
+        child_env["PATH"] = normal_path()
         aliases = {}
         for alias in ("flere.exe", "flere-connect.exe"):
             path = Path(shutil.which(alias, path=child_env["PATH"]) or "missing")
@@ -485,12 +587,36 @@ def main(output):
                     require(b"--build-info" in data and b"ssh" in data, "alias help differs")
             require(base.file_record(path.resolve()) == aliases[alias]["resolved"], "alias payload changed")
         run.record("aliases", aliases); require(candidate.tree(fixture) == before_state, "stateless calls changed state")
+        if selected["owner_check"]:
+            owner_paths = base.path_hashes(); owner_statuses = {}
+            run.record("owner-synthetic-environment", verify_synthetic_override(child_env, installed_root/"flere.exe"))
+            for alias in ("flere.exe", "flere-connect.exe"):
+                executable = (installed_root/alias).resolve()
+                data = run.command(alias[:-4]+"-update-status", [links/alias,"update-status"],
+                                   env=child_env, seconds=60, maximum=32768)
+                value = json.loads(data)
+                owner_statuses[alias] = verify_installed_owner(value, manifest, executable)
+                run.record(alias[:-4]+"-update-status", value)
+            run.record("installed-ownership", owner_statuses)
+            owner_after_state = candidate.tree(fixture)
+            owner_after_paths = base.path_hashes()
+            run.record("owner-state-preservation", base.preservation_snapshot(before_state, owner_after_state, owner_paths, owner_after_paths))
+            require(owner_after_state == before_state and owner_after_paths == owner_paths,
+                    "owner queries changed the initialized profile or PATH")
+            owner_inventory = registry_inventory(); owner_links = link_inventory(links)
+            owner_files = [base.file_record(path) for path in entries]
+            run.record("owner-installed-after", {"registry":owner_inventory,"links":owner_links,"files":owner_files})
+            require(owner_inventory == after_inventory and owner_links == after_links
+                    and set(installed_root.iterdir()) == set(entries) and owner_files == installed_files,
+                    "owner queries changed installed records, links or payload/index identity")
+            receipt["installed_owner_aliases_checked"] = 2
+            receipt["installed_owner_guidance_verified"] = True
         run.command("uninstall", [winget, *local_package_args(owned, remove=True)], seconds=180, source_prompt=True)
         removed = True; removal("removal")
         run.command("installed-list-after", [winget,"list","--source","winget"], source_prompt=True)
         require(link_inventory(packages) == before_package_dirs, "unrelated portable package directories changed")
         receipt.update(status="lifecycle_complete_pending_cleanup", aliases_checked=6,
-            installed_inventory_preserved=True, state_preserved=True, path_preserved=True, no_product_owner_claim=True)
+            installed_inventory_preserved=True, state_preserved=True, path_preserved=True, no_product_owner_claim=not selected["owner_check"])
     except BaseException as error:
         receipt.update(status="failed", error=str(error), traceback=traceback.format_exc())
     finally:
@@ -529,7 +655,7 @@ def main(output):
         if mirror is not None:
             try:
                 mirror.close_owned(); receipt["loopback_closed"] = True
-                base.verify_mirror(mirror.requests, mirror.attempts, mirror.rejections, mirror.rejections_dropped, mirror.internal_errors)
+                base.verify_mirror(mirror.requests, mirror.attempts, mirror.rejections, mirror.rejections_dropped, mirror.internal_errors, selected)
                 receipt["loopback_verified"] = True
             except BaseException as error:
                 errors.append("loopback: "+str(error))
@@ -713,7 +839,85 @@ def self_test():
             self.assertEqual(base.runtime_env({"GH_TOKEN":"fake","PATH":"normal","PSModulePath":"normal-modules"}),
                              {"PATH":"normal","PSModulePath":"normal-modules"})
 
-    result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(Guards))
+    class OwnerGuards(unittest.TestCase):
+        def setUp(self):
+            self.root = PureWindowsPath(r"C:\Users\fixture\AppData\Local\Microsoft\WinGet\Packages\RobertCronin.FlereConnect__DefaultSource")
+            self.manifest = {"build": {"component": "flere-connect", "build_id": "exact", "package_version": "0.3.4"},
+                             "payload": {"sha256": "a" * 64}}
+            self.value = {"schema_version": 1, "running_build": self.manifest["build"], "installation": None,
+                          "other_frontends": "untracked", "ownership": {"kind": "manager", "attempt": None,
+                          "sha256": "a" * 64, "guidance": GUIDANCE}}
+
+        def test_both_actual_alias_paths_and_extended_windows_spelling(self):
+            for alias in ("flere.exe", "flere-connect.exe"):
+                executable = self.root / alias
+                self.value["ownership"]["executable"] = "\\\\?\\" + str(executable).upper()
+                self.assertEqual(verify_installed_owner(self.value, self.manifest, executable), self.value["ownership"])
+                other = self.root / ("flere.exe" if alias == "flere-connect.exe" else "flere-connect.exe")
+                with self.assertRaises(ValueError):
+                    verify_installed_owner(self.value, self.manifest, other)
+
+        def test_wrong_owner_build_payload_extra_fields_and_guidance_are_rejected(self):
+            executable = self.root / "flere-connect.exe"
+            self.value["ownership"]["executable"] = str(executable)
+            for field, wrong in (("kind", "unknown"), ("kind", "manual"), ("kind", "managed"), ("attempt", "unexpected"),
+                                 ("sha256", "b" * 64), ("executable", r"C:\other\flere-connect.exe"),
+                                 ("guidance", "winget upgrade --id RobertCronin.FlereConnect"), ("extra", True)):
+                value = copy.deepcopy(self.value); value["ownership"][field] = wrong
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    verify_installed_owner(value, self.manifest, executable)
+            for field, wrong in (("running_build", {"build_id": "stale"}), ("installation", {}),
+                                 ("other_frontends", "tracked"), ("schema_version", 2), ("extra", True)):
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    verify_installed_owner(dict(self.value, **{field: wrong}), self.manifest, executable)
+
+        def test_synthetic_override_is_distinct_and_all_state_paths_stay_in_fixture(self):
+            home = r"C:\Users\fixture\.cache\flere\tmp\owned\profile"
+            env = {"HOME": home, "USERPROFILE": home}
+            for key, path in {"LOCALAPPDATA": "AppData/Local", "APPDATA": "AppData/Roaming", "XDG_CONFIG_HOME": "AppData/Roaming",
+                              "XDG_DATA_HOME": "AppData/Local", "XDG_STATE_HOME": "state", "XDG_CACHE_HOME": ".cache",
+                              "TEMP": "temp", "TMP": "temp"}.items():
+                env[key] = str(PureWindowsPath(home) / path)
+            executable = self.root / "flere.exe"
+            self.assertEqual(verify_synthetic_override(env, executable), env)
+            for key in env:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    verify_synthetic_override(dict(env, **{key: r"C:\Users\fixture\AppData\Local"}), executable)
+
+    class InputGuards(unittest.TestCase):
+        def test_fixed_selection_api_and_wrong_candidate_identity(self):
+            self.assertEqual(selection(), LEGACY_INPUT)
+            self.assertFalse(selection()["owner_check"])
+            selected = selection("candidate-9a9183c")
+            self.assertTrue(selected["owner_check"])
+            value = {"id":selected["artifact"],"name":selected["artifact_name"],"size_in_bytes":selected["artifact_bytes"],
+                "expired":False,"digest":"sha256:"+selected["artifact_sha"],
+                "workflow_run":{"id":selected["run"],"head_sha":selected["workflow"]}}
+            base.verify_api(value, selected)
+            for name in ("public-0.3.4", "candidate-21cf68c", "https://example.invalid/zip", ""):
+                with self.assertRaises(ValueError): selection(name)
+            with self.assertRaises(ValueError): base.verify_api(value, LEGACY_INPUT)
+            for field, wrong in (("id", 1), ("digest", "sha256:"+"0"*64), ("expired",True),
+                                 ("workflow_run", {"id":selected["run"], "head_sha":"0"*40})):
+                with self.assertRaises(ValueError): base.verify_api(dict(value, **{field:wrong}), selected)
+            selected["winget"].clear()
+            self.assertEqual(len(selection("candidate-9a9183c")["winget"]),3)
+
+        def test_recorded_powershell_startup_additions_only(self):
+            before={"state/preserved.json":"a"*64,".ssh/config":"b"*64}
+            after=dict(before)
+            for folder in ("AppData/Local/Microsoft","AppData/Local/Microsoft/Windows","AppData/Local/Microsoft/Windows/PowerShell"):
+                after[folder]="directory"
+            profile="AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive"
+            after[profile]="c"*64
+            verify_powershell_initialization(before,before)
+            verify_powershell_initialization(before,after)
+            for name,wrong in (("state/preserved.json","d"*64),("temp/chocolatey","directory"),
+                               (profile,"symlink"),("unexpected","c"*64)):
+                with self.assertRaises(ValueError): verify_powershell_initialization(before,dict(after,**{name:wrong}))
+
+    suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case) for case in (Guards, OwnerGuards, InputGuards))
+    result=unittest.TextTestRunner(verbosity=2).run(suite)
     require(result.wasSuccessful(),"WinGet lifecycle guard checks failed")
 
 
@@ -721,9 +925,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", nargs="?", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--input", choices=tuple(INPUTS), default=DEFAULT_INPUT)
     args = parser.parse_args()
     if args.self_test:
         self_test()
     else:
         require(args.output is not None, "output is required")
-        main(args.output)
+        main(args.output, selection(args.input))

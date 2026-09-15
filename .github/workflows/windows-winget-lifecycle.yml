@@ -2,6 +2,15 @@ name: Windows WinGet retained candidate lifecycle
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate:
+        description: Exact retained input (new candidate also checks installed ownership)
+        type: choice
+        required: true
+        default: recipes-422058c
+        options:
+          - recipes-422058c
+          - candidate-9a9183c
 
 permissions:
   contents: read
@@ -46,13 +55,14 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          FLERE_RETAINED_INPUT: ${{ inputs.candidate }}
           FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $HOME '.cache/flere/tmp'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $Output = Join-Path $Root ("winget-lifecycle-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
-          python -B packaging/windows/winget-lifecycle.py $Output
+          python -B packaging/windows/winget-lifecycle.py $Output --input $env:FLERE_RETAINED_INPUT
           if ($LASTEXITCODE -ne 0) { throw 'WinGet lifecycle failed; inspect retained proof.' }
       - name: Retain bounded proof, without package or executable publication
         if: always() && steps.lifecycle.outputs.evidence != ''
