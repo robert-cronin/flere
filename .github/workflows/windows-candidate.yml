@@ -2,6 +2,17 @@ name: Windows companion candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Full reviewed commit on main'
+        required: true
+        type: string
+        default: '422058c0fa4dda3cff7693a32953fea1b2c5404e'
+      version:
+        description: 'Exact package version at that commit'
+        required: true
+        type: string
+        default: '0.3.4'
 
 permissions:
   contents: read
@@ -17,6 +28,8 @@ jobs:
     timeout-minutes: 60
     env:
       FLERE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      FLERE_CANDIDATE_COMMIT: ${{ inputs.commit }}
+      FLERE_CANDIDATE_VERSION: ${{ inputs.version }}
       PYTHONDONTWRITEBYTECODE: '1'
       # Match Git blob bytes; test CRLF bootstrap behavior through its regression.
       GIT_CONFIG_COUNT: '1'
@@ -35,6 +48,10 @@ jobs:
               $env:RUNNER_ARCH -ne 'X64' -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
             throw 'Only the hosted manual Windows AMD64 job is supported.'
           }
+          if ($env:FLERE_CANDIDATE_COMMIT -cnotmatch '^[0-9a-f]{40}$' -or
+              $env:FLERE_CANDIDATE_VERSION -cnotmatch '^(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})$') {
+            throw 'An exact commit and package version are required before checkout.'
+          }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.workflow_sha }}
@@ -42,7 +59,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: 422058c0fa4dda3cff7693a32953fea1b2c5404e
+          ref: ${{ inputs.commit }}
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -52,7 +69,7 @@ jobs:
           python -B automation/packaging/windows/test_hosted_candidate.py
           if ($LASTEXITCODE -ne 0) { throw 'Candidate helper checks failed.' }
       - id: candidate
-        name: Build the pinned MSVC companion and validate its private ZIP
+        name: Build the selected MSVC companion and validate its private ZIP
         env:
           FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         shell: pwsh
@@ -60,7 +77,7 @@ jobs:
           $Root = Join-Path $HOME '.cache/flere/tmp'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $Output = Join-Path $Root ("windows-candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
-          python -B automation/packaging/windows/hosted-candidate.py --checkout source --output $Output
+          python -B automation/packaging/windows/hosted-candidate.py --checkout source --output $Output --commit $env:FLERE_CANDIDATE_COMMIT --version $env:FLERE_CANDIDATE_VERSION
           if ($LASTEXITCODE -ne 0) { throw 'Windows candidate failed; retain the failure evidence.' }
       - name: Retain only candidate packages, manifests and bounded validation evidence
         if: always() && steps.candidate.outputs.evidence != ''
@@ -75,7 +92,7 @@ jobs:
             ${{ steps.candidate.outputs.evidence }}/windows/*.zip
             ${{ steps.candidate.outputs.evidence }}/windows/*.json
             ${{ steps.candidate.outputs.evidence }}/windows/SHA256SUMS.windows
-            ${{ steps.candidate.outputs.evidence }}/windows/winget/manifests/r/RobertCronin/FlereConnect/0.3.4/*.yaml
+            ${{ steps.candidate.outputs.evidence }}/windows/winget/manifests/r/RobertCronin/FlereConnect/*/*.yaml
             ${{ steps.candidate.outputs.evidence }}/windows/scoop/bucket/flere.json
             ${{ steps.candidate.outputs.evidence }}/windows/chocolatey/flere-connect/flere-connect.nuspec
             ${{ steps.candidate.outputs.evidence }}/windows/chocolatey/flere-connect/tools/chocolateyInstall.ps1

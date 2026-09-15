@@ -26,6 +26,9 @@ source_spec.loader.exec_module(source_archive)
 debian_spec = importlib.util.spec_from_file_location("release_debian", Path(__file__).with_name("release-debian.py"))
 debian = importlib.util.module_from_spec(debian_spec)
 debian_spec.loader.exec_module(debian)
+aggregate_spec = importlib.util.spec_from_file_location("release_aggregate", Path(__file__).with_name("release-aggregate.py"))
+aggregate = importlib.util.module_from_spec(aggregate_spec)
+aggregate_spec.loader.exec_module(aggregate)
 
 REPOSITORY = "robert-cronin/flere"
 TARGET = "x86_64-unknown-linux-gnu"
@@ -53,6 +56,16 @@ CHANNELS = {**LEGACY_CHANNELS,
     "crates_io": "pending: separate core Cargo job follows verified GitHub publication"}
 DEBIAN_CHANNELS = {**CHANNELS,
     "debian_aur": "Debian wrapper integrity accepted; AUR submission remains separate"}
+MULTI_TARGETS = {
+    TARGET: "native CI accepted; interactive desktop acceptance is not claimed",
+    aggregate.TARGET: "native MSVC companion CI and portable aliases accepted; physical desktop acceptance is not claimed",
+    "aarch64-apple-darwin": BLOCKED["aarch64-apple-darwin"],
+    "x86_64-apple-darwin": BLOCKED["x86_64-apple-darwin"],
+    "x86_64-pc-windows-gnu": "not included: this release uses the native MSVC companion",
+}
+MULTI_CHANNELS = {**DEBIAN_CHANNELS,
+    "scoop_winget": "prepared: verified Windows ZIP; catalogue publication remains separate",
+    "chocolatey": "prepared: verified Windows ZIP; catalogue publication remains separate"}
 
 
 def identity(version, commit, run_id):
@@ -87,9 +100,11 @@ def payload_names():
 
 
 def candidate_names(version, schema=1):
-    if type(schema) is not int or schema not in (1, 2):
+    if type(schema) is not int or schema not in (1, 2, 3):
         raise ValueError("unsupported release descriptor schema")
     files = payload_names() | {source_archive.name(version)}
+    if schema == 3:
+        return files | {debian.name(version)} | aggregate.names(version)
     return files | ({debian.name(version)} if schema == 2 else set())
 
 
@@ -175,6 +190,28 @@ def acceptance(evidence, pinned):
             raise ValueError("native acceptance has unsupported required ELF libraries")
 
 
+def multi_acceptance(directory, version, commit, source, archive, evidence, pinned):
+    if set(evidence) != {"linux", "windows", "inputs"}:
+        raise ValueError("incomplete multi-target acceptance")
+    acceptance(evidence["linux"], pinned)
+    for field in ("image", "image_version", "rustc", "linker"):
+        value = evidence["linux"]["runner"][field]
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9 ._()+-]{1,256}", value):
+            raise ValueError("Linux public runner evidence contains unexpected text or paths")
+    if (set(evidence["inputs"]) != {"linux_descriptor_sha256", "windows_receipt_sha256"}
+            or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+                   for value in evidence["inputs"].values())):
+        raise ValueError("multi-target input evidence pins differ")
+    lock, binaries, licenses = debian_inputs(directory, version, commit, source, archive)
+    manifest = aggregate.verify_windows(directory, version, commit, source, licenses["LICENSE"])
+    core = json.loads(read(directory / f"flere-{TARGET}.manifest.json", 65536))["build"]
+    accepts = manifest["build"]["compatibility"]["remote_protocol"]["accepts"]
+    if not isinstance(accepts, list) or core["compatibility"]["remote_protocol"]["current"] not in accepts:
+        raise ValueError("Windows companion cannot read the published Linux core protocol")
+    aggregate.acceptance(evidence["windows"], pinned, version, manifest)
+    return debian.inspect(directory / debian.name(version), lock, binaries, licenses)
+
+
 def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     identity(version, commit, run_id)
     identity(version, workflow_sha, run_id)
@@ -184,7 +221,10 @@ def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     archive = source_archive.inspect(directory / source_archive.name(version), version, source)
     pinned = {name: {"bytes": len(read(directory / name)), "sha256": sha(read(directory / name))}
               for name in sorted(candidate_names(version, schema))}
-    acceptance(evidence, pinned)
+    if schema == 3:
+        debian_proof = multi_acceptance(directory, version, commit, source, archive, evidence, pinned)
+    else:
+        acceptance(evidence, pinned)
     descriptor = {"schema_version": schema, "repository": REPOSITORY, "version": version,
                   "commit": commit, "workflow_sha": workflow_sha, "run_id": run_id,
                   "source_sha256": source, "source_archive": archive, "assets": pinned, "evidence": evidence,
@@ -193,6 +233,8 @@ def seal(directory, version, commit, run_id, workflow_sha, evidence, schema=1):
     if schema == 2:
         lock, binaries, licenses = debian_inputs(directory, version, commit, source, archive)
         descriptor["debian"] = debian.inspect(directory / debian.name(version), lock, binaries, licenses)
+    elif schema == 3:
+        descriptor.update(debian=debian_proof, targets=MULTI_TARGETS, channels=MULTI_CHANNELS)
     (directory / "release.json").write_bytes(json_bytes(descriptor))
     (directory / "SHA256SUMS").write_text("".join(
         f"{sha(read(directory / name))}  {name}\n" for name in sorted(candidate_names(version, schema) | {"release.json"})))
@@ -230,18 +272,25 @@ def validate(directory, version, commit, run_id, workflow_sha, expected_digest=N
                             for name in sorted(candidate_names(version, schema) | {"release.json"}))
     if read(directory / "SHA256SUMS", 65536).decode() != expected_sums:
         raise ValueError("SHA256SUMS differs from final release bytes")
-    acceptance(descriptor["evidence"], descriptor["assets"])
+    if schema == 3:
+        proof = multi_acceptance(directory, version, commit, descriptor["source_sha256"], archive,
+                                 descriptor["evidence"], descriptor["assets"])
+        if descriptor.get("debian") != proof:
+            raise ValueError("Debian wrapper provenance differs from verified package")
+    else:
+        acceptance(descriptor["evidence"], descriptor["assets"])
     if schema == 2:
         lock, binaries, licenses = debian_inputs(directory, version, commit, descriptor["source_sha256"], archive)
         proof = debian.inspect(directory / debian.name(version), lock, binaries, licenses)
         if descriptor.get("debian") != proof:
             raise ValueError("Debian wrapper provenance differs from verified package")
-    elif "debian" in descriptor:
+    elif schema == 1 and "debian" in descriptor:
         raise ValueError("schema 1 cannot claim Debian wrapper acceptance")
     # Historical snapshots are accepted only with the caller's exact digest.
-    channels = ((DEBIAN_CHANNELS,) if schema == 2 else
+    channels = ((MULTI_CHANNELS,) if schema == 3 else (DEBIAN_CHANNELS,) if schema == 2 else
                 ((CHANNELS, LEGACY_CHANNELS) if expected_digest is not None else (CHANNELS,)))
-    if (descriptor["targets"] != {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED}
+    targets = MULTI_TARGETS if schema == 3 else {TARGET: "native CI accepted; interactive desktop acceptance is not claimed", **BLOCKED}
+    if (descriptor["targets"] != targets
             or descriptor["channels"] not in channels):
         raise ValueError("missing target acceptance or unexpected channel readiness")
     return {"descriptor_sha256": sha(raw), "files": {
@@ -311,6 +360,17 @@ class GitHub:
 
 
 def release_body(version, commit, run_id, descriptor_sha, schema=1):
+    if schema == 3:
+        return (f"Flere {version}\n\nSource commit: `{commit}`\n"
+                f"Release descriptor SHA-256: `{descriptor_sha}`\n"
+                f"Build run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n"
+                "Linux x86-64 core and companion (glibc 2.39 or newer), the matching Debian wrapper, "
+                "Windows x86-64 MSVC companion and portable ZIP, and the complete reviewed source archive. "
+                "Both Windows commands, flere and flere-connect, run the companion; use `flere ssh ALIAS`. "
+                "Native CI and final-byte integrity are recorded in release.json; physical desktop acceptance is not claimed. "
+                "macOS signing/notarization remains separate; no macOS or Windows core payload is included. "
+                "Publication does not update external package catalogues or the latest-release pointer. "
+                "The separate core Cargo job follows public verification.\n")
     return (f"Flere {version}\n\nSource commit: `{commit}`\n"
             f"Release descriptor SHA-256: `{descriptor_sha}`\n"
             f"Build run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n"
@@ -415,7 +475,8 @@ def main(argv=None):
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--descriptor-sha256")
-    parser.add_argument("--schema", type=int, choices=(1, 2), default=1, help="seal format; schema 2 also requires the verified Debian wrapper")
+    parser.add_argument("--schema", type=int, choices=(1, 2, 3), default=1,
+                        help="seal format; schema 2 adds Debian, schema 3 also requires the complete native Windows companion")
     args = parser.parse_args(argv)
     values = (args.version, args.commit, args.run_id, args.workflow_sha)
     if args.action == "select":
