@@ -1,22 +1,38 @@
-//! Passive records for the observed default per-user, local-manifest Scoop install.
+//! Passive records for default per-user Scoop installs from local files or buckets.
 //! These values never select a process, script, download or profile directory.
 use serde_json::Value;
 
 const PRESERVE_MANIFEST: &str = r#"Rename-Item -LiteralPath "$dir\manifest.json" -NewName 'flere-release.manifest.json' -ErrorAction Stop"#;
 
+// A passive single directory name, never opened, interpolated or executed. The
+// installed record identifies Scoop ownership, not a trusted bucket publisher.
+fn bucket_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 255
+        && !matches!(value, "." | "..")
+        && !value.ends_with(['.', ' '])
+        && !value.chars().any(|c| {
+            c.is_control() || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
+        })
+}
+
 pub(crate) fn records(install: &Value, manifest: &Value, version: &str) -> bool {
-    let Some(local) = install.as_object() else {
+    let Some(info) = install.as_object() else {
         return false;
     };
-    if local.len() != 2
-        || local.get("architecture").and_then(Value::as_str) != Some("64bit")
-        || !local
-            .get("url")
-            .and_then(Value::as_str)
-            .is_some_and(|path| {
-                super::windows_profile::literal_path(path)
-                    && path.to_ascii_lowercase().ends_with(".json")
-            })
+    // Scoop's save_install_info drops null fields: normal bucket installs and
+    // updates retain `bucket`, while the observed local-file path retains `url`.
+    let source_matches = match (info.get("url"), info.get("bucket")) {
+        (Some(Value::String(path)), None) => {
+            super::windows_profile::literal_path(path)
+                && path.to_ascii_lowercase().ends_with(".json")
+        }
+        (None, Some(Value::String(bucket))) => bucket_name(bucket),
+        _ => false,
+    };
+    if info.len() != 2
+        || info.get("architecture").and_then(Value::as_str) != Some("64bit")
+        || !source_matches
     {
         return false;
     }
@@ -182,7 +198,65 @@ mod tests {
     }
 
     #[test]
-    fn foreign_bucket_global_architecture_and_recipe_identity_stay_unknown() {
+    fn ordinary_bucket_install_and_update_records_match_the_reviewed_recipe() {
+        // Derived from Scoop b588a06e's Get-Manifest/save_install_info and update,
+        // not a claim that our local-manifest native run installed from a bucket.
+        for version in ["0.3.4", "0.3.5"] {
+            let (_, mut manifest) = captured();
+            manifest["version"] = version.into();
+            manifest["architecture"]["64bit"]["url"] = format!(
+                "https://github.com/robert-cronin/flere/releases/download/v{version}/flere-connect-{version}-x86_64-pc-windows-msvc.zip"
+            ).into();
+            for bucket in ["flere", "main", "team-bucket", "Team.bucket_2", "Scoop Zoë"] {
+                let install = serde_json::json!({"architecture":"64bit", "bucket":bucket});
+                assert!(records(&install, &manifest, version), "rejected {bucket}");
+                assert!(!records(&install, &manifest, "0.0.0"));
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_or_ambiguous_bucket_sources_stay_unknown() {
+        let (_, manifest) = captured();
+        for bucket in [
+            serde_json::json!(null),
+            serde_json::json!(false),
+            serde_json::json!(42),
+            serde_json::json!([]),
+            serde_json::json!({}),
+            serde_json::json!(""),
+            serde_json::json!("."),
+            serde_json::json!(".."),
+            serde_json::json!("../flere"),
+            serde_json::json!(r"other\flere"),
+            serde_json::json!(r"C:\bucket"),
+            serde_json::json!("https://example.com/bucket"),
+            serde_json::json!("flere\nother"),
+            serde_json::json!("flere\u{1b}"),
+            serde_json::json!("flere."),
+            serde_json::json!("flere "),
+            serde_json::json!("*"),
+            serde_json::json!("x".repeat(256)),
+        ] {
+            let install = serde_json::json!({"architecture":"64bit", "bucket":bucket});
+            assert!(
+                !records(&install, &manifest, "0.3.4"),
+                "accepted {bucket:?}"
+            );
+        }
+        for install in [
+            serde_json::json!({"architecture":"64bit"}),
+            serde_json::json!({"architecture":"32bit", "bucket":"flere"}),
+            serde_json::json!({"architecture":"64bit", "bucket":"flere", "global":true}),
+            serde_json::json!({"architecture":"64bit", "bucket":"flere", "url":null}),
+            serde_json::json!({"architecture":"64bit", "bucket":"flere", "url":r"C:\work\flere.json"}),
+        ] {
+            assert!(!records(&install, &manifest, "0.3.4"), "accepted {install}");
+        }
+    }
+
+    #[test]
+    fn foreign_install_fields_and_recipe_identity_stay_unknown() {
         let (install, manifest) = captured();
         assert!(!records(&install, &manifest, "0.3.5"));
         for (key, value) in [
@@ -210,7 +284,12 @@ mod tests {
         ] {
             let mut changed = manifest.clone();
             changed[key] = value;
-            assert!(!records(&install, &changed, "0.3.4"), "accepted {key}");
+            for source in [
+                install.clone(),
+                serde_json::json!({"architecture":"64bit", "bucket":"flere"}),
+            ] {
+                assert!(!records(&source, &changed, "0.3.4"), "accepted {key}");
+            }
         }
         for value in [
             serde_json::json!(null),

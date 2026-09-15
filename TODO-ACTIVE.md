@@ -361,10 +361,15 @@
   merged branch with an exact-tip lease; only `main` remains. Recheck for new
   branch work before future releases.
 - [ ] Implement and validate Windows package-manager ownership recognition.
-  Normal Scoop bucket and WinGet catalogue installation records still need
-  support and validation before those channels are published. Current recognition
-  covers the verified local-manifest routes and default Chocolatey packages;
-  unsupported records remain Unknown with Apply disabled.
+  Source now recognizes ordinary Scoop bucket records and the fixed official
+  WinGet community origin, while preserving the verified local-manifest routes.
+  Scoop accepts mutually exclusive bucket/local-file metadata; WinGet selects
+  one fixed registry key from the actual executable's package directory. Existing
+  profile, manifest, payload and path checks remain; unknown/custom roots keep
+  Apply disabled. Focused tests, formatting and strict host/Windows compilation
+  pass. Combined integration and native Scoop bucket acceptance are pending;
+  actual WinGet catalogue acceptance requires a normally accepted package.
+  Public and installed v0.3.5 still contain the earlier local-manifest detector.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
   guidance and Apply disabled. The companion's existing `update-status` JSON now

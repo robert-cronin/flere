@@ -221,8 +221,8 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
     };
     let package = executable.parent()?;
     let packages = package.parent()?;
+    let origin = manager::winget::Origin::for_package(package.file_name()?.to_str()?)?;
     if (!leaf(executable, "flere.exe") && !leaf(executable, "flere-connect.exe"))
-        || !leaf(package, manager::winget::PRODUCT_CODE)
         || !leaf(packages, "Packages")
         || !leaf(packages.parent()?, "WinGet")
     {
@@ -251,7 +251,7 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    &manager::winget::query(),
+                    &manager::winget::query(origin),
                 ])
                 .stdin(Stdio::null()),
             65536,
@@ -259,7 +259,7 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
         )
         .ok()?;
         let output = String::from_utf8(output).ok()?;
-        let record = manager::winget::record(&output, &build.package_version)?;
+        let record = manager::winget::record(&output, &build.package_version, origin)?;
         // Anchor the normal AppData/Local default to the current SID's literal
         // HKLM profile path, not fixture HOME/LOCALAPPDATA or package metadata.
         if !Path::new(record.local_appdata).is_absolute()
@@ -270,7 +270,7 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
         let root = fs::canonicalize(record.local_appdata).ok()?;
         let expected = fs::canonicalize(
             root.join("Microsoft/WinGet/Packages")
-                .join(manager::winget::PRODUCT_CODE),
+                .join(origin.product_code()),
         )
         .ok()?;
         (package == expected && fs::canonicalize(record.install_location).ok()? == expected)
@@ -280,11 +280,16 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
     Some(ManagerUpgrade {
         manager: "WinGet",
         verified,
-        command: None,
-        detail: if verified {
-            "This companion is installed as a WinGet portable package. Use WinGet with the next reviewed Flere manifest/package, then reopen the companion. In-app Apply is disabled."
-        } else {
+        command: (verified && origin == manager::winget::Origin::Community).then(|| {
+            "winget upgrade --id RobertCronin.FlereConnect --exact --source winget --scope user"
+                .into()
+        }),
+        detail: if !verified {
             "WinGet ownership could not be verified. Reopen the companion from its installed command and review the package-manager installation; in-app Apply is disabled."
+        } else if origin == manager::winget::Origin::Community {
+            "Run this command for the official WinGet community package, then reopen the companion. In-app Apply is disabled."
+        } else {
+            "This companion is installed as a WinGet portable package. Use WinGet with the next reviewed Flere manifest/package, then reopen the companion. In-app Apply is disabled."
         },
     })
 }
