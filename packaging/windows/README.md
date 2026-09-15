@@ -146,8 +146,18 @@ ownership passed on `9d53f96` as recorded above. Scoop run `34935706908` passed
 public-ZIP install, both aliases, the release-manifest preservation hook and normal
 Flere removal/preservation. Its overall result remains failed because extra
 Scoop self-removal timed out. Subsequent fixtures retain Scoop for disposable VM
-teardown. These receipts remain tied to their exact payloads: Scoop ownership,
-version upgrades, physical acceptance and catalogue publication remain open.
+teardown. New candidate `7e43fa1` (0.3.5) passed 81 native tests and six
+aliases in [run 34938451094](https://github.com/robert-cronin/flere/actions/runs/34938451094),
+with one physical clipboard ignore. Actual public 0.3.4 → candidate 0.3.5
+upgrades, both installed owner reports and normal removal/preservation passed
+for [Scoop](https://github.com/robert-cronin/flere/actions/runs/34939641214)
+and [Chocolatey](https://github.com/robert-cronin/flere/actions/runs/34939646345).
+These used local recipes and checksummed runner-local target downloads, not
+catalogue installations. WinGet's upgrade remains unresolved: its local-manifest
+path requested unrelated Store terms, and adding `--source` was rejected as
+incompatible with `--manifest`. Both attempts removed Flere normally.
+Physical acceptance, update UI/coordinated refusal and catalogue publication
+remain open; candidate 0.3.5 is not a public download.
 
 Before publishing a package-manager channel, on Windows:
 

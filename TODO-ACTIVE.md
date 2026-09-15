@@ -154,7 +154,7 @@
   publish the companion through Scoop and submit a WinGet manifest.
   The public v0.3.4 ZIP is available from exact source `32108e3`; its native
   producer passed 74 MSVC tests and six alias checks with one physical clipboard
-  ignore. The later WinGet detector source `9a9183c` is a separate candidate,
+  ignore. The newer Windows ownership source `7e43fa1` is a separate 0.3.5 candidate,
   not part of that immutable release. Catalogue submissions remain pending.
 - [x] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. Run `34911230794` tested exact public source `422058c`:
@@ -236,7 +236,16 @@
   and normal Flere removal/preservation. Its overall result remains failed
   because extra Scoop self-removal timed out. The fixture now retains Scoop for
   disposable VM teardown, without relaxing Flere removal checks; seven helper
-  checks pass. Version upgrades and physical desktop acceptance remain separate.
+  checks pass. New native Scoop run `34939641214` passed actual public 0.3.4 →
+  candidate 0.3.5 upgrade, 12 alias checks, both production owner reports and
+  normal removal of both retained versions. All 40 commands and preservation
+  checks passed; Scoop itself remains until disposable VM teardown. Chocolatey
+  run `34939646345` passed the same actual version upgrade, 12 alias checks,
+  both owner reports and normal removal: all 41 commands passed, with all 45
+  preexisting package records and initialized profile/PATH preserved. These
+  checks used source `7e43fa1`, local recipes and a checksummed runner-local
+  target download; catalogue and physical desktop acceptance remain separate.
+  WinGet upgrade acceptance is still pending as recorded below.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -374,8 +383,9 @@
   identity without executing package metadata. Missing, stale or unsupported
   records remain Unknown with Apply disabled. The shared profile extraction
   preserves the corrected WinGet resolver. Thirty-two focused manager tests,
-  formatting and strict companion/Windows Clippy pass; native Scoop recognition
-  and literal 0.3.4 → 0.3.5 manager upgrades remain pending. Integrated
+  formatting and strict companion/Windows Clippy pass. Native Scoop recognition
+  and actual Scoop/Chocolatey 0.3.4 → 0.3.5 upgrades passed as recorded above;
+  WinGet upgrade and UI/coordinated refusal remain pending. Integrated
   source `7e43fa1` passed all 541 native macOS tests and both release builds;
   strict checks and formatting pass. Normal Scoop/WinGet upgrade workflows
   are prepared with exact version/build/alias and preservation checks; all 64
@@ -384,8 +394,11 @@
   test remains ignored. First upgrade run `34939643780` installed and checked
   public 0.3.4, then stopped when WinGet opened Microsoft Store terms during
   upgrade. No terms were accepted and 0.3.5 was not installed; normal removal
-  and state/settings/source preservation passed. The upgrade now explicitly
-  selects the existing `winget` source; the original failure remains retained. Native
+  and state/settings/source preservation passed. The next attempt explicitly
+  selected the existing `winget` source, but run `34940075188` then showed that
+  WinGet 1.11 rejects `--source` together with `--manifest`. It stopped before
+  the target download; normal removal and preservation passed. Both failures
+  remain retained while the supported local-manifest route is investigated. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
