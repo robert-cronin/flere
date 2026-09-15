@@ -138,9 +138,14 @@
   The unpublished v0.3.4 source is reserved for the next Windows acceptance
   payload. Do not publish it with the Linux-only workflow before all intended
   Windows assets are ready: v0.3.3 is immutable and cannot receive extra files.
-- [ ] Revalidate the public source on native Windows after incorporating the
-  CRLF bootstrap fix. The September 14 handoff tested the earlier private base
-  plus that patch, not a fresh public checkout; preserve that evidence distinction.
+- [x] Revalidate the public source on native Windows after incorporating the
+  CRLF bootstrap fix. Run `34911230794` tested exact public source `422058c`:
+  native MSVC formatting, strict Clippy, 59 tests and release build passed, with
+  one explicit physical clipboard ignore. The module-independent Windows hash
+  regression, packaging and all six portable alias checks passed. The overall
+  job then failed on WinGet manifest warnings; recipe validation and physical
+  acceptance remain separate. Earlier private-source and failed-run evidence
+  are retained.
 - Deferred by the owner: the Windows legacy-input arcade hold pause is not a
   release requirement. Preserve the console-input investigation for a future
   arcade pass; do not alter system repeat settings or add global monitoring.

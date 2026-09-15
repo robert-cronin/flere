@@ -181,17 +181,20 @@ def prepare(assets, output, target, license_path=PROJECT / "LICENSE"):
     winget = output / "winget" / "manifests" / "r" / "RobertCronin" / "FlereConnect" / version
     winget.mkdir(parents=True)
     common = f"PackageIdentifier: {IDENTIFIER}\nPackageVersion: {yaml_scalar(version)}\n"
-    (winget / f"{IDENTIFIER}.yaml").write_text(common +
+    (winget / f"{IDENTIFIER}.yaml").write_text(
+        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json\n" + common +
         "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.10.0\n")
-    (winget / f"{IDENTIFIER}.locale.en-US.yaml").write_text(common +
+    (winget / f"{IDENTIFIER}.locale.en-US.yaml").write_text(
+        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json\n" + common +
         "PackageLocale: en-US\nPublisher: robert-cronin\nPackageName: Flere Connect\n" +
         f"PackageUrl: {REPOSITORY}\nLicense: MIT\n" +
         f"LicenseUrl: {REPOSITORY}/blob/v{version}/LICENSE\n" +
         "ShortDescription: OpenSSH and clipboard companion for a Linux or macOS Flere workbench\n" +
         "Description: Requires an existing OpenSSH client and a remote Linux or macOS host. Run flere ssh ALIAS.\n" +
         "ManifestType: defaultLocale\nManifestVersion: 1.10.0\n")
-    (winget / f"{IDENTIFIER}.installer.yaml").write_text(common +
-        "InstallerType: zip\nNestedInstallerType: portable\nScope: user\n" +
+    (winget / f"{IDENTIFIER}.installer.yaml").write_text(
+        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json\n" + common +
+        "InstallerType: zip\nNestedInstallerType: portable\n" +
         "Installers:\n- Architecture: x64\n  NestedInstallerFiles:\n" +
         "  - RelativeFilePath: flere.exe\n    PortableCommandAlias: flere\n" +
         "  - RelativeFilePath: flere-connect.exe\n    PortableCommandAlias: flere-connect\n" +

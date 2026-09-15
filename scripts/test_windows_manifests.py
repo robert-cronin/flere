@@ -69,6 +69,27 @@ class WindowsPackaging(unittest.TestCase):
         self.assertIn("PortableCommandAlias: flere-connect", installer)
         self.assertEqual(result["status"], "prepared_not_published")
 
+    def test_winget_headers_match_each_type_and_portable_has_no_scope(self):
+        packager.prepare(self.assets, self.root / "out", self.target)
+        manifests = list((self.root / "out/winget").rglob("*.yaml"))
+        self.assertEqual(len(manifests), 3)
+        types = set()
+        for path in manifests:
+            text = path.read_text()
+            fields = dict(line.split(": ", 1) for line in text.splitlines()
+                          if line.startswith(("ManifestType: ", "ManifestVersion: ")))
+            kind = fields["ManifestType"]
+            types.add(kind)
+            self.assertEqual(text.splitlines()[0],
+                             "# yaml-language-server: $schema=https://aka.ms/winget-manifest."
+                             + kind + "." + fields["ManifestVersion"] + ".schema.json")
+            if kind == "installer":
+                self.assertIn("NestedInstallerType: portable\n", text)
+                self.assertNotIn("Scope:", text)
+                self.assertIn("PortableCommandAlias: flere\n", text)
+                self.assertIn("PortableCommandAlias: flere-connect\n", text)
+        self.assertEqual(types, {"version", "defaultLocale", "installer"})
+
     def test_chocolatey_binds_same_zip_and_allows_only_install_script(self):
         result = packager.prepare(self.assets, self.root / "out", self.target)
         package = self.root / "out" / result["chocolatey"]["directory"]
