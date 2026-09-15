@@ -523,9 +523,16 @@
   Windows-launcher support are checked before writing the new receipt policy,
   including rollback and recovery. Independent source review found no blocker;
   65 focused Rust case executions and 19 Python installer cases pass, with
-  strict Clippy, Windows GNU compile checks and formatting. Full native Linux
-  validation is pending. Public v0.3.7 and existing receipts remain version-pinned;
-  publish supporting binaries before advancing the default-follow installer.
+  strict Clippy, Windows GNU compile checks and formatting. At `d4fa4d8`,
+  the full native Linux pass completed all eight required checks: 581 tests,
+  both strict Clippy/formatting checks and both release builds, with unchanged
+  source and no remaining owned children. Exact Linux and Mac release binaries
+  passed the stateless compatibility probe. The local Mac update is installed;
+  all nine sessions across both supervisors were preserved. Existing frontend
+  processes require their normal Ctrl+Space, Shift+R reload; CLI supervisor
+  refresh does not reload them. Public v0.3.7 and existing receipts remain
+  version-pinned; publish supporting binaries before advancing the default-follow
+  installer.
   Native Windows launcher behavior and real default-channel promotion/update
   acceptance remain open. No live protocol or RPC capability was changed.
 - [ ] Extend release automation to the remaining targets and package channels
