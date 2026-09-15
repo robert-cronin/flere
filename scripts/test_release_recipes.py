@@ -124,7 +124,7 @@ class ReleaseRecipes(unittest.TestCase):
     def test_workflow_uploads_only_the_bundle_after_public_verification(self):
         workflow = (recipes.ROOT / ".github/workflows/release.yml").read_text()
         job = workflow.split("  prepare-recipes:\n", 1)[1].split("\n  publish-core:", 1)[0]
-        self.assertIn("needs: [select, linux, verify-public]", job)
+        self.assertIn("needs: [select, aggregate, verify-public]", job)
         self.assertNotIn("contents: write", job)
         self.assertNotIn("id-token:", job)
         self.assertNotIn("environment: release", job)
