@@ -1,0 +1,182 @@
+[
+  {
+    "name": "linux-current",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": true
+  },
+  {
+    "name": "empty-targets-unavailable",
+    "raw": "{\"schema_version\":1,\"targets\":{}}",
+    "valid": true
+  },
+  {
+    "name": "known-targets",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}},\"x86_64-pc-windows-msvc\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}},\"aarch64-apple-darwin\":{\"policy\":\"legacy_unsigned\",\"version\":\"0.3.0\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}},\"x86_64-apple-darwin\":{\"policy\":\"unavailable\"}}}",
+    "valid": true
+  },
+  {
+    "name": "max-version-and-manifest-size",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"2147483647.0.1\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": true
+  },
+  {
+    "name": "manifest-size-upper-bound",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":65536,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":65536,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": true
+  },
+  {
+    "name": "root-array",
+    "raw": "[]",
+    "valid": false
+  },
+  {
+    "name": "unknown-root-field",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}},\"url\":\"https://example.invalid\"}",
+    "valid": false
+  },
+  {
+    "name": "schema-boolean",
+    "raw": "{\"schema_version\":true,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "targets-null",
+    "raw": "{\"schema_version\":1,\"targets\":null}",
+    "valid": false
+  },
+  {
+    "name": "unknown-target",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}},\"aarch64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "target-null",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":null}}",
+    "valid": false
+  },
+  {
+    "name": "unavailable-with-version",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"unavailable\",\"version\":\"0.3.6\"}}}",
+    "valid": false
+  },
+  {
+    "name": "unknown-policy",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"latest\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "legacy-on-linux",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"legacy_unsigned\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "legacy-wrong-version",
+    "raw": "{\"schema_version\":1,\"targets\":{\"aarch64-apple-darwin\":{\"policy\":\"legacy_unsigned\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "version-leading-zero",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.03.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "version-overflow",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"2147483648.0.0\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "version-null",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":null,\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "unknown-target-field",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}},\"command\":\"anything\"}}}",
+    "valid": false
+  },
+  {
+    "name": "manifests-null",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":null}}}",
+    "valid": false
+  },
+  {
+    "name": "missing-companion",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "extra-component",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"other\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "windows-forbids-core",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-pc-windows-msvc\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "pin-null",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":null,\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "pin-extra-field",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"url\":\"https://example.invalid\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"url\":\"https://example.invalid\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "pin-bytes-boolean",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":true,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":true,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "pin-bytes-zero",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":0,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":0,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "pin-bytes-overflow",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":65537,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":65537,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "pin-bytes-float",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123.0,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123.0,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "uppercase-hash",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "short-hash",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "duplicate-root",
+    "raw": "{\"schema_version\":1,\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "duplicate-target",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"unavailable\"},\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "duplicate-policy",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "duplicate-component",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  },
+  {
+    "name": "duplicate-pin-field",
+    "raw": "{\"schema_version\":1,\"targets\":{\"x86_64-unknown-linux-gnu\":{\"policy\":\"current\",\"version\":\"0.3.6\",\"manifests\":{\"flere\":{\"bytes\":123,\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"flere-connect\":{\"bytes\":123,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}}}",
+    "valid": false
+  }
+]

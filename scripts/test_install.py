@@ -24,8 +24,11 @@ class Installation(unittest.TestCase):
         parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.temporary = tempfile.TemporaryDirectory(prefix="installer-pair-", dir=parent)
         self.root = Path(self.temporary.name)
-        self.target = installer.platform_target()
-        self.core_url = installer.default_manifest(self.target)
+        self.target = "x86_64-unknown-linux-gnu"
+        self.platform = mock.patch.object(installer, "platform_target", side_effect=lambda: self.target)
+        self.platform.start()
+        self.addCleanup(self.platform.stop)
+        self.core_url = installer.release_manifest("0.3.6", self.target, "flere")
         self.companion_url = installer.companion_manifest(self.core_url, self.target)
         self.responses = {}
         self.requested = []
@@ -40,8 +43,9 @@ class Installation(unittest.TestCase):
         self.builds = {}
         self.add_package("flere", self.core_url)
         self.add_package("flere-connect", self.companion_url)
+        self.channel()
 
-    def add_package(self, component, url, *, version="0.3.0", embedded_version=None, source="a" * 64):
+    def add_package(self, component, url, *, version="0.3.6", embedded_version=None, source="a" * 64):
         build = {"schema_version": 1, "identity_kind": "cargo_generation_stamp", "component": component,
                  "target": self.target, "package_version": version, "build_id": component + "-fixture",
                  "profile": "release", "rustc": "fixture", "compatibility": {
@@ -80,6 +84,15 @@ else: sys.exit(8)
         self.responses[url.rsplit("/", 1)[0] + "/" + asset] = payload
         self.builds[component] = manifest
 
+    def channel(self, *, version="0.3.6", policy="current"):
+        pins = {component: {"bytes": len(self.responses[url]),
+                            "sha256": hashlib.sha256(self.responses[url]).hexdigest()}
+                for component, url in [("flere", self.core_url), ("flere-connect", self.companion_url)]}
+        channel = {"schema_version": 1, "targets": {self.target: {
+            "policy": policy, "version": version, "manifests": pins}}}
+        self.responses[installer.CHANNEL_URL] = json.dumps(channel).encode()
+        return channel
+
     def fetch(self, url, limit, output=None):
         self.requested.append(url)
         payload = self.responses[url]
@@ -90,7 +103,8 @@ else: sys.exit(8)
         return b"" if output else payload, len(payload), hashlib.sha256(payload).hexdigest()
 
     def run_install(self, args):
-        with mock.patch.object(installer, "fetch", side_effect=self.fetch), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        self.stderr = io.StringIO()
+        with mock.patch.object(installer, "fetch", side_effect=self.fetch), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(self.stderr):
             installer.main(args)
 
     def events(self):
@@ -113,6 +127,12 @@ else: sys.exit(8)
         self.assertEqual(self.reports()[0]["status"], "installed")
         self.assertFalse(self.reports()[0]["atomic_pair"])
         self.assertTrue((self.root / ".local/bin/flere-connect").is_file())
+        self.assertEqual(self.requested.count(installer.CHANNEL_URL), 1)
+        self.assertEqual(self.reports()[0]["discovery"], {
+            "url": installer.CHANNEL_URL, "sha256": hashlib.sha256(self.responses[installer.CHANNEL_URL]).hexdigest(),
+            "target": self.target, "policy": "current", "version": "0.3.6"})
+        self.assertEqual(self.reports()[0]["sources"], {"flere": self.core_url, "flere-connect": self.companion_url})
+        self.assertFalse(any("/latest/" in url for url in self.requested))
 
     def test_corrupt_second_download_never_mutates_installation(self):
         asset = self.companion_url.rsplit("/", 1)[0] + f"/flere-connect-{self.target}"
@@ -127,7 +147,7 @@ else: sys.exit(8)
             with self.subTest(kwargs=kwargs):
                 self.add_package("flere-connect", self.companion_url, **kwargs)
                 with self.assertRaises(ValueError):
-                    self.run_install([])
+                    self.run_install([self.core_url])
                 self.assertFalse(any(event["args"][0] == "install" for event in self.events()))
         self.assertFalse((self.root / ".local/bin").exists())
 
@@ -141,6 +161,8 @@ else: sys.exit(8)
         self.add_package("flere-connect", pair)
         self.run_install([custom, "--companion-url", pair])
         self.assertEqual(self.reports()[0]["sources"], {"flere": custom, "flere-connect": pair})
+        self.assertNotIn(installer.CHANNEL_URL, self.requested)
+        self.assertNotIn("discovery", self.reports()[0])
 
     def test_core_only_does_not_fetch_or_install_companion(self):
         custom = "https://example.invalid/server/manifest.json"
@@ -148,6 +170,96 @@ else: sys.exit(8)
         self.run_install([custom, "--core-only"])
         self.assertEqual([event["component"] for event in self.events() if event["args"][0] == "install"], ["flere"])
         self.assertNotIn(self.companion_url, self.requested)
+        self.assertNotIn(installer.CHANNEL_URL, self.requested)
+
+    def test_default_core_only_never_fetches_companion(self):
+        self.run_install(["--core-only"])
+        self.assertEqual(self.requested, [installer.CHANNEL_URL, self.core_url,
+                         self.core_url.rsplit("/", 1)[0] + f"/flere-{self.target}"])
+        self.assertEqual([entry["component"] for entry in self.reports()[0]["installed"]], ["flere"])
+
+    def test_default_core_allows_explicit_companion_with_unchanged_pair_checks(self):
+        custom = "https://example.invalid/companion/manifest.json"
+        self.add_package("flere-connect", custom, source="c" * 64)
+        with self.assertRaisesRegex(ValueError, "different source"):
+            self.run_install(["--companion-url", custom])
+        self.assertNotIn(self.companion_url, self.requested)
+        self.assertFalse(any(event["args"][0] == "install" for event in self.events()))
+        self.add_package("flere-connect", custom)
+        self.run_install(["--companion-url", custom])
+        self.assertEqual(self.reports()[0]["sources"]["flere-connect"], custom)
+
+    def test_bad_or_unavailable_index_stops_before_staging_without_fallback(self):
+        cases = [b"not JSON", b" " * (installer.MAX_CHANNEL_BYTES + 1),
+                 b'{"schema_version":1,"targets":{}}',
+                 json.dumps({"schema_version": 1, "targets": {self.target: {"policy": "unavailable"}}}).encode()]
+        # Even an unselected target must validate before any package is fetched.
+        invalid_other = self.channel()
+        invalid_other["targets"]["x86_64-apple-darwin"] = {"policy": "unavailable", "url": "bad"}
+        cases.append(json.dumps(invalid_other).encode())
+        for raw in cases:
+            with self.subTest(raw=raw[:100]):
+                self.responses[installer.CHANNEL_URL] = raw
+                self.requested.clear()
+                with self.assertRaises(ValueError):
+                    self.run_install([])
+                self.assertEqual(self.requested, [installer.CHANNEL_URL])
+                self.assertFalse((self.root / "cache").exists())
+        self.assertEqual(self.events(), [])
+
+    def test_offline_index_stops_without_fallback(self):
+        with mock.patch.object(installer, "fetch", side_effect=OSError("offline")) as fetch:
+            with self.assertRaisesRegex(ValueError, "no fallback"):
+                installer.main([])
+        fetch.assert_called_once_with(installer.CHANNEL_URL, installer.MAX_CHANNEL_BYTES)
+        self.assertFalse((self.root / "cache").exists())
+
+    def test_manifest_raw_pin_and_selection_are_checked_before_payload(self):
+        original = self.responses[self.core_url]
+        for case in ["bytes", "sha256", "version", "component", "target"]:
+            with self.subTest(case=case):
+                self.responses[self.core_url] = original
+                channel = self.channel()
+                pin = channel["targets"][self.target]["manifests"]["flere"]
+                if case == "bytes":
+                    pin["bytes"] += 1
+                elif case == "sha256":
+                    # Whitespace preserves parsed JSON; the raw hash must still reject it.
+                    self.responses[self.core_url] = original.replace(b": ", b":\t", 1)
+                else:
+                    manifest = json.loads(original)
+                    field = "package_version" if case == "version" else case
+                    manifest["build"][field] = "0.3.5" if case == "version" else "wrong"
+                    self.responses[self.core_url] = json.dumps(manifest).encode()
+                    channel = self.channel()  # Matching hash alone cannot bless wrong metadata.
+                self.responses[installer.CHANNEL_URL] = json.dumps(channel).encode()
+                self.requested.clear()
+                with self.assertRaisesRegex(ValueError, "manifest"):
+                    self.run_install(["--core-only"])
+                self.assertEqual(self.requested, [installer.CHANNEL_URL, self.core_url])
+                self.assertEqual(self.events(), [])
+                self.assertFalse((self.root / ".local/bin").exists())
+
+    def test_companion_manifest_pin_is_checked_before_either_executable_runs(self):
+        self.responses[self.companion_url] = self.responses[self.companion_url].replace(b": ", b":\t", 1)
+        with self.assertRaisesRegex(ValueError, "manifest.*SHA-256"):
+            self.run_install([])
+        self.assertEqual(self.requested, [installer.CHANNEL_URL, self.core_url,
+                         self.core_url.rsplit("/", 1)[0] + f"/flere-{self.target}", self.companion_url])
+        self.assertEqual(self.events(), [])
+        self.assertFalse((self.root / ".local/bin").exists())
+
+    def test_legacy_macos_uses_fixed_notice_and_pinned_030(self):
+        self.target = "aarch64-apple-darwin"
+        self.core_url = installer.release_manifest("0.3.0", self.target, "flere")
+        self.companion_url = installer.companion_manifest(self.core_url, self.target)
+        self.add_package("flere", self.core_url, version="0.3.0")
+        self.add_package("flere-connect", self.companion_url, version="0.3.0")
+        self.channel(version="0.3.0", policy="legacy_unsigned")
+        self.run_install(["--core-only"])
+        self.assertIn(installer.LEGACY_NOTICE + "\n", self.stderr.getvalue())
+        self.assertEqual(self.stderr.getvalue().count(installer.LEGACY_NOTICE), 1)
+        self.assertEqual(self.reports()[0]["discovery"]["policy"], "legacy_unsigned")
 
     def test_second_install_failure_records_partial_and_keeps_installed_core(self):
         with mock.patch.dict(os.environ, {"FLERE_INSTALL_FIXTURE_FAIL": "flere-connect"}):
@@ -160,6 +272,32 @@ else: sys.exit(8)
         self.assertTrue((self.root / ".local/bin/flere").is_file())
         self.assertFalse((self.root / ".local/bin/flere-connect").exists())
         self.assertFalse(list((self.root / "cache/flere/downloads").glob("bootstrap-*")))
+
+
+class ChannelSchema(unittest.TestCase):
+    def test_shared_schema_vectors(self):
+        vectors = json.loads((Path(__file__).parent / "fixtures/channel-v1.json").read_bytes())
+        for vector in vectors:
+            with self.subTest(name=vector["name"]):
+                raw = vector["raw"].encode("utf-8")
+                if vector["valid"]:
+                    self.assertEqual(installer.parse_channel(raw), json.loads(raw))
+                else:
+                    with self.assertRaises(ValueError):
+                        installer.parse_channel(raw)
+
+    def test_utf8_depth_and_byte_bounds(self):
+        for raw in [b"\xff", b"[" * 1100 + b"]" * 1100, b" " * 8193]:
+            with self.subTest(raw=raw[:30]), self.assertRaises(ValueError):
+                installer.parse_channel(raw)
+
+    def test_canonical_version_tuple_bounds(self):
+        self.assertEqual(installer.version_tuple("0.3.6"), (0, 3, 6))
+        self.assertEqual(installer.version_tuple("2147483647.0.1"), (2147483647, 0, 1))
+        for value in [None, True, 0.3, "0.03.6", "01.0.0", "1.2", "1.2.3.4", "1.2.3-rc1", "1.2.3\n",
+                      "1.+2.3", "1.２.3", "2147483648.0.0", "9" * 5000 + ".0.0"]:
+            with self.subTest(value=str(value)[:40]), self.assertRaises(ValueError):
+                installer.version_tuple(value)
 
 
 if __name__ == "__main__":

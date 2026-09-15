@@ -44,16 +44,17 @@ wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/ins
 ```
 
 No Rust or source checkout is required. The bootstrap verifies the published
-installer before running it. Its default release remains v0.3.0. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
+installer before running it. Its default release remains v0.3.0 while per-target
+discovery is prepared. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
 for curl, `--core-only`, PATH setup and existing-installation rules.
 
 With Rust 1.98+ and a system C linker, install the core from crates.io:
 
 ```sh
-cargo install flere --locked --version 0.3.5
+cargo install flere --locked --version 0.3.6
 ```
 
-The [Cargo package](https://crates.io/crates/flere/0.3.5) builds locally on Linux
+The [Cargo package](https://crates.io/crates/flere/0.3.6) builds locally on Linux
 or macOS and excludes the separate SSH/clipboard companion. See
 [Cargo setup](docs/getting-started.md#install-with-cargo) for platform requirements.
 
@@ -72,16 +73,25 @@ brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard c
 Homebrew compiles the pinned source locally. See
 [installation channels and validation limits](docs/distribution.md) for setup,
 upgrades and the documented platform limits.
-[Flere v0.3.5](https://github.com/robert-cronin/flere/releases/tag/v0.3.5) provides
+[Flere v0.3.6](https://github.com/robert-cronin/flere/releases/tag/v0.3.6) provides
 Linux x86_64 downloads, a Debian package and the Windows x86_64 companion ZIP.
-Homebrew source formulas now track v0.3.5. macOS arm64 prebuilt downloads remain at
+Homebrew source formulas now track v0.3.6. macOS arm64 prebuilt downloads remain at
 [v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0); notarized
 Mac prebuilts are still pending.
 
-On Windows, [download and verify the public companion ZIP](packaging/windows/README.md#install-the-public-windows-zip),
-then run `flere ssh dev` with your existing OpenSSH host or alias. Both `flere.exe`
-and `flere-connect.exe` launch the companion for a Linux/macOS workbench. WinGet,
-Scoop and Chocolatey catalogue publication remains pending.
+On Windows, with [Scoop](https://scoop.sh/) installed:
+
+```powershell
+scoop bucket add flere https://github.com/robert-cronin/scoop-flere
+scoop install flere/flere
+flere ssh dev
+```
+
+Use your existing OpenSSH host or alias in place of `dev`. Or
+[download and verify the public companion ZIP](packaging/windows/README.md#install-the-public-windows-zip).
+Both `flere.exe` and `flere-connect.exe` launch the companion for a Linux/macOS
+workbench. The owned Scoop bucket is published; WinGet and Chocolatey catalogue
+publication remains pending.
 
 From this checkout, with **Rust 1.98+**, Python 3, a system C linker and cached
 dependencies:

@@ -7,7 +7,7 @@
   the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
   required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
-  using the pinned, checksummed v0.3.5 release archive. Signed tap commit `3e844f5`
+  using the pinned, checksummed v0.3.6 release archive. Signed tap commit `c13fe92`
   advances both formulas using the verified prepared recipe bytes;
   the core retains its Linux `zlib-ng-compat` runtime dependency.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
@@ -43,7 +43,7 @@
   `7f5c5eb`. Normal Cargo publication succeeded; the registry checksum and
   anonymous archive both match the reviewed 124-file package. After the hosted
   release below, the current core command is
-  `cargo install flere --locked --version 0.3.5`. The exact GitHub Trusted
+  `cargo install flere --locked --version 0.3.6`. The exact GitHub Trusted
   Publisher is configured for subsequent releases.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
@@ -110,6 +110,19 @@
   one physical clipboard ignore. The separately published Homebrew tap at
   signed `3e844f5` matches both hosted source formulas exactly. Latest/default
   installer remains v0.3.0; Apple signing and Windows catalogues remain separate.
+- [x] Publish immutable v0.3.6 from signed `8729733` with Linux and Windows
+  assets. Run `34953872776` passed all eight required jobs; six Mac jobs were
+  intentionally skipped. Independent checks verified all 11 public assets,
+  394 source files, the 133-file Cargo archive and all ten prepared recipe files.
+  Native Windows passed 85 tests and six alias checks with one physical ignore;
+  native Linux passed the required checks. Homebrew source formulas are published
+  at signed `c13fe92`. Latest remains 0.3.0; platform discovery is separate.
+- [x] Publish the [owned Scoop bucket](https://github.com/robert-cronin/scoop-flere)
+  for v0.3.6. Signed `982c8dc` contains only the verified native recipe,
+  README, licence and Git attributes. All four public files and GitHub's valid
+  signature were verified; recipe bytes match the producer and the public ZIP.
+  This is bucket publication, not central catalogue approval or a new physical
+  Windows acceptance result.
 - [ ] Configure the AUR maintainer identity and publishing access.
 - [x] Check the intended AUR package name: official AUR exact-info/name-search
   and Arch package APIs returned no matching `flere-bin` package on 2026-09-14
@@ -169,11 +182,10 @@
   ignore. Manager lifecycle results below use the earlier candidate `7e43fa1`;
   runtime code matches, but public release bytes have their own verified hashes.
   The physical handoff is updated to the actual public ZIP.
-- [ ] Publish the companion through an owned Scoop bucket and submit a WinGet
-  manifest from a verified public release. This can proceed independently of
-  physical acceptance; installing through a catalogue does not establish desktop
-  compatibility. Verify actual catalogue ownership after acceptance. Chocolatey
-  submission additionally needs its publisher account/access.
+- [ ] Submit the verified v0.3.6 WinGet manifest and verify its accepted catalogue
+  installation. Scoop publication is complete. Physical acceptance remains
+  independent; installing through a catalogue does not establish desktop
+  compatibility. Chocolatey submission additionally needs its publisher account/access.
 - [x] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. Run `34911230794` tested exact public source `422058c`:
   native MSVC formatting, strict Clippy, 59 tests and release build passed, with
@@ -370,8 +382,7 @@
   ancestry and lack of an open branch PR were checked before deleting the fully
   merged branch with an exact-tip lease; only `main` remains. Recheck for new
   branch work before future releases.
-- [ ] Complete native Windows ownership acceptance for WinGet catalogue installs
-  and UI/coordinated update refusal. Source `4f3b693` implements ordinary Scoop
+- [ ] Complete native Windows ownership acceptance for WinGet catalogue installs. Source `4f3b693` implements ordinary Scoop
   bucket records and the fixed official WinGet community origin, while preserving
   the verified local-manifest routes.
   Scoop accepts mutually exclusive bucket/local-file metadata; WinGet selects
@@ -394,7 +405,13 @@
   console wrapper before Flere or its peer launched. Normal failure cleanup
   removed the package and bucket and closed the listener. The fixture now uses
   directional raw streams with explicit descriptor ownership; ten focused checks
-  pass. UI refusal still needs a successful native run. Actual WinGet catalogue acceptance needs a normally accepted package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
+  pass. Corrected run `34953623319` at workflow `65fc06c` passed actual local
+  update refusal through both installed aliases: fresh Enter left the form open
+  with full Scoop guidance, no update RPC/staging, and Escape cancelled normally.
+  Original console modes/code pages were restored; all 58 commands, 168 file
+  hashes and normal package/bucket/listener cleanup verified. This used an owned
+  classic console and passive peer on hosted Windows, not a physical desktop or
+  real remote-core update. Actual WinGet catalogue acceptance needs a normally accepted package. Published v0.3.5 (`8744d35`) retains the earlier local-manifest
   detectors and does not contain these source changes.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
@@ -437,8 +454,9 @@
   preserves the corrected WinGet resolver. Thirty-two focused manager tests,
   formatting and strict companion/Windows Clippy pass. Native Scoop recognition
   and actual Scoop/Chocolatey 0.3.4 → 0.3.5 upgrades passed as recorded above;
-  WinGet local-manifest upgrade passed below; native catalogue/bucket and
-  actual Windows UI/coordinated refusal acceptance remain separate. Integrated
+  WinGet local-manifest upgrade passed below. Later registered-bucket and local
+  Scoop UI/coordinated refusal checks passed at their recorded scopes above;
+  actual WinGet catalogue acceptance remains separate. Integrated
   source `7e43fa1` passed all 541 native macOS tests and both release builds;
   strict checks and formatting pass. Normal Scoop/WinGet upgrade workflows
   are prepared with exact version/build/alias and preservation checks; all 64
@@ -475,6 +493,14 @@
   including the Debian package and core Cargo OIDC publication. Earlier retries
   reconciled the original assets/uploads without rebuilding or publishing twice.
   Ordinary pushes do not publish. Earlier failed receipts remain retained.
+- [ ] Finish per-platform default discovery and its release rollout. The Unix
+  installer and Rust bootstrap now implement the same bounded channel schema,
+  exact manifest pins and immutable URLs; explicit sources remain available.
+  The prepared channel selects verified Linux/Windows 0.3.6, retains explicitly
+  unsigned Mac arm64 0.3.0 and marks Intel Mac unavailable. Focused offline
+  consumer and promotion checks pass. Publish and verify the parser/channel,
+  migrate the shell loader's immutable pin, then release the new Rust consumer.
+  Existing released companions retain their old discovery until updated.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
   an explicit commit/version pair while preserving its historical defaults,

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "targets": {
+    "aarch64-apple-darwin": {
+      "manifests": {
+        "flere": {
+          "bytes": 2225,
+          "sha256": "8f5935457d3649683289a3de629c9bdb3ff50187003a32ff19e0dbf5b683a5aa"
+        },
+        "flere-connect": {
+          "bytes": 2029,
+          "sha256": "3637ff965c2c3557dc1cc255c7677ca9c3650d2e951760a30f5488fb32076ca9"
+        }
+      },
+      "policy": "legacy_unsigned",
+      "version": "0.3.0"
+    },
+    "x86_64-apple-darwin": {
+      "policy": "unavailable"
+    },
+    "x86_64-pc-windows-msvc": {
+      "manifests": {
+        "flere-connect": {
+          "bytes": 1422,
+          "sha256": "8704f9321520023095877464e01fe1c854b5245ec7348fe9baf8f34be14fe80e"
+        }
+      },
+      "policy": "current",
+      "version": "0.3.6"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "manifests": {
+        "flere": {
+          "bytes": 1895,
+          "sha256": "f21ca6dedcafaf2bac08e4588e7a3fbd8ee38eab5966cd31d435deb45ac0e66a"
+        },
+        "flere-connect": {
+          "bytes": 1699,
+          "sha256": "4ce4b1d0a7ae4808d7d2b29c0dcbe1b5841d6fb2ff21019fff06d2e186482d81"
+        }
+      },
+      "policy": "current",
+      "version": "0.3.6"
+    }
+  }
+}
