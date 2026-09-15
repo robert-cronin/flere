@@ -194,8 +194,11 @@
   remain failed: the loopback monitor rejected incidental malformed HTTP traffic,
   whose source is unproven. The corrected monitor verifies completed exact-ZIP
   responses after shutdown and records rejected traffic separately; 14 pure and
-  five owned-loopback checks pass. A fresh native run is still required; earlier
-  receipts remain unchanged. Version upgrades and product ownership remain open.
+  five owned-loopback checks pass. Fresh run `34921228036` passed all 23 native
+  commands and final download/removal/preservation checks on the retained exact
+  `422058c` ZIP. Its three completed downloads matched the reviewed hash; two
+  rejected requests remain recorded observations. Earlier failed receipts remain
+  unchanged. Version upgrades and current-product ownership remain open.
   WinGet/Scoop and physical desktop acceptance remain separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
@@ -287,7 +290,10 @@
 - [ ] Implement and validate Windows package-manager ownership recognition.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
-  guidance and Apply disabled. The native records informed the parser; Windows
+  guidance and Apply disabled. The companion's existing `update-status` JSON now
+  includes the production ownership report while preserving its existing fields;
+  the added regression checks all owner kinds without changing fixture state.
+  The native records informed the parser; Windows
   all-target compilation passed, but actual installed-product recognition and
   preparation refusal remain unverified. Custom Chocolatey roots remain Unknown;
   WinGet and Scoop detectors are still missing. Use actual installed-manager
@@ -319,8 +325,12 @@
   with no surviving owned children or harness errors. The prior `70083bd` run
   and its two failures remain retained; no assertions were removed or weakened.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
-  Apple enrollment and credential setup. Current binary casks are not published:
-  ordinary Gatekeeper blocked their unnotarized executable in testing.
+  Apple enrollment and credential setup. The staged producer now separates build,
+  signing, resumable notarization and final signed-byte verification; 17 pure
+  boundary tests pass. Entitlement output is bounded, and signing cleanup checks
+  the restored keychain search list and removal. Native Apple execution and
+  Release workflow integration remain unverified. Current binary casks are not
+  published: ordinary Gatekeeper blocked their unnotarized executable in testing.
 
 ## Add project
 
