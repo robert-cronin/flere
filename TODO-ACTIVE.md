@@ -346,6 +346,13 @@
   pass at `19637da`: all 213 native Linux live tests passed with four threads,
   with no surviving owned children or harness errors. The prior `70083bd` run
   and its two failures remain retained; no assertions were removed or weakened.
+- [ ] Resolve the Linux executable-busy error in installer package inspection.
+  The `22555bb` follow-up passed all 215 live UI tests, including the corrected
+  sidebar scope acknowledgement and SSH card links. Update integration passed
+  12 tests, but one package-inspection spawn returned `Text file busy`; its exact
+  cause remains under investigation. Formatting, strict Clippy and doc checks
+  passed. Earlier failed receipts are retained; installation/release validation
+  remains incomplete until this separate error is resolved.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. The staged producer now separates build,
   signing, resumable notarization and final signed-byte verification; 17 pure
