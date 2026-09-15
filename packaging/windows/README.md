@@ -4,7 +4,7 @@ The native Windows package is the OpenSSH/clipboard **companion**. It connects
 to a Linux or macOS workbench. Both `flere.exe` and `flere-connect.exe` launch
 that companion; this does not claim a native Windows core.
 
-The [v0.3.4 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.4/flere-connect-0.3.4-x86_64-pc-windows-msvc.zip)
+The [v0.3.5 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.5/flere-connect-0.3.5-x86_64-pc-windows-msvc.zip)
 is publicly available. No Windows package-manager catalogue is published yet.
 Physical Windows acceptance is tracked in
 [the handoff](../../docs/windows-acceptance-handoff.md).
@@ -18,9 +18,9 @@ checksum, then extract:
 ```powershell
 $Download = Join-Path $env:LOCALAPPDATA ('Flere\downloads\' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Download | Out-Null
-$Zip = Join-Path $Download 'flere-connect-0.3.4-x86_64-pc-windows-msvc.zip'
-Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.4/flere-connect-0.3.4-x86_64-pc-windows-msvc.zip' -OutFile $Zip
-if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne '71fd96f768894d849c4773add52bd0e3131e032c77640a02aa1c4af36e5001db') { throw 'ZIP checksum differs.' }
+$Zip = Join-Path $Download 'flere-connect-0.3.5-x86_64-pc-windows-msvc.zip'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.5/flere-connect-0.3.5-x86_64-pc-windows-msvc.zip' -OutFile $Zip
+if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne 'c38e47c29f0cc3d19124b9d13b2b5e7e51a0e2d6d37a0972022817cf8e2e08f2') { throw 'ZIP checksum differs.' }
 $Portable = Join-Path $Download 'app'
 Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
 $env:Path = "$Portable;$env:Path"  # This PowerShell session only.
@@ -29,9 +29,9 @@ flere ssh dev
 ```
 
 Replace `dev` with your SSH hostname or configured alias. `flere-connect ssh dev`
-is equivalent. The ZIP is 1,822,693 bytes and contains only `flere.exe`,
+is equivalent. The ZIP is 1,853,819 bytes and contains only `flere.exe`,
 `flere-connect.exe`, `manifest.json` and `LICENSE`. Both executable aliases have
-SHA-256 `ccf4985a7df7174206cb6ca9f6df21dd0619a4402f2f8f11736a7b0fd940b302`.
+SHA-256 `f49d69dfb39769fab0cac03730a907e97ba53c56385e8a646b529e2fcde3b112`.
 No Rust build, WSL or package-manager catalogue is required. Add the extracted
 folder to your user PATH separately if desired; these commands change only the
 current terminal's PATH. Keep the folder outside an existing managed installation
@@ -61,12 +61,15 @@ above provides both command names.
 
 ## Release and candidate evidence
 
-The public v0.3.4 ZIP was built from exact source `32108e3` in
-[run 34930826557](https://github.com/robert-cronin/flere/actions/runs/34930826557).
-Native MSVC formatting, strict Clippy, 74 tests, release packaging, six portable
+The public v0.3.5 ZIP was built from exact source `8744d35` in
+[run 34941117734](https://github.com/robert-cronin/flere/actions/runs/34941117734).
+Native MSVC formatting, strict Clippy, 81 tests, release packaging, six portable
 alias checks, WinGet validation and Chocolatey packing passed. One physical
 clipboard test was explicitly ignored. All 11 release downloads, including this
 ZIP and its source/manifest, were independently verified without authentication.
+The earlier public v0.3.4 ZIP at `32108e3` passed 74 native tests in
+[run 34930826557](https://github.com/robert-cronin/flere/actions/runs/34930826557);
+its separate physical clipboard test was also ignored.
 
 The manual **Windows companion candidate** workflow separately accepts an explicit
 reviewed source commit/version and never publishes it. It verifies Git blob/mode
@@ -90,9 +93,9 @@ Its release-shaped recipe URL must not be used to substitute the different publi
 ZIP for candidate testing.
 
 Actions artifacts are temporary evidence, not published package-manager channels.
-Physical clipboard, terminal graphics/held controls, existing-chat drafts and
-external SSH remain separate acceptance work. Both Windows command names run the
-companion; no native Windows core is supplied.
+Physical clipboard, terminal graphics, existing-chat drafts and external SSH
+remain separate acceptance work. Arcade held controls remain deferred. Both Windows
+command names run the companion; no native Windows core is supplied.
 
 ## Prepare package-manager recipes
 
@@ -111,7 +114,7 @@ manifest and the MIT license. Extra files in the input directory are excluded.
 
 Generated outputs include a Scoop bucket manifest, three WinGet manifests for
 `RobertCronin.FlereConnect`, a Chocolatey recipe for `flere-connect`, checksums
-and a preparation receipt. Public v0.3.4 uses the verified immutable ZIP above;
+and a preparation receipt. Public v0.3.5 uses the verified immutable ZIP above;
 a newly generated recipe for an unpublished version is not evidence that its URL
 exists or that a catalogue has accepted it.
 Neither generator nor manifests invokes the managed self-installer, modifies SSH
@@ -136,7 +139,7 @@ Use `choco upgrade flere-connect` and `choco uninstall flere-connect` once that
 channel is available. Do not combine channels that provide the same aliases.
 
 The generator prepares recipe sources; native `choco pack` and exact `.nupkg`
-inventory checks passed in the public v0.3.4 producer. Separate retained-candidate
+inventory checks passed in the public v0.3.5 producer. Separate retained-candidate
 runs passed normal Chocolatey install/remove and both shims. Run `34930361884`
 also verified actual installed ownership diagnostics on `21cf68c` and preserved
 an explicitly initialized synthetic PowerShell/Chocolatey profile. Cold-profile
@@ -146,18 +149,28 @@ ownership passed on `9d53f96` as recorded above. Scoop run `34935706908` passed
 public-ZIP install, both aliases, the release-manifest preservation hook and normal
 Flere removal/preservation. Its overall result remains failed because extra
 Scoop self-removal timed out. Subsequent fixtures retain Scoop for disposable VM
-teardown. New candidate `7e43fa1` (0.3.5) passed 81 native tests and six
+teardown. Candidate `7e43fa1` (0.3.5) passed 81 native tests and six
 aliases in [run 34938451094](https://github.com/robert-cronin/flere/actions/runs/34938451094),
 with one physical clipboard ignore. Actual public 0.3.4 → candidate 0.3.5
 upgrades, both installed owner reports and normal removal/preservation passed
 for [Scoop](https://github.com/robert-cronin/flere/actions/runs/34939641214)
 and [Chocolatey](https://github.com/robert-cronin/flere/actions/runs/34939646345).
 These used local recipes and checksummed runner-local target downloads, not
-catalogue installations. WinGet's upgrade remains unresolved: its local-manifest
-path requested unrelated Store terms, and adding `--source` was rejected as
-incompatible with `--manifest`. Both attempts removed Flere normally.
+catalogue installations. Earlier WinGet attempts remain failed: a local-manifest
+upgrade requested unrelated Store terms, and adding `--source` was rejected as
+incompatible with `--manifest`. Both attempts removed Flere normally. The corrected
+[WinGet run 34943275275](https://github.com/robert-cronin/flere/actions/runs/34943275275)
+passed normal public 0.3.4 → candidate 0.3.5 local-manifest upgrade, both installed
+owner reports, normal removal and initialized-profile/PATH/package preservation.
+The target manifest used the exact observed baseline ProductCode and a checksummed
+runner-local ZIP URL. The disposable VM removed the Store source before recording
+its community-only source baseline and retained that setup until VM teardown.
+Default two-source and catalogue upgrades remain outside that proof. WinGet
+catalogue-installed ownership detection remains unsupported; the verified
+detector scope is the local-manifest route above.
 Physical acceptance, update UI/coordinated refusal and catalogue publication
-remain open; candidate 0.3.5 is not a public download.
+remain open. The public v0.3.5 ZIP is rebuilt from `8744d35`; its hashes differ
+from the `7e43fa1` candidate used in those manager checks.
 
 Before publishing a package-manager channel, on Windows:
 
@@ -170,11 +183,11 @@ Before publishing a package-manager channel, on Windows:
 4. Run `choco pack .\flere-connect.nuspec` from the generated Chocolatey recipe
    directory. Inspect the `.nupkg` inventory: NuGet metadata, the spec and only
    `tools/chocolateyInstall.ps1`; no embedded executable or local files.
-5. Keep recipes bound to an anonymously verified published ZIP. Public v0.3.4
+5. Keep recipes bound to an anonymously verified published ZIP. Public v0.3.5
    satisfies that download step; future versions require their own verification.
-   Finish literal version-upgrade tests with a second verified package, preserving
-   user state and SSH configuration. First install/remove evidence for retained
-   candidates does not establish an upgrade or a different download route.
+   Preserve user state and SSH configuration through normal version upgrades.
+   Retain the exact recipe/download scope of the candidate upgrade checks above;
+   they do not establish catalogue installation or a different download route.
 6. Publish the Scoop bucket and submit the WinGet and Chocolatey packages through
    their normal contribution processes. Keep pending/accepted status explicit.
 

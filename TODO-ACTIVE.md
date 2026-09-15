@@ -7,7 +7,7 @@
   the reviewed bytes. Eight offline installer checks passed. Python 3.9+ is
   required; the bootstrap pins and verifies the published Python installer.
 - [x] Publish the [Homebrew source tap](https://github.com/robert-cronin/homebrew-flere)
-  using the pinned, checksummed v0.3.4 release archive. Signed tap commit `cdd0b5f`
+  using the pinned, checksummed v0.3.5 release archive. Signed tap commit `3e844f5`
   advances both formulas using the verified prepared recipe bytes;
   the core retains its Linux `zlib-ng-compat` runtime dependency.
 - [x] Validate the isolated macOS arm64 source-formula lifecycle for core and
@@ -43,7 +43,7 @@
   `7f5c5eb`. Normal Cargo publication succeeded; the registry checksum and
   anonymous archive both match the reviewed 124-file package. After the hosted
   release below, the current core command is
-  `cargo install flere --locked --version 0.3.4`. The exact GitHub Trusted
+  `cargo install flere --locked --version 0.3.5`. The exact GitHub Trusted
   Publisher is configured for subsequent releases.
   Cargo distribution is core-only: the companion's external build script/shared
   imports are not a standalone Cargo package. Its exact source-package attempt
@@ -102,6 +102,14 @@
   aliases; no Windows core is included.
   Latest remains v0.3.0; the separate Homebrew tap update publishes v0.3.4.
   Mac signing/notarization and package-manager catalogue publication remain separate.
+- [x] Publish immutable v0.3.5 with the explicit Linux/Windows profile from
+  `8744d35`. Run `34941117734` passed native Linux/Windows checks, publication,
+  anonymous verification, core Cargo OIDC publication and recipe generation.
+  All 11 downloads, 388 source files/modes and 132 Cargo archive files were
+  independently verified. Windows passed 81 tests and six alias checks, with
+  one physical clipboard ignore. The separately published Homebrew tap at
+  signed `3e844f5` matches both hosted source formulas exactly. Latest/default
+  installer remains v0.3.0; Apple signing and Windows catalogues remain separate.
 - [ ] Configure the AUR maintainer identity and publishing access.
 - [x] Check the intended AUR package name: official AUR exact-info/name-search
   and Arch package APIs returned no matching `flere-bin` package on 2026-09-14
@@ -152,10 +160,12 @@
   ownership code and was not repinned.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
-  The public v0.3.4 ZIP is available from exact source `32108e3`; its native
-  producer passed 74 MSVC tests and six alias checks with one physical clipboard
-  ignore. The newer Windows ownership source `7e43fa1` is a separate 0.3.5 candidate,
-  not part of that immutable release. Catalogue submissions remain pending.
+  The public v0.3.5 ZIP is available from exact source `8744d35`; its native
+  producer passed 81 MSVC tests and six alias checks with one physical clipboard
+  ignore. Manager lifecycle results below use the earlier candidate `7e43fa1`;
+  runtime code matches, but public release bytes have their own verified hashes.
+  The physical handoff is updated to the actual public ZIP. Catalogue submissions
+  remain pending.
 - [x] Revalidate the public source on native Windows after incorporating the
   CRLF bootstrap fix. Run `34911230794` tested exact public source `422058c`:
   native MSVC formatting, strict Clippy, 59 tests and release build passed, with
@@ -245,7 +255,13 @@
   preexisting package records and initialized profile/PATH preserved. These
   checks used source `7e43fa1`, local recipes and a checksummed runner-local
   target download; catalogue and physical desktop acceptance remain separate.
-  WinGet upgrade acceptance is still pending as recorded below.
+  WinGet run `34943275275` also passed normal 0.3.4 → 0.3.5 local-manifest
+  upgrade, all 41 commands, 12 alias checks, both installed owner reports and
+  normal removal/preservation of all 456 unrelated registry records. The private
+  installer projected the verified baseline ProductCode and runner-local URL;
+  the provisioned community-only source set remained until VM teardown.
+  These three lifecycle routes are verified; ordinary catalogue/bucket ownership
+  support and physical Windows acceptance remain open.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -345,6 +361,10 @@
   merged branch with an exact-tip lease; only `main` remains. Recheck for new
   branch work before future releases.
 - [ ] Implement and validate Windows package-manager ownership recognition.
+  Normal Scoop bucket and WinGet catalogue installation records still need
+  support and validation before those channels are published. Current recognition
+  covers the verified local-manifest routes and default Chocolatey packages;
+  unsupported records remain Unknown with Apply disabled.
   Chocolatey detection now binds the running payload and manifest to the ordinary
   default installation and an exact active package query, with fixed upgrade
   guidance and Apply disabled. The companion's existing `update-status` JSON now
@@ -385,7 +405,8 @@
   preserves the corrected WinGet resolver. Thirty-two focused manager tests,
   formatting and strict companion/Windows Clippy pass. Native Scoop recognition
   and actual Scoop/Chocolatey 0.3.4 → 0.3.5 upgrades passed as recorded above;
-  WinGet upgrade and UI/coordinated refusal remain pending. Integrated
+  WinGet local-manifest upgrade passed below; catalogue/bucket support and
+  actual Windows UI/coordinated refusal remain separate. Integrated
   source `7e43fa1` passed all 541 native macOS tests and both release builds;
   strict checks and formatting pass. Normal Scoop/WinGet upgrade workflows
   are prepared with exact version/build/alias and preservation checks; all 64
@@ -408,7 +429,10 @@
   The private upgrade manifest now supplies the exact baseline ProductCode,
   in addition to its runner-local URL. Public catalogue recipes and payloads
   remain unchanged; 26 helper checks and actual CRLF manifest/record replay pass.
-  Native validation of that local-manifest projection remains pending. Native
+  Run `34943275275` independently verified that projection, normal upgrade,
+  both actual owner reports, unchanged state/settings and normal removal; all
+  41 commands passed. This proves the local-manifest route, not a public
+  catalogue upgrade or physical Windows behavior. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
@@ -458,6 +482,13 @@
   and the two known supervisors now run that verified local package; all five
   exact session identities, tab selections and frontend attachments survived.
   Existing frontends still need their normal UI reload.
+- [x] Package and install the local macOS v0.3.5 development update from
+  `6e87f05`. Both ordinary incremental release builds and complete 388-file
+  source seals passed; prior 541-test evidence covers the unchanged runtime.
+  Normal installation and both supervisor updates completed with all five exact
+  sessions, selections and frontend attachments preserved. Installed core and
+  companion hashes match the verified packages; frontends still require their
+  normal UI reload. This is separate from public macOS signing/notarization.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. The staged producer now separates build,
   signing, resumable notarization and final signed-byte verification; 17 pure

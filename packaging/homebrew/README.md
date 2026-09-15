@@ -20,7 +20,7 @@ brew install robert-cronin/flere/flere-connect
 flere-connect --version
 ```
 
-Homebrew downloads the pinned v0.3.4 full source archive and its Rust build
+Homebrew downloads the pinned v0.3.5 full source archive and its Rust build
 dependencies, then compiles each executable locally. The first install takes
 longer than downloading a prebuilt binary and needs Rust 1.98 or newer, which
 Homebrew supplies as a build dependency. Dependencies follow the checked-in lock
@@ -72,18 +72,18 @@ runtime acceptance.
 
 ## Maintain and validate
 
-The current formulas use the immutable [v0.3.4 source release](https://github.com/robert-cronin/flere/releases/tag/v0.3.4).
+The current formulas use the immutable [v0.3.5 source release](https://github.com/robert-cronin/flere/releases/tag/v0.3.5).
 Both recipes were verified against the released archive and maintained generator;
-only their source URLs, versions and SHA-256 values changed from v0.3.2. Install
+only their source URLs, versions and SHA-256 values changed from v0.3.4. Install
 commands, dependencies, target restrictions, license handling and formula tests
 are unchanged. The Cargo manifests and dependency locks differ only in Flere's
 own version fields.
 
-The matching Rust sources and test inputs passed a macOS arm64 developer-package
-run with 527 tests and all core/companion checks. The [v0.3.4 native Linux release
-run](https://github.com/robert-cronin/flere/actions/runs/34930826557) passed the
+The current runtime sources passed the macOS arm64 integration suite with 541
+tests and both release builds. The [v0.3.5 native Linux release
+run](https://github.com/robert-cronin/flere/actions/runs/34941117734) passed the
 core/companion checks and final package verification. A new Homebrew
-`0.3.2` to `0.3.4` install/upgrade/remove run was not performed; the established
+`0.3.4` to `0.3.5` install/upgrade/remove run was not performed; the established
 package-manager lifecycle baseline below remains explicitly versioned.
 
 Native Linux x86_64 and hosted macOS arm64 checks completed source installation,

@@ -19,12 +19,12 @@ pair under `~/.local/bin` and records the chosen update source. It needs Python 
 but no Rust toolchain or source checkout. Follow the
 [installation guide](getting-started.md#install-a-published-package).
 
-[Flere v0.3.4](https://github.com/robert-cronin/flere/releases/tag/v0.3.4) provides
+[Flere v0.3.5](https://github.com/robert-cronin/flere/releases/tag/v0.3.5) provides
 Linux x86_64 core/companion, a Debian package, the Windows x86_64 MSVC companion
 and its portable ZIP, complete source, manifests and checksums. All 11 anonymous
-downloads match the sealed immutable release from source `32108e3`, published by
-[run 34930826557](https://github.com/robert-cronin/flere/actions/runs/34930826557).
-The default installer/latest release remains v0.3.0, Homebrew source formulas track v0.3.4,
+downloads match the sealed immutable release from source `8744d35`, published by
+[run 34941117734](https://github.com/robert-cronin/flere/actions/runs/34941117734).
+The default installer/latest release remains v0.3.0, Homebrew source formulas track v0.3.5,
 and no new macOS prebuilt is included. See the
 [verified Windows ZIP quickstart](../packaging/windows/README.md#install-the-public-windows-zip).
 
@@ -35,14 +35,14 @@ channels retain their individual validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
-| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.4 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
-| [Cargo / crates.io](https://crates.io/crates/flere/0.3.4) | Core source package for Linux/macOS | Published v0.3.4 through Trusted Publishing from the matching GitHub source. Companion excluded |
-| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.4 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
+| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.5 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
+| [Cargo / crates.io](https://crates.io/crates/flere/0.3.5) | Core source package for Linux/macOS | Published v0.3.5 through Trusted Publishing from the matching GitHub source. Companion excluded |
+| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.5 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
-| [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.4 ZIP and native manifest checks passed. WinGet local-manifest ownership/install/remove passed at `9d53f96`. Scoop public-ZIP install/remove passed, but the overall run failed on extra manager teardown. Scoop ownership, upgrades, physical acceptance and catalogue publication remain pending |
+| [Scoop / WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.5 ZIP and native manifest checks passed. Scoop and WinGet public v0.3.4 → candidate v0.3.5 local-recipe upgrades, both installed-owner reports and removal/preservation passed. Physical acceptance and catalogue publication remain pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Real SSH from the installed macOS companion to the Nix-built core passed; physical clipboard remains open. Not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
-| [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Native packing, first install/remove and installed ownership diagnostics passed on retained candidates. Version upgrade, physical acceptance and catalogue publication remain pending |
+| [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Native packing and public v0.3.4 → candidate v0.3.5 upgrade, both installed-owner reports and removal/preservation passed. Physical acceptance and catalogue publication remain pending |
 
 The historical unpublished Windows candidate from exact source `422058c` passed 59 native
 MSVC tests (one physical clipboard ignore), release packaging and six portable
@@ -53,7 +53,7 @@ with WinGet 1.11.510 and Chocolatey 2.7.4, reusing the same ZIP. Both artifacts
 were independently inspected; no installation, manager ownership or physical
 acceptance is claimed by those runs.
 
-The public v0.3.4 Windows package at `32108e3` passed 74 native MSVC tests,
+The public v0.3.5 Windows package at `8744d35` passed 81 native MSVC tests,
 six portable alias checks, WinGet validation and Chocolatey packing; one physical
 clipboard test remains explicitly ignored. Separate WinGet run `34929525551`
 passed normal local-manifest install/remove and both aliases on the retained
@@ -67,8 +67,20 @@ It is not included in public v0.3.4. Scoop public-ZIP installation, both aliases
 metadata preservation and normal Flere removal passed in
 [run 34935706908](https://github.com/robert-cronin/flere/actions/runs/34935706908);
 the overall run remains failed because extra Scoop self-removal timed out.
-The fixture now leaves Scoop for disposable runner teardown. Scoop ownership
-and literal version upgrades remain open. No Windows catalogue is published.
+The fixture now leaves Scoop for disposable runner teardown. Later public
+v0.3.4 → candidate v0.3.5 (`7e43fa1`) upgrades, both installed-owner reports and
+normal removal/preservation passed for
+[Scoop](https://github.com/robert-cronin/flere/actions/runs/34939641214),
+[Chocolatey](https://github.com/robert-cronin/flere/actions/runs/34939646345) and
+[WinGet](https://github.com/robert-cronin/flere/actions/runs/34943275275).
+Those checks used local recipes and checksummed runner-local target downloads;
+the rebuilt public v0.3.5 ZIP has different hashes. WinGet used an explicit
+local manifest carrying the observed baseline ProductCode. Its disposable runner
+removed the Store source before the preservation baseline, retaining the Microsoft
+community source until VM teardown. WinGet catalogue-installed ownership
+detection remains unsupported. These runs do not establish catalogue upgrades,
+physical acceptance or update UI/coordinated refusal. No Windows catalogue is
+published.
 
 ### Install with Homebrew
 
@@ -83,11 +95,14 @@ flere --version
 brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
 ```
 
-Homebrew builds locally from the pinned v0.3.4 source archive and supplies Rust
+Homebrew builds locally from the pinned v0.3.5 source archive and supplies Rust
 1.98 or newer as a build dependency. Ensure Homebrew's `bin` directory is on PATH.
 Use `brew upgrade robert-cronin/flere/flere` after `brew update`; upgrade the
 companion through Homebrew too if installed. See the
 [tap guide](../packaging/homebrew/README.md) for removal and maintenance.
+Both published formulas at [tap commit `3e844f5`](https://github.com/robert-cronin/homebrew-flere/commit/3e844f55073597824f40e049361a0ee8438ada22)
+match the verified v0.3.5 release recipes. This pin update did not repeat the
+earlier full Homebrew lifecycle checks below.
 
 Native Linux and hosted macOS 15/26 arm64 checks passed source installation,
 formula tests, stateless CLI and license checks, strict linkage, upgrade from core
@@ -113,17 +128,17 @@ intact and require no Apple Developer Program membership from users.
 ### Install with Cargo
 
 ```sh
-cargo install flere --locked --version 0.3.4
+cargo install flere --locked --version 0.3.5
 ```
 
 This builds the core with Rust 1.98+ and a system C linker; macOS needs Xcode
 Command Line Tools. Cargo normally installs into `~/.cargo/bin`. The companion
 is separate. See [Cargo setup](getting-started.md#install-with-cargo).
 
-The v0.3.4 archive records the matching release source `32108e3`. Its registry
+The v0.3.5 archive records the matching release source `8744d35`. Its registry
 API/index checksum and anonymous download were independently verified against
-all 129 packaged source/metadata files: the 1,802,678-byte crate has SHA-256
-`355459c2a68bc5b4c346e062f8b2845543e3b86590041cb421f79bfde8966863`.
+all 132 packaged source/metadata files: the 1,808,931-byte crate has SHA-256
+`78190555328b477155cf60a1dce6c9efdc66a5aa591d282c81b7468395188158`.
 
 ### Install the Debian package
 
@@ -131,9 +146,9 @@ On Ubuntu 24.04 x86_64, or another compatible Debian-based x86_64 system with
 glibc 2.39 or newer:
 
 ```sh
-wget -O flere_0.3.4-1_amd64.deb https://github.com/robert-cronin/flere/releases/download/v0.3.4/flere_0.3.4-1_amd64.deb && \
-  echo 'e6f3fa32537511e8c4cc984c80892ef805cd226ae00417a4325685774a794952  flere_0.3.4-1_amd64.deb' | sha256sum --check && \
-  sudo apt install ./flere_0.3.4-1_amd64.deb
+wget -O flere_0.3.5-1_amd64.deb https://github.com/robert-cronin/flere/releases/download/v0.3.5/flere_0.3.5-1_amd64.deb && \
+  echo '52d27e94a2d2e8aa6b1f8143195560c4990d71109078e93dcf0eefe232929d74  flere_0.3.5-1_amd64.deb' | sha256sum --check && \
+  sudo apt install ./flere_0.3.5-1_amd64.deb
 ```
 
 The checksum must pass before APT runs. The package
@@ -186,8 +201,8 @@ acceptance at exact source `2d52985`: both normal source installs, formula tests
 six stateless checks and actual core/companion update UIs passed. Both refused
 preparation before staging, kept their installed binaries and manager receipts
 unchanged, then exited and uninstalled normally with synthetic state preserved.
-The private formulas used a verified local source URL. The published v0.3.4 tap
-now includes this correction; the earlier v0.3.2 tap did not. No active sessions
+The private formulas used a verified local source URL. The current v0.3.5 tap
+retains this correction; the earlier v0.3.2 tap did not. No active sessions
 or external SSH were exercised by that lifecycle check.
 
 Version 0.3.4 also recognizes verified local Nix
@@ -248,7 +263,7 @@ the source tap. These generators do not update Nix pins or publish a channel.
 The Release workflow now [prepares a Linux/Homebrew recipe artifact](releasing.md#prepared-recipe-artifacts)
 after public verification, using these generators and an exact source/descriptor
 receipt. Offline fixtures and generation from verified v0.3.3 assets passed;
-hosted v0.3.4 recipe generation passed in run `34930826557`. Preparation does not
+hosted v0.3.5 recipe generation passed in run `34941117734`. Preparation does not
 publish recipes or change channel pins. The same release separately supplies the
 verified Windows companion ZIP.
 

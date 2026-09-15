@@ -1,9 +1,9 @@
 class FlereConnect < Formula
   desc "SSH companion for the Flere terminal workbench"
   homepage "https://github.com/robert-cronin/flere"
-  url "https://github.com/robert-cronin/flere/releases/download/v0.3.2/flere-0.3.2-source.tar.gz"
-  version "0.3.2"
-  sha256 "25484301d3ee5f3b0a1bbcbe6e0737c09bda00292c66d2bdcbceaefd0a01eaee"
+  url "https://github.com/robert-cronin/flere/releases/download/v0.3.5/flere-0.3.5-source.tar.gz"
+  version "0.3.5"
+  sha256 "b47e0b741d3e15795a98ff9d107430e94f03d4713e9341d5e7b747f0396142c5"
   license all_of: ["MIT", "OFL-1.1"]
 
   depends_on "rust" => :build
