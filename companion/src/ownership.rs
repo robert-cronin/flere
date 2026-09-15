@@ -69,7 +69,8 @@ pub(super) fn selected(
     }
     #[cfg(windows)]
     let windows_manager = chocolatey(&executable, build, &owner.sha256)
-        .or_else(|| winget(&executable, build, &owner.sha256));
+        .or_else(|| winget(&executable, build, &owner.sha256))
+        .or_else(|| scoop(&executable, build, &owner.sha256));
     #[cfg(not(windows))]
     let windows_manager: Option<ManagerUpgrade> = None;
     if let Some(manager) = windows_manager
@@ -250,7 +251,7 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    manager::winget::QUERY,
+                    &manager::winget::query(),
                 ])
                 .stdin(Stdio::null()),
             65536,
@@ -284,6 +285,138 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
             "This companion is installed as a WinGet portable package. Use WinGet with the next reviewed Flere manifest/package, then reopen the companion. In-app Apply is disabled."
         } else {
             "WinGet ownership could not be verified. Reopen the companion from its installed command and review the package-manager installation; in-app Apply is disabled."
+        },
+    })
+}
+
+#[cfg(windows)]
+fn scoop(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<ManagerUpgrade> {
+    let leaf = |path: &Path, name: &str| {
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case(name))
+    };
+    let alias = executable.file_name()?.to_str()?;
+    let version = executable.parent()?;
+    let package = version.parent()?;
+    let apps = package.parent()?;
+    let root = apps.parent()?;
+    if (!leaf(executable, "flere.exe") && !leaf(executable, "flere-connect.exe"))
+        || !leaf(package, "flere")
+        || !leaf(apps, "apps")
+        || !leaf(root, "scoop")
+    {
+        return None;
+    }
+    // A recognizable but stale/redirected/missing installation remains Unknown,
+    // never a manual-adoption candidate. Metadata is only read, never executed.
+    let verified = (|| -> Option<()> {
+        if build.target != "x86_64-pc-windows-msvc"
+            || version.file_name()?.to_str()? != build.package_version
+        {
+            return None;
+        }
+        let output = run(
+            Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &manager::scoop::profile_query(),
+                ])
+                .stdin(Stdio::null()),
+            65536,
+            Duration::from_secs(5),
+        )
+        .ok()?;
+        let output = String::from_utf8(output).ok()?;
+        let profile = manager::scoop::profile(&output)?;
+        let expected_root = Path::new(profile).join("scoop");
+        let package_path = expected_root.join("apps").join("flere");
+        let expected = package_path.join(&build.package_version);
+        let current = package_path.join("current");
+        let shim = expected_root
+            .join("shims")
+            .join(Path::new(alias).with_extension("shim"));
+        let expected_alias = manager::scoop::current_alias(profile, alias)?;
+        let real_directory = |path: &Path| -> Option<()> {
+            let metadata = fs::symlink_metadata(path).ok()?;
+            (metadata.is_dir() && !linked(&metadata)).then_some(())
+        };
+        let evidence = || -> Option<(Value, Value, Value, String)> {
+            // `current` is the single intentional junction. Other fixed package
+            // directories must not redirect away from the current user's root.
+            for directory in [
+                expected_root.clone(),
+                expected_root.join("apps"),
+                package_path.clone(),
+                expected.clone(),
+                expected_root.join("shims"),
+            ] {
+                real_directory(&directory)?;
+            }
+            if fs::canonicalize(&expected_root).ok()? != root
+                || fs::canonicalize(&expected).ok()? != version
+                || !linked(&fs::symlink_metadata(&current).ok()?)
+                || fs::canonicalize(&current).ok()? != version
+                || fs::canonicalize(&expected_alias).ok()? != executable
+            {
+                return None;
+            }
+            // Rust read_link supports Windows directory junctions as well as symlinks.
+            fs::read_link(&current).ok()?;
+            regular(
+                &expected_root.join("shims").join(alias),
+                manifest::MAX_PAYLOAD,
+            )
+            .ok()?;
+            let mut shim_text = String::new();
+            regular(&shim, 4096)
+                .ok()?
+                .take(4097)
+                .read_to_string(&mut shim_text)
+                .ok()?;
+            if !manager::scoop::shim_matches(&shim_text, &expected_alias) {
+                return None;
+            }
+            Some((
+                receipt(&expected.join("install.json"))?,
+                receipt(&expected.join("manifest.json"))?,
+                receipt(&expected.join("flere-release.manifest.json"))?,
+                shim_text,
+            ))
+        };
+        let before = evidence()?;
+        if !manager::scoop::records(&before.0, &before.1, &build.package_version) {
+            return None;
+        }
+        let parsed: Manifest = serde_json::from_value(before.2.clone()).ok()?;
+        parsed.validate().ok()?;
+        let metadata = regular(executable, manifest::MAX_PAYLOAD)
+            .ok()?
+            .metadata()
+            .ok()?;
+        if !manager::chocolatey::manifest_matches(
+            &before.2,
+            &serde_json::to_value(build).ok()?,
+            metadata.len(),
+            hash,
+        ) || sha256(executable).ok()? != hash
+            || evidence()? != before
+        {
+            return None;
+        }
+        Some(())
+    })()
+    .is_some();
+    Some(ManagerUpgrade {
+        manager: "Scoop",
+        verified,
+        command: None,
+        detail: if verified {
+            "This companion is installed by Scoop. Use Scoop with the next reviewed Flere manifest/package to upgrade, or remove it with Scoop, then reopen the companion. In-app Apply is disabled."
+        } else {
+            "Scoop ownership could not be verified. Reopen the companion from its installed command and review the package-manager installation; in-app Apply is disabled."
         },
     })
 }

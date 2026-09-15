@@ -63,23 +63,9 @@ pub(crate) fn record<'a>(output: &'a str, package_version: &str) -> Option<Recor
 // unexpanded ProfileImagePath plus fixed suffix as data, on every platform, so
 // process environment variables cannot redirect the ownership root.
 fn default_local_appdata(value: &str) -> bool {
-    let Some(profile) = value.strip_suffix(r"\AppData\Local") else {
-        return false;
-    };
-    let bytes = profile.as_bytes();
-    bytes.len() >= 4
-        && bytes[0].is_ascii_alphabetic()
-        && &bytes[1..3] == b":\\"
-        && profile[3..].split('\\').all(|part| {
-            !part.is_empty()
-                && part != "."
-                && part != ".."
-                && !part.ends_with('.')
-                && !part.ends_with(' ')
-                && !part
-                    .chars()
-                    .any(|c| matches!(c, ':' | '/' | '%' | '<' | '>' | '"' | '|' | '?' | '*'))
-        })
+    value
+        .strip_suffix(r"\AppData\Local")
+        .is_some_and(super::windows_profile::literal_path)
 }
 
 // Query only the current-token SID's HKLM/64 ProfileList record and one fixed active
@@ -89,7 +75,7 @@ fn default_local_appdata(value: &str) -> bool {
 // No record selects a hive, program or script. The caller bounds time/output.
 // Use only .NET APIs: Windows PowerShell may inherit PowerShell 7's module path.
 #[cfg(windows)]
-pub(crate) const QUERY: &str = r#"$ErrorActionPreference='Stop';
+const QUERY: &str = r#"$ErrorActionPreference='Stop';
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);
 function Emit([string]$name,[string]$value) {
     if (!$value -or [Text.Encoding]::UTF8.GetByteCount($value) -gt 4096) { throw 'invalid owner field length' }
@@ -102,21 +88,7 @@ try {
     if ($null -eq $key) { throw 'active WinGet record missing' }
     try {
         Emit 'schema' 'flere-winget-owner-v1';
-        $identity=[Security.Principal.WindowsIdentity]::GetCurrent();
-        try { $sid=$identity.User.Value } finally { $identity.Dispose() }
-        if (!$sid) { throw 'current user SID missing' }
-        $profiles=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine,[Microsoft.Win32.RegistryView]::Registry64);
-        try {
-            $profileKey=$profiles.OpenSubKey('SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\'+$sid,$false);
-            if ($null -eq $profileKey) { throw 'current user profile missing' }
-            try {
-                $kind=$profileKey.GetValueKind('ProfileImagePath');
-                if ($kind -ne [Microsoft.Win32.RegistryValueKind]::String -and $kind -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'invalid profile field type' }
-                $profilePath=$profileKey.GetValue('ProfileImagePath',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);
-                if ($profilePath -isnot [string] -or !$profilePath) { throw 'invalid profile path' }
-                Emit 'local_appdata' ($profilePath+'\AppData\Local');
-            } finally { $profileKey.Dispose() }
-        } finally { $profiles.Dispose() }
+        Emit 'local_appdata' ((GetFlereProfile)+'\AppData\Local');
         foreach ($name in @('DisplayName','DisplayVersion','WinGetPackageIdentifier','WinGetSourceIdentifier','WinGetInstallerType','InstallLocation','UninstallString')) {
             if ($key.GetValueKind($name) -ne [Microsoft.Win32.RegistryValueKind]::String) { throw 'invalid owner field type' }
             Emit $name ($key.GetValue($name,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames));
@@ -130,6 +102,11 @@ try {
     } finally { $key.Dispose() }
 } finally { $root.Dispose() }
 "#;
+
+#[cfg(windows)]
+pub(crate) fn query() -> String {
+    [super::windows_profile::FUNCTION, QUERY].concat()
+}
 
 #[cfg(test)]
 mod tests {

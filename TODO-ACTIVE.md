@@ -369,8 +369,13 @@
   Catalogue/custom-root installations stay Unknown; UI/coordinated refusal
   remains unverified. Scoop run `34935706908` proved native metadata preservation,
   both aliases and normal Flere removal, while extra manager self-removal failed
-  as recorded above. Scoop ownership detection is in progress using those exact
-  installed records and executable identity. Native
+  as recorded above. Scoop ownership detection now checks default-user local
+  manifests, the active junction, both alias shims and exact release/build/payload
+  identity without executing package metadata. Missing, stale or unsupported
+  records remain Unknown with Apply disabled. The shared profile extraction
+  preserves the corrected WinGet resolver. Thirty-two focused manager tests,
+  formatting and strict companion/Windows Clippy pass; native Scoop recognition
+  and literal 0.3.4 → 0.3.5 manager upgrades remain pending. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
