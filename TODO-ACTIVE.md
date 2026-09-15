@@ -515,13 +515,19 @@
   exact manifest/payload and left the original installation unchanged; the
   disposable home was removed. The verified release workflow artifact now
   promotes Linux/Windows to v0.3.7 while retaining both Mac records.
-- [ ] Preserve default-channel intent for future updates. Default installation
-  and missing-remote bootstrap currently save the resolved immutable manifest URL,
-  so subsequent local or coordinated Update remains pinned to that version.
-  Record default-channel selection distinctly, resolve it again for an explicit
-  Update action, and retain explicit URL/local-package pinning. Existing compatible
-  SSH connections must keep attaching without checking for an update. Validate
-  receipt/wire compatibility and update both core and companion paths.
+- [ ] Complete rollout and acceptance of default-channel intent for future
+  updates. The v0.3.8 source now records default-channel selection distinctly in
+  both core and companion, resolves it again for an explicit Update action, and
+  freezes the verified candidate for Apply. Explicit URL/local-package pinning
+  and compatible SSH attachment behavior are preserved. Candidate and retained
+  Windows-launcher support are checked before writing the new receipt policy,
+  including rollback and recovery. Independent source review found no blocker;
+  65 focused Rust case executions and 19 Python installer cases pass, with
+  strict Clippy, Windows GNU compile checks and formatting. Full native Linux
+  validation is pending. Public v0.3.7 and existing receipts remain version-pinned;
+  publish supporting binaries before advancing the default-follow installer.
+  Native Windows launcher behavior and real default-channel promotion/update
+  acceptance remain open. No live protocol or RPC capability was changed.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
   an explicit commit/version pair while preserving its historical defaults,

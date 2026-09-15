@@ -633,12 +633,30 @@ pub fn prepare(request: &Request) -> io::Result<Outcome> {
             &directory,
             "--if-missing",
         ];
-        if let Some(url) = &package.source_url {
+        if package.follow_default {
+            let support = invoke(
+                request,
+                &candidate,
+                &crate::release_channel::CAPABILITY_ARGS,
+                "default-channel receipt support",
+            )?;
+            if support
+                != serde_json::from_slice::<serde_json::Value>(crate::release_channel::CAPABILITY)
+                    .map_err(io::Error::other)?
+            {
+                return Err(invalid(
+                    "Remote candidate cannot retain default-channel intent; select a supporting release or an explicit package. Nothing installed.",
+                ));
+            }
+            args.push("--default-channel");
+        } else if let Some(url) = &package.source_url {
             args.extend(["--source-url", url]);
         }
         let receipt = invoke(request, &candidate, &args, "first installation")?;
         if receipt["schema_version"] != 1
             || receipt["component"] != COMPONENT
+            || (package.follow_default
+                && receipt["source"] != serde_json::json!({"kind":"default_channel"}))
             || !receipt["previous"].is_null()
             || receipt["current"]["manifest"]
                 != serde_json::to_value(&package.manifest).map_err(io::Error::other)?

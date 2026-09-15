@@ -36,6 +36,8 @@ class Installation(unittest.TestCase):
             "HOME": str(self.root), "XDG_CACHE_HOME": str(self.root / "cache"),
             "FLERE_INSTALL_FIXTURE_EVENTS": str(self.root / "events"),
             "FLERE_INSTALL_FIXTURE_FAIL": "",
+            "FLERE_INSTALL_FIXTURE_CAPABILITY": "supported",
+            "FLERE_INSTALL_FIXTURE_BAD_RECEIPT": "",
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -59,6 +61,12 @@ with open(os.environ['FLERE_INSTALL_FIXTURE_EVENTS'],'a') as log:
     log.write(json.dumps({'component':component,'args':args})+'\\n')
 if args==['--build-info']:
     print(json.dumps(build))
+elif args==['--build-info','--default-channel-info']:
+    capability=os.environ.get('FLERE_INSTALL_FIXTURE_CAPABILITY','supported')
+    if capability==component: sys.exit(8)
+    if capability=='wrong': print(json.dumps({'schema_version':1,'source_policy':'unknown'}))
+    elif capability=='extra': print(json.dumps({'schema_version':1,'source_policy':'default_channel_v1','unexpected':True}))
+    else: print(json.dumps({'schema_version':1,'source_policy':'default_channel_v1'}))
 elif args[0]=='verify-package':
     directory=pathlib.Path(args[1]); manifest=json.loads((directory/'manifest.json').read_bytes())
     payload=(directory/manifest['payload']['file_name']).read_bytes()
@@ -71,7 +79,10 @@ elif args[0]=='install':
     destination=pathlib.Path.home()/'.local/bin'/component
     destination.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     shutil.copyfile(directory/component,destination)
-    print(json.dumps({'component':component,'current':{'manifest':manifest},'destination':str(destination)}))
+    source=({'kind':'default_channel'} if '--default-channel' in args else
+            {'kind':'public','manifest_url':args[args.index('--source-url')+1]})
+    if os.environ.get('FLERE_INSTALL_FIXTURE_BAD_RECEIPT')==component: source={'kind':'public','manifest_url':'https://example.invalid/pinned.json'}
+    print(json.dumps({'component':component,'current':{'manifest':manifest},'destination':str(destination),'source':source}))
 else: sys.exit(8)
 '''.replace("BUILD", repr(json.dumps(embedded)))
         payload = script.encode()
@@ -118,12 +129,18 @@ else: sys.exit(8)
         self.run_install(["--adopt"])
         events = self.events()
         first_install = next(index for index, event in enumerate(events) if event["args"][0] == "install")
-        self.assertEqual(first_install, 4)
+        self.assertEqual(first_install, 6)
         self.assertEqual([event["component"] for event in events[:4] if event["args"] == ["--build-info"]], ["flere", "flere-connect"])
         self.assertEqual(len([event for event in events[:4] if event["args"][0] == "verify-package"]), 2)
         installed = [event for event in events if event["args"][0] == "install"]
-        for event, url in zip(installed, [self.core_url, self.companion_url]):
-            self.assertEqual(event["args"][-3:], ["--source-url", url, "--adopt"])
+        self.assertEqual([event["component"] for event in events[4:6]
+                          if event["args"] == ["--build-info", "--default-channel-info"]],
+                         ["flere", "flere-connect"])
+        for event in installed:
+            self.assertEqual(event["args"][-2:], ["--default-channel", "--adopt"])
+            self.assertNotIn("--source-url", event["args"])
+        self.assertEqual([entry["receipt"]["source"] for entry in self.reports()[0]["installed"]],
+                         [{"kind": "default_channel"}, {"kind": "default_channel"}])
         self.assertEqual(self.reports()[0]["status"], "installed")
         self.assertFalse(self.reports()[0]["atomic_pair"])
         self.assertTrue((self.root / ".local/bin/flere-connect").is_file())
@@ -188,6 +205,11 @@ else: sys.exit(8)
         self.add_package("flere-connect", custom)
         self.run_install(["--companion-url", custom])
         self.assertEqual(self.reports()[0]["sources"]["flere-connect"], custom)
+        installed = [event for event in self.events() if event["args"][0] == "install"]
+        self.assertEqual(installed[0]["args"][-1:], ["--default-channel"])
+        self.assertEqual(installed[1]["args"][-2:], ["--source-url", custom])
+        self.assertEqual([event["component"] for event in self.events()
+                          if event["args"] == ["--build-info", "--default-channel-info"]], ["flere"])
 
     def test_bad_or_unavailable_index_stops_before_staging_without_fallback(self):
         cases = [b"not JSON", b" " * (installer.MAX_CHANNEL_BYTES + 1),
@@ -256,10 +278,48 @@ else: sys.exit(8)
         self.add_package("flere", self.core_url, version="0.3.0")
         self.add_package("flere-connect", self.companion_url, version="0.3.0")
         self.channel(version="0.3.0", policy="legacy_unsigned")
-        self.run_install(["--core-only"])
+        with mock.patch.dict(os.environ, {"FLERE_INSTALL_FIXTURE_CAPABILITY": "flere"}):
+            self.run_install(["--core-only"])
+        self.assertFalse(any("--default-channel-info" in event["args"] for event in self.events()))
+        installed = [event for event in self.events() if event["args"][0] == "install"]
+        self.assertEqual(installed[0]["args"][-2:], ["--source-url", self.core_url])
         self.assertIn(installer.LEGACY_NOTICE + "\n", self.stderr.getvalue())
         self.assertEqual(self.stderr.getvalue().count(installer.LEGACY_NOTICE), 1)
         self.assertEqual(self.reports()[0]["discovery"]["policy"], "legacy_unsigned")
+
+    def test_explicit_release_stays_pinned_without_capability_probe(self):
+        # An older binary remains usable through an intentional immutable URL.
+        with mock.patch.dict(os.environ, {"FLERE_INSTALL_FIXTURE_CAPABILITY": "flere"}):
+            self.run_install([self.core_url])
+        self.assertNotIn(installer.CHANNEL_URL, self.requested)
+        self.assertFalse(any("--default-channel-info" in event["args"] for event in self.events()))
+        installed = [event for event in self.events() if event["args"][0] == "install"]
+        for event, url in zip(installed, [self.core_url, self.companion_url]):
+            self.assertEqual(event["args"][-2:], ["--source-url", url])
+            self.assertNotIn("--default-channel", event["args"])
+
+    def test_unsupported_or_malformed_capability_prevents_both_installs(self):
+        for capability in ["flere", "flere-connect", "wrong", "extra"]:
+            with self.subTest(capability=capability):
+                with mock.patch.dict(os.environ, {"FLERE_INSTALL_FIXTURE_CAPABILITY": capability}):
+                    with self.assertRaises(ValueError):
+                        self.run_install([])
+                self.assertFalse(any(event["args"][0] == "install" for event in self.events()))
+                self.assertFalse((self.root / ".local/bin").exists())
+                self.assertEqual(self.reports(), [])
+                self.assertFalse(list((self.root / "cache/flere/downloads").glob("bootstrap-*")))
+
+    def test_default_receipt_cannot_silently_become_a_public_pin(self):
+        with mock.patch.dict(os.environ, {"FLERE_INSTALL_FIXTURE_BAD_RECEIPT": "flere"}):
+            with self.assertRaisesRegex(ValueError, "unexpected receipt"):
+                self.run_install([])
+        report = self.reports()[0]
+        self.assertEqual(report["status"], "unverified")
+        self.assertEqual(report["attempted"], "flere")
+        self.assertEqual(report["installed"], [])
+        self.assertEqual([event["component"] for event in self.events()
+                          if event["args"][0] == "install"], ["flere"])
+        self.assertFalse((self.root / ".local/bin/flere-connect").exists())
 
     def test_second_install_failure_records_partial_and_keeps_installed_core(self):
         with mock.patch.dict(os.environ, {"FLERE_INSTALL_FIXTURE_FAIL": "flere-connect"}):

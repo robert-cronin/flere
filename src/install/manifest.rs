@@ -132,7 +132,11 @@ impl BuildMetadata {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PackageSource {
     Local,
-    Public { manifest_url: String },
+    Public {
+        manifest_url: String,
+    },
+    /// Resolve the fixed default channel on explicit preparation, never Apply.
+    DefaultChannel {},
     Adopted,
 }
 
@@ -202,5 +206,36 @@ impl Manifest {
     }
     pub fn id(&self) -> String {
         format!("{}-{}", self.build.component, self.payload.sha256)
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    #[test]
+    fn default_intent_is_strict_and_does_not_infer_historical_public_sources() {
+        for raw in [
+            r#"{"kind":"local"}"#,
+            r#"{"kind":"adopted"}"#,
+            r#"{"kind":"public","manifest_url":"https://github.com/robert-cronin/flere/releases/download/v0.3.7/flere-x86_64-unknown-linux-gnu.manifest.json"}"#,
+            r#"{"kind":"default_channel"}"#,
+        ] {
+            let source: PackageSource = serde_json::from_str(raw).unwrap();
+            assert_eq!(
+                serde_json::to_value(&source).unwrap(),
+                serde_json::from_str::<serde_json::Value>(raw).unwrap()
+            );
+            assert_eq!(
+                matches!(source, PackageSource::DefaultChannel {}),
+                raw.contains("default_channel")
+            );
+        }
+        for raw in [
+            r#"{"kind":"default_channel","manifest_url":"https://example.invalid/manifest.json"}"#,
+            r#"{"kind":"default_channel","follow":true}"#,
+            r#"{"kind":"public","manifest_url":"https://example.invalid/manifest.json","follow_default":true}"#,
+        ] {
+            assert!(serde_json::from_str::<PackageSource>(raw).is_err());
+        }
     }
 }

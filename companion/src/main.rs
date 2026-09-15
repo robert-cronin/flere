@@ -38,6 +38,8 @@ mod preview;
 )]
 #[path = "../../src/remote_protocol.rs"]
 mod protocol;
+#[path = "../../src/install/channel.rs"]
+mod release_channel;
 #[path = "../../src/remote_files.rs"]
 mod remote_files;
 #[allow(
@@ -259,6 +261,16 @@ fn run() -> io::Result<()> {
         println!(
             "flere ssh HOST [--from-url HTTPS_MANIFEST | --package LOCAL_CORE_PACKAGE]\nflere-connect ssh HOST [options]\nflere-connect HOST [--remote PATH] [--state REMOTE_DIR] [--image LOCAL_PNG]\nflere-connect connections save NAME HOST [options]\nflere-connect connections list | remove NAME\nflere-connect --connection NAME\nflere-connect reconnect [NAME]\nflere-connect --build-info\n\n`ssh` discovers a compatible remote core, installs when absent and starts the supervisor only.\nThe direct HOST form attaches to an already-running supervisor. OpenSSH owns authentication and host trust.\nPaste a screenshot with Ctrl+V or the terminal's paste shortcut.\nText paste stays ordinary text. In Explorer, Enter/p previews PNG/JPEG images in a Sixel-capable terminal with reported cell geometry (for example Windows Terminal 1.22+). Click visible image paths in terminal text to preview. Detach with Ctrl+Space, q; remote chats remain alive.\n--image explicitly pastes one local PNG after connecting and is never saved for reconnect.\n--ssh PATH selects the installed SSH executable (default: ssh)."
         );
+        return Ok(());
+    }
+    // A known inspection prefix makes old stable Windows launchers reject
+    // this probe before they could forward an unknown flag to a newer worker.
+    if args
+        .iter()
+        .map(String::as_str)
+        .eq(release_channel::CAPABILITY_ARGS)
+    {
+        io::stdout().write_all(release_channel::CAPABILITY)?;
         return Ok(());
     }
     if matches!(

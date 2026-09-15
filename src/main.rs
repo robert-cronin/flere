@@ -113,6 +113,14 @@ fn run() -> io::Result<()> {
         });
     }
     // Package inspection must also work before first use, without HOME or state.
+    if args
+        .iter()
+        .map(String::as_str)
+        .eq(flere::install::DEFAULT_CHANNEL_ARGS)
+    {
+        io::stdout().write_all(flere::install::DEFAULT_CHANNEL_CAPABILITY)?;
+        return Ok(());
+    }
     if args.len() == 1 && args[0] == "--coordinated-update-info" {
         io::stdout().write_all(flere::remote_update::CANDIDATE_CAPABILITY)?;
         return Ok(());

@@ -193,8 +193,10 @@ Homebrew, Cargo or a system package manager, upgrade through that manager instea
 see [installation ownership](distribution.md#upgrade-through-the-installation-owner).
 
 **Ctrl+Space, Shift+K** opens **Update Flere**. Locally, select a package directory
-or HTTPS manifest and press Enter to apply; an empty source uses the explicitly
-registered checkout. `scripts/dev update` registers its checkout. You can also
+or HTTPS manifest and press Enter to apply. In a supporting installation whose
+receipt records `default_channel`, an empty source resolves the fixed release
+index again. Other local installations keep the explicitly registered checkout
+behavior. `scripts/dev update` registers its checkout. You can also
 register one with `flere dev-source /absolute/path/to/flere`; the updater never
 infers executable code from the active workspace directory.
 
@@ -218,6 +220,23 @@ source/version/protocol before installing either component.
 Use `--core-only` on a remote server, or supply a core manifest URL and
 `--companion-url` for a custom HTTPS channel. Each component records its own
 installation; the report identifies any partial failure so it can be repaired.
+
+Default-channel intent is a newer receipt policy, not a migration of old installs.
+When the selected release supports it, the Unix default installer and first SSH
+bootstrap save `default_channel`; later explicit Update prepares the newly selected
+immutable package. Apply uses that already verified package and never resolves the
+index again. An explicit URL stays pinned, a local package stays local, and old
+Public receipts—including v0.3.7 installs—stay pinned. There is no background
+update, latest fallback, or automatic downgrade. The unsigned macOS v0.3.0 route
+remains an explicit legacy pin.
+
+New receipts require supporting readers. Candidate and retained Windows-launcher
+support are checked before this policy is saved, including when rolling back.
+An unsupported older package cannot be restored while retaining this policy; use
+an explicit reviewed Public/Local replacement to change intent, or a supporting
+package. Rollout of a default-follow installer therefore waits for a supporting
+published release; v0.3.7 itself does not provide it. Package-manager ownership
+continues to direct updates through the owning manager.
 
 Windows uses [install-companion.ps1](../scripts/install-companion.ps1) with
 `-ManifestUrl`, installing both `flere.exe` and the `flere-connect.exe` alias.

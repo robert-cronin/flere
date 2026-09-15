@@ -147,10 +147,12 @@ pub fn command(state: Option<&Path>, args: &[String]) -> io::Result<Vec<u8>> {
             let mut source_arg = None;
             let mut from_url = None;
             let mut source_url = None;
+            let mut follow_default = false;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
                     "--adopt" if !adopt => adopt = true,
+                    "--default-channel" if !follow_default => follow_default = true,
                     "--if-missing" if !if_missing && action == "install" => if_missing = true,
                     "--rollback" if !rollback && action == "update" => rollback = true,
                     "--frontend" if !frontend && action == "update" => frontend = true,
@@ -178,6 +180,16 @@ pub fn command(state: Option<&Path>, args: &[String]) -> io::Result<Vec<u8>> {
                     _ => return Err(invalid("unsupported or duplicate installer argument")),
                 }
                 i += 1;
+            }
+            if follow_default
+                && (from_url.is_some()
+                    || source_url.is_some()
+                    || rollback
+                    || (source_arg.is_some() && action != "install"))
+            {
+                return Err(invalid(
+                    "--default-channel selects the channel or labels one verified install package; cannot combine with an explicit URL or rollback",
+                ));
             }
             if if_missing && adopt {
                 return Err(invalid("--if-missing cannot adopt an existing command"));
@@ -222,9 +234,13 @@ pub fn command(state: Option<&Path>, args: &[String]) -> io::Result<Vec<u8>> {
             let receipt = if rollback {
                 store.rollback(runtime.as_ref().map(|r| &r.build))?
             } else {
-                if source_arg.is_none() && from_url.is_none() {
+                if source_arg.is_none() && from_url.is_none() && !follow_default {
                     from_url = match store.status()?.map(|r| r.source) {
                         Some(PackageSource::Public { manifest_url }) => Some(manifest_url),
+                        Some(PackageSource::DefaultChannel {}) => {
+                            follow_default = true;
+                            None
+                        }
                         _ => {
                             return Err(invalid(
                                 "choose a local package or --from-url; local development installs are not switched to public packages automatically",
@@ -233,28 +249,46 @@ pub fn command(state: Option<&Path>, args: &[String]) -> io::Result<Vec<u8>> {
                     };
                 }
                 let mut cleanup = None;
-                let (directory, source) = if let Some(url) = from_url {
-                    let home = std::env::var_os("HOME")
-                        .map(PathBuf::from)
-                        .ok_or_else(|| invalid("HOME is required"))?;
-                    let cache = std::env::var_os("XDG_CACHE_HOME")
-                        .filter(|s| !s.is_empty())
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| home.join(".cache"));
-                    let downloads = cache.join("flere/downloads");
-                    super::private_dir(&downloads)?;
-                    let directory = downloads.join(crate::os::nonce()?);
-                    download(&url, &directory)?;
-                    cleanup = Some(directory.clone());
-                    (directory, PackageSource::Public { manifest_url: url })
-                } else {
-                    (
-                        source_arg.unwrap(),
-                        source_url.map_or(PackageSource::Local, |manifest_url| {
-                            PackageSource::Public { manifest_url }
-                        }),
-                    )
-                };
+                let (directory, source) =
+                    if from_url.is_some() || (follow_default && source_arg.is_none()) {
+                        let home = std::env::var_os("HOME")
+                            .map(PathBuf::from)
+                            .ok_or_else(|| invalid("HOME is required"))?;
+                        let cache = std::env::var_os("XDG_CACHE_HOME")
+                            .filter(|s| !s.is_empty())
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| home.join(".cache"));
+                        let downloads = cache.join("flere/downloads");
+                        super::private_dir(&downloads)?;
+                        let directory = downloads.join(crate::os::nonce()?);
+                        let source = if let Some(url) = from_url {
+                            download(&url, &directory)?;
+                            PackageSource::Public { manifest_url: url }
+                        } else {
+                            let prior = store.status()?;
+                            super::package::download_default(
+                                &directory,
+                                component,
+                                prior
+                                    .as_ref()
+                                    .map(|r| r.current.manifest.build.package_version.as_str()),
+                            )?;
+                            PackageSource::DefaultChannel {}
+                        };
+                        cleanup = Some(directory.clone());
+                        (directory, source)
+                    } else {
+                        (
+                            source_arg.unwrap(),
+                            if follow_default {
+                                PackageSource::DefaultChannel {}
+                            } else {
+                                source_url.map_or(PackageSource::Local, |manifest_url| {
+                                    PackageSource::Public { manifest_url }
+                                })
+                            },
+                        )
+                    };
                 let staged = store.stage(&directory);
                 if let Some(directory) = cleanup {
                     let _ = fs::remove_dir_all(directory);

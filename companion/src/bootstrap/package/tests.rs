@@ -104,6 +104,7 @@ fn default_fetches_one_index_and_only_pinned_core_then_revalidates_cache() {
         ]
     );
     assert_eq!(package.source_url.as_deref(), Some(MANIFEST_URL));
+    assert!(package.follow_default);
     assert_eq!(
         fs::read(package.directory.join(COMPONENT)).unwrap(),
         payload
@@ -119,6 +120,7 @@ fn default_fetches_one_index_and_only_pinned_core_then_revalidates_cache() {
     })
     .unwrap();
     assert_eq!(cached.manifest, package.manifest);
+    assert!(cached.follow_default);
     assert_eq!(repeated, [channel::URL, MANIFEST_URL]);
     // A cached package does not authorize an offline/default-index fallback.
     assert!(
@@ -158,6 +160,7 @@ fn explicit_and_local_sources_bypass_channel_unchanged() {
     })
     .unwrap();
     assert_eq!(local.manifest, package.manifest);
+    assert!(!local.follow_default && !package.follow_default);
     assert!(local.source_url.is_none());
 }
 

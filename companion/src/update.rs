@@ -366,42 +366,99 @@ fn https(url: &str) -> io::Result<()> {
 }
 fn download(url: &str, directory: &Path) -> io::Result<Manifest> {
     https(url)?;
+    download_selected(url, directory, None)
+}
+
+fn fetch(url: &str, bound: usize) -> io::Result<Vec<u8>> {
     #[cfg(windows)]
     let curl = "curl.exe";
     #[cfg(not(windows))]
     let curl = "curl";
-    let fetch = |url: &str, bound: usize| {
-        run(
-            Command::new(curl)
-                .args([
-                    "--fail",
-                    "--silent",
-                    "--show-error",
-                    "--location",
-                    "--proto",
-                    "=https",
-                    "--proto-redir",
-                    "=https",
-                    "--connect-timeout",
-                    "10",
-                    "--max-time",
-                    "60",
-                    "--url",
-                    url,
-                ])
-                .stdin(Stdio::null()),
-            bound,
-            Duration::from_secs(65),
-        )
-    };
-    let manifest: Manifest =
-        serde_json::from_slice(&fetch(url, 65536)?).map_err(io::Error::other)?;
-    manifest.validate()?;
-    if manifest.build.component != COMPONENT || manifest.build.target != crate::build_info::TARGET {
-        return Err(invalid("release companion target/component differs"));
+    run_fetch(url, bound, curl)
+}
+fn run_fetch(url: &str, bound: usize, curl: &str) -> io::Result<Vec<u8>> {
+    run(
+        Command::new(curl)
+            .args([
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--proto",
+                "=https",
+                "--proto-redir",
+                "=https",
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "60",
+                "--url",
+                url,
+            ])
+            .stdin(Stdio::null()),
+        bound,
+        Duration::from_secs(65),
+    )
+}
+
+fn download_default(directory: &Path, current: Option<&str>) -> io::Result<Manifest> {
+    let selection = crate::release_channel::select_update(
+        &fetch(
+            crate::release_channel::URL,
+            crate::release_channel::MAX_BYTES,
+        )?,
+        crate::build_info::TARGET,
+        COMPONENT,
+        current,
+    )?;
+    download_selected(&selection.url, directory, Some(&selection))
+}
+
+fn download_selected(
+    url: &str,
+    directory: &Path,
+    selection: Option<&crate::release_channel::Selection>,
+) -> io::Result<Manifest> {
+    download_with(url, directory, selection, fetch)
+}
+
+fn download_with(
+    url: &str,
+    directory: &Path,
+    selection: Option<&crate::release_channel::Selection>,
+    mut fetch: impl FnMut(&str, usize) -> io::Result<Vec<u8>>,
+) -> io::Result<Manifest> {
+    if directory.exists() {
+        return Err(invalid("download output already exists"));
     }
+    let raw = fetch(url, 65536)?;
     private_dir(directory)?;
     let result = (|| {
+        if let Some(selection) = selection {
+            let path = directory.join(".channel-manifest");
+            let mut file = options().write(true).create_new(true).open(&path)?;
+            file.write_all(&raw)?;
+            file.sync_all()?;
+            drop(file);
+            selection.pin.verify(&raw, &sha256(&path)?)?;
+            fs::remove_file(path)?;
+        }
+        let manifest: Manifest = serde_json::from_slice(&raw).map_err(io::Error::other)?;
+        manifest.validate()?;
+        if let Some(selection) = selection {
+            selection.verify_identity(
+                &manifest.build.package_version,
+                &manifest.build.target,
+                &manifest.build.component,
+            )?;
+        }
+        if manifest.build.component != COMPONENT
+            || manifest.build.target != crate::build_info::TARGET
+        {
+            return Err(invalid(
+                "release companion target/component/version differs",
+            ));
+        }
         let asset = manifest
             .payload
             .download_file
@@ -427,6 +484,28 @@ fn download(url: &str, directory: &Path) -> io::Result<Manifest> {
         let _ = fs::remove_dir_all(directory);
     }
     result
+}
+
+fn probe_source_reader(path: &Path, expected: &str) -> io::Result<()> {
+    if sha256(path)? != expected {
+        return Err(invalid("default-channel reader identity changed"));
+    }
+    let result = run(
+        Command::new(path)
+            .args(crate::release_channel::CAPABILITY_ARGS)
+            .stdin(Stdio::null()),
+        128,
+        Duration::from_secs(3),
+    );
+    if sha256(path)? != expected {
+        return Err(invalid("default-channel reader changed during inspection"));
+    }
+    if !result.is_ok_and(|bytes| bytes == crate::release_channel::CAPABILITY) {
+        return Err(invalid(
+            "Candidate or retained Windows launcher cannot retain default-channel intent; manually replace it with a supporting package or explicitly replace the source policy before rollback. Installation retained.",
+        ));
+    }
+    Ok(())
 }
 
 fn remote_build(connection: &crate::connections::Connection) -> io::Result<BuildMetadata> {
@@ -546,6 +625,22 @@ fn prepare_checked(
         });
     }
     let source = if source.is_empty() {
+        if let Some(receipt) = store.status()?
+            && matches!(receipt.source, PackageSource::DefaultChannel {})
+        {
+            let directory = store.root.join(format!(".download-{}", nonce()?));
+            download_default(
+                &directory,
+                Some(&receipt.current.manifest.build.package_version),
+            )?;
+            let staged = store.stage(&directory);
+            let _ = fs::remove_dir_all(&directory);
+            return Ok(Prepared {
+                package: staged?,
+                source: receipt.source,
+                baseline,
+            });
+        }
         match store.status()?.map(|r| r.source) {
             Some(PackageSource::Public { manifest_url }) => manifest_url,
             _ => {
@@ -1043,6 +1138,15 @@ impl Store {
             .as_ref()
             .unwrap_or(&pending.next.current.manifest.payload.sha256);
         if actual.as_ref() == Some(desired) {
+            if matches!(pending.next.source, PackageSource::DefaultChannel {}) {
+                probe_source_reader(
+                    &pending.next.current.executable,
+                    &pending.next.current.manifest.payload.sha256,
+                )?;
+                if self.windows_launchers {
+                    probe_source_reader(&self.destination(), desired)?;
+                }
+            }
             self.publish_aliases(desired)?;
             write_json(&self.receipt(), &pending.next)?;
         } else if actual != pending.previous_sha256 {
@@ -1167,8 +1271,28 @@ impl Store {
         let _ = fs::remove_dir_all(temporary);
         result
     }
+    fn require_source_support(&self, package: &Package, source: &PackageSource) -> io::Result<()> {
+        if !matches!(source, PackageSource::DefaultChannel {}) {
+            return Ok(());
+        }
+        self.validate(package)?;
+        crate::release_channel::manifest_url(
+            &package.manifest.build.package_version,
+            &package.manifest.build.target,
+            &package.manifest.build.component,
+        )?;
+        probe_source_reader(&package.executable, &package.manifest.payload.sha256)?;
+        if self.windows_launchers
+            && let Some(prior) = self.status()?
+            && let Some(hash) = prior.launcher_sha256
+        {
+            probe_source_reader(&self.destination(), &hash)?;
+        }
+        self.validate(package)
+    }
     fn install(&self, package: Package, source: PackageSource, adopt: bool) -> io::Result<Receipt> {
         self.validate(&package)?;
+        self.require_source_support(&package, &source)?;
         if !self.bin.try_exists()? {
             let mut builder = fs::DirBuilder::new();
             builder.recursive(true);
@@ -1192,7 +1316,13 @@ impl Store {
         if let Some(prior) = &prior
             && prior.current.id == package.id
         {
-            return Ok(prior.clone());
+            let mut receipt = prior.clone();
+            if receipt.source != source {
+                receipt.source = source;
+                receipt.attempt = nonce()?;
+                write_json(&self.receipt(), &receipt)?;
+            }
+            return Ok(receipt);
         }
         let previous = match &prior {
             Some(p) => Some(p.current.clone()),
@@ -1457,6 +1587,7 @@ pub fn command(args: &[String]) -> io::Result<bool> {
     let mut local = None;
     let mut url = None;
     let mut source_url = None;
+    let mut follow_default = false;
     let mut adopt = false;
     let mut rollback = false;
     let mut reconnect: Option<Vec<String>> = None;
@@ -1464,6 +1595,7 @@ pub fn command(args: &[String]) -> io::Result<bool> {
     while i < args.len() {
         match args[i].as_str() {
             "--adopt" if !adopt => adopt = true,
+            "--default-channel" if !follow_default => follow_default = true,
             "--rollback" if action == "update" && !rollback => rollback = true,
             "--from-url" if url.is_none() => {
                 i += 1;
@@ -1507,7 +1639,12 @@ pub fn command(args: &[String]) -> io::Result<bool> {
         }
         i += 1;
     }
-    if (local.is_some() && url.is_some())
+    if (follow_default
+        && (url.is_some()
+            || source_url.is_some()
+            || rollback
+            || (local.is_some() && action != "install")))
+        || (local.is_some() && url.is_some())
         || (rollback && (local.is_some() || url.is_some() || adopt))
         || (source_url.is_some() && (local.is_none() || url.is_some()))
     {
@@ -1526,9 +1663,13 @@ pub fn command(args: &[String]) -> io::Result<bool> {
             receipt.source,
         )
     } else {
-        if local.is_none() && url.is_none() {
+        if local.is_none() && url.is_none() && !follow_default {
             url = match store.status()?.map(|r| r.source) {
                 Some(PackageSource::Public { manifest_url }) => Some(manifest_url),
+                Some(PackageSource::DefaultChannel {}) => {
+                    follow_default = true;
+                    None
+                }
                 _ => {
                     return Err(invalid(
                         "choose a local package or explicit HTTPS source; local builds are not switched to releases",
@@ -1536,18 +1677,34 @@ pub fn command(args: &[String]) -> io::Result<bool> {
                 }
             };
         }
-        if let Some(url) = url {
+        if url.is_some() || (follow_default && local.is_none()) {
             let directory = store.root.join(format!(".download-{}", nonce()?));
-            download(&url, &directory)?;
+            let source = if let Some(url) = url {
+                download(&url, &directory)?;
+                PackageSource::Public { manifest_url: url }
+            } else {
+                let prior = store.status()?;
+                download_default(
+                    &directory,
+                    prior
+                        .as_ref()
+                        .map(|r| r.current.manifest.build.package_version.as_str()),
+                )?;
+                PackageSource::DefaultChannel {}
+            };
             let staged = store.stage(&directory);
             let _ = fs::remove_dir_all(directory);
-            (staged?, PackageSource::Public { manifest_url: url })
+            (staged?, source)
         } else {
             (
                 store.stage(&local.unwrap())?,
-                source_url.map_or(PackageSource::Local, |manifest_url| PackageSource::Public {
-                    manifest_url,
-                }),
+                if follow_default {
+                    PackageSource::DefaultChannel {}
+                } else {
+                    source_url.map_or(PackageSource::Local, |manifest_url| PackageSource::Public {
+                        manifest_url,
+                    })
+                },
             )
         }
     };
@@ -1627,6 +1784,7 @@ pub(crate) fn prepare_guarded(
     owner: &crate::remote_update::InstallationOwner,
 ) -> io::Result<Prepared> {
     let prepared = prepare_checked(&Store::standard()?, source, || ownership::check(owner))?;
+    Store::standard()?.require_source_support(&prepared.package, &prepared.source)?;
     candidate_ownership(&prepared.package)?;
     Ok(prepared)
 }
@@ -1718,6 +1876,156 @@ mod tests {
             } else {
                 fs::remove_dir_all(&self.root).unwrap();
             }
+        }
+    }
+
+    fn capable_package(f: &Fixture, name: &str) -> PathBuf {
+        let directory = f.package(name);
+        let binary = directory.join(COMPONENT);
+        let script = fs::read_to_string(&binary).unwrap();
+        let probe = format!(
+            "if [ \"$#\" -eq 2 ] && [ \"$1\" = --build-info ] && [ \"$2\" = --default-channel-info ]; then printf '%s' '{}'; exit 0; fi\n",
+            std::str::from_utf8(crate::release_channel::CAPABILITY).unwrap()
+        );
+        fs::write(
+            &binary,
+            script.replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{probe}"), 1),
+        )
+        .unwrap();
+        let mut manifest: Manifest = read_json(&directory.join("manifest.json")).unwrap();
+        manifest.payload.bytes = fs::metadata(&binary).unwrap().len();
+        manifest.payload.sha256 = sha256(&binary).unwrap();
+        write_json(&directory.join("manifest.json"), &manifest).unwrap();
+        directory
+    }
+
+    #[test]
+    fn default_policy_checks_retained_windows_launcher_not_only_the_new_worker() {
+        let mut f = Fixture::new();
+        f.store.windows_launchers = true;
+        let _lock = f.store.lock().unwrap();
+        let old = f.store.stage(&f.package("old-launcher")).unwrap();
+        let next = f.store.stage(&capable_package(&f, "new-worker")).unwrap();
+        let original = f.store.install(old, PackageSource::Local, false).unwrap();
+        let before = fs::read(f.store.receipt()).unwrap();
+        assert!(
+            f.store
+                .install(next.clone(), PackageSource::DefaultChannel {}, false)
+                .is_err()
+        );
+        assert_eq!(fs::read(f.store.receipt()).unwrap(), before);
+        assert_eq!(
+            sha256(&f.store.destination()).unwrap(),
+            original.launcher_sha256.unwrap()
+        );
+        // The same old launcher may still select the compatible worker for an
+        // explicit source. Its worker's support must not certify the launcher.
+        f.store
+            .install(next.clone(), PackageSource::Local, false)
+            .unwrap();
+        let before = fs::read(f.store.receipt()).unwrap();
+        assert!(
+            f.store
+                .install(next, PackageSource::DefaultChannel {}, false)
+                .is_err()
+        );
+        assert_eq!(fs::read(f.store.receipt()).unwrap(), before);
+    }
+
+    #[test]
+    fn default_policy_rollback_rejects_old_reader_and_same_payload_can_explicitly_change_intent() {
+        let f = Fixture::new();
+        let _lock = f.store.lock().unwrap();
+        let old = f.store.stage(&f.package("old-worker")).unwrap();
+        assert!(
+            f.store
+                .install(old.clone(), PackageSource::DefaultChannel {}, false)
+                .is_err()
+        );
+        assert!(f.store.status().unwrap().is_none());
+        f.store
+            .install(old.clone(), PackageSource::Local, false)
+            .unwrap();
+        let next = f.store.stage(&capable_package(&f, "next-worker")).unwrap();
+        let installed = f
+            .store
+            .install(next.clone(), PackageSource::DefaultChannel {}, false)
+            .unwrap();
+        let before = fs::read(f.store.receipt()).unwrap();
+        assert!(
+            f.store
+                .install(old.clone(), PackageSource::DefaultChannel {}, false)
+                .is_err()
+        );
+        assert_eq!(fs::read(f.store.receipt()).unwrap(), before);
+        let changed = f.store.install(next, PackageSource::Local, false).unwrap();
+        assert_eq!(
+            changed.previous.as_ref().unwrap().id,
+            installed.previous.unwrap().id
+        );
+        assert_ne!(changed.attempt, installed.attempt);
+        assert_eq!(
+            f.store
+                .install(old.clone(), PackageSource::Local, false)
+                .unwrap()
+                .current
+                .id,
+            old.id
+        );
+    }
+
+    #[test]
+    fn default_download_checks_raw_pin_before_payload_and_keeps_explicit_url_behavior() {
+        let f = Fixture::new();
+        let source = f.package("download-input");
+        let raw = fs::read(source.join("manifest.json")).unwrap();
+        let payload = fs::read(source.join(COMPONENT)).unwrap();
+        let manifest: Manifest = serde_json::from_slice(&raw).unwrap();
+        let pin = serde_json::json!({"bytes":raw.len(),"sha256":sha256(&source.join("manifest.json")).unwrap()});
+        let index = serde_json::to_vec(&serde_json::json!({"schema_version":1,"targets":{crate::build_info::TARGET:{"policy":"current","version":manifest.build.package_version,"manifests":{"flere":pin,"flere-connect":pin}}}})).unwrap();
+        let selection = crate::release_channel::select_update(
+            &index,
+            crate::build_info::TARGET,
+            COMPONENT,
+            None,
+        )
+        .unwrap();
+        for (i, body) in [vec![b'!'; raw.len()], vec![b'!'; raw.len() + 1]]
+            .into_iter()
+            .enumerate()
+        {
+            let output = f.root.join(format!("invalid-{i}"));
+            let mut calls = 0;
+            assert!(
+                download_with(&selection.url, &output, Some(&selection), |url, _| {
+                    calls += 1;
+                    assert_eq!(url, selection.url);
+                    Ok(body.clone())
+                })
+                .is_err()
+            );
+            assert_eq!(calls, 1);
+            assert!(!output.exists());
+        }
+        for (name, selected) in [("default", Some(&selection)), ("explicit", None)] {
+            let mut calls = Vec::new();
+            let output = f.root.join(name);
+            let downloaded = download_with(&selection.url, &output, selected, |url, bound| {
+                calls.push(url.to_owned());
+                if calls.len() == 1 {
+                    assert_eq!(url, selection.url);
+                    Ok(raw.clone())
+                } else {
+                    assert_eq!(bound, payload.len());
+                    assert!(url.ends_with(manifest.payload.download_file.as_ref().unwrap()));
+                    Ok(payload.clone())
+                }
+            })
+            .unwrap();
+            assert_eq!(downloaded, manifest);
+            assert_eq!(calls.len(), 2);
+            assert!(!calls.iter().any(|url| url == crate::release_channel::URL));
+            assert_eq!(fs::read(output.join(COMPONENT)).unwrap(), payload);
         }
     }
     #[test]

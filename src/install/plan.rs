@@ -62,6 +62,22 @@ fn source_package(
         return Ok((staged, receipt.source));
     }
     let source = if source.is_empty() {
+        if let Some(receipt) = store.status()?
+            && matches!(receipt.source, PackageSource::DefaultChannel {})
+        {
+            private_dir(&store.root)?;
+            let path = store
+                .root
+                .join(format!(".download-{}", crate::os::nonce()?));
+            super::package::download_default(
+                &path,
+                "flere",
+                Some(&receipt.current.manifest.build.package_version),
+            )?;
+            let staged = store.stage(&path);
+            let _ = fs::remove_dir_all(&path);
+            return Ok((staged?, receipt.source));
+        }
         if let Some(checkout) = store.local_source()? {
             let bytes = run(
                 Command::new(checkout.join("scripts/dev"))
@@ -186,6 +202,11 @@ fn execute(
         };
         let before = runtime_identity(state)?;
         let (staged, source) = source_package(&store, state, &args[1])?;
+        super::package::require_source_support(
+            &staged.package.manifest,
+            &staged.package.executable,
+            &source,
+        )?;
         if frontend.is_some() {
             let capability = run(
                 Command::new(&staged.package.executable)

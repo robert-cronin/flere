@@ -1,5 +1,5 @@
 use super::{COMPONENT, MAX_JSON, Names, Request, Source, invalid, transport};
-mod channel;
+use crate::release_channel as channel;
 #[cfg(test)]
 mod tests;
 use crate::update::{self, Manifest};
@@ -16,6 +16,7 @@ pub(super) struct Package {
     pub directory: PathBuf,
     pub manifest: Manifest,
     pub source_url: Option<String>,
+    pub follow_default: bool,
 }
 
 fn regular(path: &Path, maximum: u64) -> io::Result<File> {
@@ -211,12 +212,7 @@ fn verify_channel_manifest(
     let result = (|| {
         let path = temporary.join("manifest.json");
         create(&path, bytes)?;
-        if digest(&path)? != selection.pin.sha256 {
-            return Err(invalid(
-                "Default release manifest SHA-256 differs from channel",
-            ));
-        }
-        Ok(())
+        selection.pin.verify(bytes, &digest(&path)?)
     })();
     let cleanup = fs::remove_dir_all(&temporary);
     result.and(cleanup)
@@ -233,6 +229,7 @@ fn obtain_with(
             directory: directory.clone(),
             manifest: load(directory, target)?,
             source_url: None,
+            follow_default: false,
         });
     }
     let selection = match &request.source {
@@ -241,7 +238,7 @@ fn obtain_with(
                 "Cannot resolve the default Flere release channel: {error}; no fallback package was selected",
             )))?;
             request.cancellation.check()?;
-            Some(channel::select(&bytes, target)?)
+            Some(channel::select(&bytes, target, COMPONENT)?)
         }
         Source::HttpsManifest(_) => None,
         Source::LocalPackage(_) => unreachable!(),
@@ -264,11 +261,11 @@ fn obtain_with(
     let manifest: Manifest = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     validate(&manifest, target)?;
     if let Some(selection) = &selection {
-        if manifest.build.package_version != selection.version {
-            return Err(invalid(
-                "Default release manifest version differs from channel",
-            ));
-        }
+        selection.verify_identity(
+            &manifest.build.package_version,
+            &manifest.build.target,
+            &manifest.build.component,
+        )?;
         if selection.legacy_unsigned {
             eprintln!(
                 "Using the explicitly pinned unsigned macOS 0.3.0 prebuilt. Current macOS prebuilt signing/notarization is pending; source Homebrew installation is available. Normal Gatekeeper checks still apply."
@@ -286,6 +283,7 @@ fn obtain_with(
             directory,
             manifest,
             source_url: Some(url),
+            follow_default: selection.as_ref().is_some_and(|s| !s.legacy_unsigned),
         });
     }
     let temporary = cache.join(format!(".download-{}", update::nonce()?));
@@ -309,6 +307,7 @@ fn obtain_with(
             directory,
             manifest,
             source_url: Some(url),
+            follow_default: selection.as_ref().is_some_and(|s| !s.legacy_unsigned),
         })
     })();
     if result.is_err() {

@@ -5,12 +5,13 @@ use std::{process::Command, sync::mpsc};
 
 pub(super) struct Update {
     source: Vec<u8>,
+    follow_default: bool,
     status: String,
     job: Option<mpsc::Receiver<io::Result<InstallReceipt>>>,
     owner: Owner,
 }
 enum Owner {
-    Checking(mpsc::Receiver<(Option<ManagerUpgrade>, String)>),
+    Checking(mpsc::Receiver<(Option<ManagerUpgrade>, String, bool)>),
     PackageManager(ManagerUpgrade),
     Local,
     Unavailable,
@@ -64,13 +65,19 @@ impl Update {
             return false;
         };
         match receiver.try_recv() {
-            Ok((Some(manager), _)) => {
+            Ok((Some(manager), _, _)) => {
                 self.status = manager.detail.into();
                 self.owner = Owner::PackageManager(manager);
             }
-            Ok((None, source)) => {
+            Ok((None, source, follow_default)) => {
                 self.source = source.into_bytes();
-                self.status = "Enter applies immediately and preserves sessions".into();
+                self.follow_default = follow_default;
+                self.status = if follow_default {
+                    "Enter resolves the default release channel and applies; sessions stay alive"
+                } else {
+                    "Enter applies immediately and preserves sessions"
+                }
+                .into();
                 self.owner = Owner::Local;
             }
             Err(mpsc::TryRecvError::Empty) => return false,
@@ -237,6 +244,7 @@ impl Ui {
         });
         self.update = Some(Update {
             source: Vec::new(),
+            follow_default: false,
             status: "Applying updated remote frontend…".into(),
             job: Some(receiver),
             owner: Owner::Local,
@@ -305,6 +313,9 @@ impl Ui {
                 .ok()
                 .flatten();
             let owner = crate::install::current_manager_upgrade(managed.as_ref());
+            let follow_default = managed
+                .as_ref()
+                .is_some_and(|r| matches!(r.source, PackageSource::DefaultChannel {}));
             let source = managed
                 .and_then(|receipt| match receipt.source {
                     PackageSource::Public { manifest_url } => Some(manifest_url),
@@ -313,10 +324,11 @@ impl Ui {
                 .unwrap_or_default();
             // Closing the modal drops this receiver. A later modal creates a
             // different channel and cannot consume a stale ownership result.
-            let _ = sender.send((owner, source));
+            let _ = sender.send((owner, source, follow_default));
         });
         self.update = Some(Update {
             source: Vec::new(),
+            follow_default: false,
             status: "Checking this executable's installation owner…".into(),
             job: None,
             owner: Owner::Checking(receiver),
@@ -332,11 +344,12 @@ impl Ui {
             UpdateInput::Apply => {
                 let state = self.state.clone();
                 let source = String::from_utf8_lossy(&update.source).trim().to_owned();
+                let follow_default = update.follow_default;
                 let (sender, receiver) = mpsc::channel();
                 update.job = Some(receiver);
                 update.status = "Updating… terminal sessions remain alive".into();
                 std::thread::spawn(move || {
-                    let _ = sender.send(perform(&state, &source));
+                    let _ = sender.send(perform(&state, &source, follow_default));
                 });
             }
             UpdateInput::None => {}
@@ -435,7 +448,11 @@ impl Ui {
             x + 2,
             y + 2,
             w - 4,
-            "Package directory / HTTPS manifest; empty = registered local source",
+            if update.follow_default {
+                "Package / HTTPS manifest; empty = default release channel"
+            } else {
+                "Package / HTTPS manifest; empty = registered local source"
+            },
             style(MUTED, PANEL, false),
         );
         c.text(
@@ -485,7 +502,7 @@ fn owner_heading(owner: &Owner) -> String {
         Owner::Local => unreachable!(),
     }
 }
-fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
+fn perform(state: &Path, source: &str, follow_default: bool) -> io::Result<InstallReceipt> {
     // Recheck immediately before launching the existing installer/developer
     // helper, in case ownership changed while its modal was open.
     if let Some(manager) = crate::install::update_manager_guard() {
@@ -495,8 +512,18 @@ fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
         );
         return Err(wire::invalid(&guidance));
     }
+    let follows_default = source.is_empty() && follow_default;
+    if follows_default
+        && !Store::for_user("flere")?
+            .status()?
+            .is_some_and(|r| matches!(r.source, PackageSource::DefaultChannel {}))
+    {
+        return Err(wire::invalid(
+            "Saved default source changed while Update was open; close and reopen Update",
+        ));
+    }
     let mut command;
-    if source.is_empty() {
+    if source.is_empty() && !follows_default {
         let checkout = Store::for_user("flere")?.local_source()?.ok_or_else(|| {
             wire::invalid("Choose a package, or register this checkout with flere dev-source PATH")
         })?;
@@ -513,7 +540,7 @@ fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
             .args(["update", "--frontend", "--adopt"]);
         if source.starts_with("https://") {
             command.args(["--from-url", source]);
-        } else {
+        } else if !source.is_empty() {
             command.arg(source);
         }
     }
@@ -530,11 +557,12 @@ fn perform(state: &Path, source: &str) -> io::Result<InstallReceipt> {
 mod tests {
     use super::*;
 
-    fn checking() -> (Update, mpsc::Sender<(Option<ManagerUpgrade>, String)>) {
+    fn checking() -> (Update, mpsc::Sender<(Option<ManagerUpgrade>, String, bool)>) {
         let (sender, receiver) = mpsc::channel();
         (
             Update {
                 source: Vec::new(),
+                follow_default: false,
                 status: "Checking".into(),
                 job: None,
                 owner: Owner::Checking(receiver),
@@ -585,6 +613,7 @@ mod tests {
                 .send((
                     Some(owner),
                     "https://old-store.invalid/manifest.json".into(),
+                    false,
                 ))
                 .unwrap();
             assert!(update.poll_owner());
@@ -614,7 +643,7 @@ mod tests {
         let (mut current, current_sender) = checking();
         assert!(
             previous_sender
-                .send((Some(manager()), String::new()))
+                .send((Some(manager()), String::new(), false))
                 .is_err()
         );
         assert!(!current.poll_owner());
@@ -623,7 +652,7 @@ mod tests {
             UpdateInput::None
         );
         current_sender
-            .send((None, "https://selected.invalid/manifest.json".into()))
+            .send((None, "https://selected.invalid/manifest.json".into(), false))
             .unwrap();
         assert!(current.poll_owner());
         assert_eq!(current.source, b"https://selected.invalid/manifest.json");
@@ -644,5 +673,23 @@ mod tests {
             update.input(&Key::Bytes(b"\x1b".to_vec())),
             UpdateInput::Close
         );
+    }
+    #[test]
+    fn default_source_modal_retains_intent_without_prefilling_an_immutable_override() {
+        let (mut update, sender) = checking();
+        sender.send((None, String::new(), true)).unwrap();
+        assert!(update.poll_owner());
+        assert!(update.follow_default && update.source.is_empty());
+        assert!(update.status.contains("default release channel"));
+        assert_eq!(
+            update.input(&Key::Bytes(b"\r".to_vec())),
+            UpdateInput::Apply
+        );
+        update.input(&Key::Paste(
+            b"https://selected.invalid/manifest.json".to_vec(),
+        ));
+        assert_eq!(update.source, b"https://selected.invalid/manifest.json");
+        update.input(&Key::Bytes(vec![21]));
+        assert!(update.source.is_empty() && update.follow_default);
     }
 }

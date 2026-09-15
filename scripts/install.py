@@ -299,8 +299,19 @@ def main(argv=None):
         if companion_url:
             packages.append(prepare(companion_url, "flere-connect", target, temporary,
                                     None if args.companion_url else selection))
+        for package in packages:
+            package["follow_default"] = (selection is not None and selection["policy"] == "current"
+                and (package["component"] == "flere" or args.companion_url is None))
         # Download, hash, inspect and cross-check BOTH before the first install.
         verify_pair(packages)
+        for package in packages:
+            if package["follow_default"]:
+                try:
+                    support = run_json([str(package["binary"]), "--build-info", "--default-channel-info"])
+                except (OSError, ValueError, subprocess.SubprocessError) as error:
+                    raise ValueError("selected candidate cannot prove default-channel support; choose a supporting release or an explicit manifest; nothing installed") from error
+                if support != {"schema_version": 1, "source_policy": "default_channel_v1"}:
+                    raise ValueError("selected candidate cannot retain default-channel intent; choose a supporting release or an explicit manifest; nothing installed")
         descriptor, report_name = tempfile.mkstemp(prefix="installation-result-", suffix=".json", dir=directory)
         os.close(descriptor)
         report_path = Path(report_name)
@@ -314,11 +325,12 @@ def main(argv=None):
             for package in packages:
                 report["attempted"] = package["component"]
                 write_report(report_path, report)
-                command = [str(package["binary"]), "install", str(package["directory"]), "--source-url", package["url"]]
+                command = [str(package["binary"]), "install", str(package["directory"])]
+                command.extend(["--default-channel"] if package["follow_default"] else ["--source-url", package["url"]])
                 if args.adopt:
                     command.append("--adopt")
                 receipt = run_json(command)
-                if receipt.get("component") != package["component"] or receipt.get("current", {}).get("manifest") != package["manifest"]:
+                if receipt.get("component") != package["component"] or receipt.get("current", {}).get("manifest") != package["manifest"] or (package["follow_default"] and receipt.get("source") != {"kind": "default_channel"}):
                     raise ValueError("installer returned an unexpected receipt; inspect component install-status")
                 report["installed"].append({"component": package["component"], "receipt": receipt})
                 write_report(report_path, report)
