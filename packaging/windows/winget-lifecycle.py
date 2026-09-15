@@ -604,7 +604,9 @@ def main(output, selected=LEGACY_INPUT):
             query_path = "src/install/ownership/winget.rs"
             with zipfile.ZipFile(io.BytesIO(artifact)) as archive:
                 source_pin = json.loads(archive.read("source.json"))["entries"][query_path]["sha256"]
-            query_source = candidate.PROJECT.joinpath(query_path).read_bytes()
+            # Read Git blob bytes: ordinary Windows checkout may use CRLF.
+            query_source = run.command("owner-query-source-blob",
+                ["git", "-C", candidate.PROJECT, "show", "HEAD:" + query_path], maximum=32768)
             query = retained_owner_query(query_source, source_pin)
             run.record("owner-query-source", {"path":query_path,"source_sha256":source_pin,"query_sha256":sha(query.encode("utf-8"))})
             # Diagnostic only: retain the normal query's result under the exact
