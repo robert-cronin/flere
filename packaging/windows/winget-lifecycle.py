@@ -118,17 +118,6 @@ def verify_synthetic_override(environment, executable):
                                             "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TEMP", "TMP")}
 
 
-def retained_owner_query(source, expected_sha256):
-    # Reuse the exact product query, not a separately maintained diagnostic copy.
-    require(len(source) <= 32768 and sha(source) == expected_sha256, "owner query source differs from candidate")
-    text = source.decode("utf-8")
-    marker = 'pub(crate) const QUERY: &str = r#"'
-    require(text.count(marker) == 1, "one fixed production owner query required")
-    query, end, _ = text.split(marker, 1)[1].partition('"#;')
-    require(end and 0 < len(query.encode("utf-8")) <= 8192, "owner query boundary differs")
-    return query
-
-
 def verify_powershell_initialization(before, after):
     base.verify_tool_initialization(before, after)
     require("temp/chocolatey" not in after.keys() - before.keys(),
@@ -601,19 +590,6 @@ def main(output, selected=LEGACY_INPUT):
         if selected["owner_check"]:
             owner_paths = base.path_hashes(); owner_statuses = {}
             run.record("owner-synthetic-environment", verify_synthetic_override(child_env, installed_root/"flere.exe"))
-            query_path = "src/install/ownership/winget.rs"
-            with zipfile.ZipFile(io.BytesIO(artifact)) as archive:
-                source_pin = json.loads(archive.read("source.json"))["entries"][query_path]["sha256"]
-            # Read Git blob bytes: ordinary Windows checkout may use CRLF.
-            query_source = run.command("owner-query-source-blob",
-                ["git", "-C", candidate.PROJECT, "show", "HEAD:" + query_path], maximum=32768)
-            query = retained_owner_query(query_source, source_pin)
-            run.record("owner-query-source", {"path":query_path,"source_sha256":source_pin,"query_sha256":sha(query.encode("utf-8"))})
-            # Diagnostic only: retain the normal query's result under the exact
-            # owner environment. PowerShell's ordinary error exit1 is evidence;
-            # both subsequent product owner assertions remain mandatory.
-            run.command("owner-query-diagnostic", [shell,"-NoProfile","-NonInteractive","-Command",query],
-                        env=child_env, seconds=5, maximum=65536, accepted=(0,1))
             for alias in ("flere.exe", "flere-connect.exe"):
                 executable = (installed_root/alias).resolve()
                 data = run.command(alias[:-4]+"-update-status", [links/alias,"update-status"],

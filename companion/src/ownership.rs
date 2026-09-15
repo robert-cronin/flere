@@ -259,8 +259,8 @@ fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Manage
         .ok()?;
         let output = String::from_utf8(output).ok()?;
         let record = manager::winget::record(&output, &build.package_version)?;
-        // Read LocalAppData from the actual Windows profile, not fixture HOME,
-        // inherited LOCALAPPDATA, a package receipt or a remote value.
+        // Anchor the normal AppData/Local default to the current SID's literal
+        // HKLM profile path, not fixture HOME/LOCALAPPDATA or package metadata.
         if !Path::new(record.local_appdata).is_absolute()
             || !Path::new(record.install_location).is_absolute()
         {

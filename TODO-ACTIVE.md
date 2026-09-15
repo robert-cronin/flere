@@ -339,7 +339,7 @@
   all-target compilation passed. Actual installed-product recognition passed
   through the normal shim in both retained Windows runs above; coordinated
   preparation refusal remains unverified. Custom Chocolatey roots remain Unknown;
-  WinGet now recognizes the observed user-scope local-manifest installation
+  The initial WinGet detector checked the observed user-scope local-manifest installation
   through a fixed read-only HKCU/64 query, the actual Windows profile location,
   and exact manifest/build/payload identity. It invokes no WinGet catalogue query
   and provides commandless manifest guidance with Apply disabled. Two functional
@@ -350,11 +350,17 @@
   pending. Installed check `34933659610` at workflow `d7e6619` failed:
   normal installation and six alias checks passed, but the first owner query
   returned Unknown. The second owner query was not reached. Normal removal,
-  state/PATH/settings preservation and loopback cleanup passed; diagnostics
-  are in progress and the failed evidence is retained. Catalogue/custom-root
-  installations stay Unknown. A normal Scoop first-install/remove check is
-  being prepared; its detector is still missing. Use installed-manager records and exact
-  executable identity. Native
+  state/PATH/settings preservation and loopback cleanup passed. Diagnostic
+  run `34934498384` reproduced the failure and showed GetFolderPath resolving
+  the synthetic profile instead of the active package root; cleanup passed again.
+  The correction reads the current Windows token SID and its unexpanded HKLM
+  profile path, supporting the literal default AppData/Local location. All 308
+  core/companion Mac unit tests, both format/strict Clippy checks and Windows GNU
+  cross-compilation pass. Native validation of the corrected query is pending;
+  both failed receipts remain retained. Catalogue/custom-root installations stay
+  Unknown. A normal Scoop first-install/remove check is being prepared; its
+  detector is still missing. Use installed-manager records and exact executable
+  identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.
