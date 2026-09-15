@@ -44,6 +44,7 @@ struct SavedWorkspace {
     split: Option<crate::panes::PaneLayout>,
 }
 mod attachments;
+mod chat_messages;
 mod clients;
 mod close;
 mod coordination;
@@ -259,7 +260,7 @@ impl Server {
                 return Err(invalid("workspace metadata exceeds 8 MiB"));
             }
             let saved: Saved = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-            if !matches!(saved.version, 2..=7) {
+            if !matches!(saved.version, 2..=8) {
                 return Err(invalid("unsupported workspace store version"));
             }
             s.coordination = match saved.coordination {
@@ -268,6 +269,7 @@ impl Server {
             };
             s.coordination.validate_dispatches()?;
             s.coordination.delivery.validate()?;
+            s.coordination.validate_chat_messages()?;
             let saved_active = saved.active;
             let mut orders = std::collections::BTreeSet::new();
             for mut w in saved.workspaces {
@@ -363,7 +365,7 @@ impl Server {
     }
     fn persist(&self) -> io::Result<()> {
         let saved = Saved {
-            version: 7,
+            version: 8,
             active: self.active,
             coordination: Some(self.coordination.clone()),
             workspaces: self

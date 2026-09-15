@@ -100,6 +100,7 @@ impl State {
 impl Server {
     pub(super) fn save_mailbox(&mut self, next: coordination::Coordination) -> io::Result<()> {
         next.delivery.validate()?;
+        next.validate_chat_messages()?;
         let old = std::mem::replace(&mut self.coordination, next);
         if let Err(e) = self.persist() {
             self.coordination = old;
@@ -108,7 +109,11 @@ impl Server {
         self.changed();
         Ok(())
     }
-    fn native_scope(&self, session: u64, run: &str) -> io::Result<(u64, &Session, &Workspace)> {
+    pub(super) fn native_scope(
+        &self,
+        session: u64,
+        run: &str,
+    ) -> io::Result<(u64, &Session, &Workspace)> {
         for w in &self.workspaces {
             if !w.meta.archived
                 && let Some(s) = w.tabs.iter().find(|s| {
@@ -120,7 +125,7 @@ impl Server {
         }
         Err(invalid("stale or non-native mailbox target"))
     }
-    fn proof(&self, session: u64, run: &str) -> io::Result<Target> {
+    pub(super) fn proof(&self, session: u64, run: &str) -> io::Result<Target> {
         let (_, s, w) = self.native_scope(session, run)?;
         let spec = s.native.as_ref().unwrap();
         if spec.harness != "codex" {
@@ -132,7 +137,7 @@ impl Server {
         }
         Ok(proof)
     }
-    fn recipient(&self, wid: u64) -> io::Result<(u64, String)> {
+    pub(super) fn recipient(&self, wid: u64) -> io::Result<(u64, String)> {
         let w = self
             .workspaces
             .iter()
@@ -162,8 +167,8 @@ impl Server {
             .iter()
             .find(|h| h.epoch == self.epoch && h.session == session && h.run == run)
     }
-    pub(super) fn activation(&self, wid: u64) -> Value {
-        let Ok((session, run)) = self.recipient(wid) else {
+    pub(super) fn activation_at(&self, wid: u64, recipient: Option<(u64, String)>) -> Value {
+        let Some((session, run)) = recipient else {
             return json!({"state":"target-unavailable","detail":"Select exactly one live native recipient. Stopped work is never launched by delivery."});
         };
         let proof = self.proof(session, &run).ok();
@@ -182,6 +187,7 @@ impl Server {
         json!({"state":if observed.is_some(){"observed"}else{"activation-required"},
             "workspace":wid,"session":session,"run":run,"configured":configured,
             "conversation":proof.as_ref().map(|p|&p.uuid),"observation":observed,"focus":self.focus(session,&run),
+            "chat_messages":{"operation":"send_chat_message","address":"workspace and verified native conversation","retry":"reuse request_id","cli_fallback":"flere --state \"$FLERE_STATE\" agent-call send_chat_message '<JSON arguments>'"},
             "instructions":"Refresh Flere first. Existing chats retain their launch configuration: review /hooks yourself if configured; otherwise explicitly /exit and use Start/resume with this exact saved UUID, then review native repository/MCP/hook trust. Never approve prompts automatically. New launches include optional hooks. Flere tool replies can surface pending notices without a restart; arbitrary after-tool and idle delivery require observed native hooks. Stopped chats are never restarted by messaging."})
     }
     pub(super) fn delivery_operation(
@@ -192,7 +198,12 @@ impl Server {
         args: &Value,
     ) -> io::Result<Value> {
         if op == "messaging_activation" {
-            return Ok(self.activation(wid));
+            return Ok(self.activation_at(
+                wid,
+                native
+                    .map(|(s, r)| (s, r.to_owned()))
+                    .or_else(|| self.recipient(wid).ok()),
+            ));
         }
         if op == "set_focus" {
             let (session, run) = native
@@ -237,11 +248,16 @@ impl Server {
             .find(|m| m.id == id)
             .cloned()
             .ok_or_else(|| invalid("unknown message"))?;
-        if native.is_some() && m.to != wid && m.from != wid {
-            return Err(invalid("message is outside your workspace"));
+        let conversation = self.mailbox_conversation(wid, native);
+        let recipient = m.to == wid && m.for_conversation(conversation.as_deref());
+        let sender = m.from == wid && m.sent_by_conversation(conversation.as_deref());
+        if native.is_some() && !recipient && !sender {
+            return Err(invalid(
+                "message is outside your workspace or native conversation",
+            ));
         }
         if op == "message_status" {
-            if native.is_some() && m.to == wid && m.native_surfaced.is_none() {
+            if native.is_some() && recipient && m.native_surfaced.is_none() {
                 let mut next = self.coordination.clone();
                 let m = next.messages.iter_mut().find(|x| x.id == id).unwrap();
                 m.surfaced.get_or_insert(now() / 1000);
@@ -249,7 +265,7 @@ impl Server {
                 self.save_mailbox(next)?;
             }
             return Ok(
-                json!({"message":self.coordination.messages.iter().find(|x|x.id==id),"activation":self.activation(m.to)}),
+                json!({"message":self.coordination.messages.iter().find(|x|x.id==id),"activation":self.activation_at(m.to,self.message_recipient(&m).ok())}),
             );
         }
         if op == "deliver_message" {
@@ -263,7 +279,7 @@ impl Server {
             if actual != m.to || s.run != run {
                 return Err(invalid("wrong recipient"));
             }
-            if self.recipient(m.to)? != (session, run.to_owned()) {
+            if self.message_recipient(&m)? != (session, run.to_owned()) {
                 return Err(invalid("ambiguous recipient"));
             }
             self.try_delivery(id)?;
@@ -346,12 +362,14 @@ impl Server {
         {
             return Ok(json!({"output":{}}));
         }
+        let conversation = self.mailbox_conversation(wid, Some((session, run)));
         let ids: Vec<_> = self
             .coordination
             .messages
             .iter()
             .filter(|m| {
                 m.to == wid
+                    && m.for_conversation(conversation.as_deref())
                     && m.acknowledged.is_none()
                     && m.native_surfaced.is_none()
                     && (pending(m)
@@ -405,10 +423,12 @@ impl Server {
         lease: &str,
     ) -> io::Result<()> {
         let (wid, _, _) = self.native_scope(session, run)?;
+        let conversation = self.mailbox_conversation(wid, Some((session, run)));
         let mut next = self.coordination.clone();
         let mut found = false;
         for m in &mut next.messages {
             if m.to == wid
+                && m.for_conversation(conversation.as_deref())
                 && let Some(d) = &mut m.delivery
                 && d.epoch == self.epoch
                 && d.session == session
@@ -447,11 +467,12 @@ impl Server {
         if self.focus(session, run).is_some() || !value.is_object() {
             return Ok(());
         }
+        let conversation = self.mailbox_conversation(wid, Some((session, run)));
         let ids: Vec<_> = self
             .coordination
             .messages
             .iter()
-            .filter(|m| m.to == wid && pending(m))
+            .filter(|m| m.to == wid && m.for_conversation(conversation.as_deref()) && pending(m))
             .take(8)
             .map(|m| m.id.clone())
             .collect();
@@ -512,7 +533,7 @@ impl Server {
         });
         self.save_mailbox(next)
     }
-    fn try_delivery(&mut self, id: &str) -> io::Result<()> {
+    pub(super) fn try_delivery(&mut self, id: &str) -> io::Result<()> {
         let m = self
             .coordination
             .messages
@@ -530,12 +551,11 @@ impl Server {
                 "Four native queue helpers are in flight; delivery will retry.",
             );
         }
-        let Ok((session, run)) = self.recipient(m.to) else {
-            return self.waiting(
-                id,
-                "target-unavailable",
-                "No single live native recipient; navigation and restart never start a chat.",
-            );
+        let (session, run) = match self.message_recipient(&m) {
+            Ok(recipient) => recipient,
+            Err(e) => {
+                return self.waiting(id, "target-unavailable", &wire::passive(&e.to_string()));
+            }
         };
         if self.focus(session, &run).is_some() {
             return self.waiting(
@@ -575,22 +595,26 @@ impl Server {
             }
         };
         let (_, s, _) = self.native_scope(session, &run)?;
-        if !s.input.is_empty() || !crate::native::delivery::empty_composer(&s.term) {
+        if !s.input.is_empty() {
             return self.waiting(
                 id,
                 "waiting-for-idle",
-                "Native composer contains a draft, dialog or unrecognized state; no input sent.",
+                "User input is still pending; no native message submitted.",
             );
         }
+        if let Some(reason) = crate::native::delivery::composer_block(&s.term) {
+            return self.waiting(id, "waiting-for-idle", reason);
+        }
+        let recipient_workspace = m.to;
         if self.coordination.messages.iter().any(|m| {
             m.acknowledged.is_none()
                 && m.native_surfaced.is_none()
                 && m.delivery.as_ref().is_some_and(|d| {
-                    d.run == run
+                    (d.run == run || (m.to == recipient_workspace && d.conversation == target.uuid))
                         && matches!(d.outcome.as_str(), "queue-prepared" | "queued" | "unknown")
                 })
         }) {
-            return self.waiting(id,"waiting-for-receipt","An earlier native handoff to this run is awaiting a surface receipt; no duplicate wake-up.");
+            return self.waiting(id,"waiting-for-receipt","An earlier native handoff to this conversation is awaiting a surface receipt; no duplicate wake-up.");
         }
         let text = notice(m.to, session, &run, std::slice::from_ref(&m.id));
         let mut command =

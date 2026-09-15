@@ -14,7 +14,7 @@ new chats, approving hooks, changing trust, or sending messages automatically.
 | PNG/JPEG rendering | Bounded portable decoder tests cover alpha, PNG/JPEG, fitting, truncation, excessive bytes and pixel dimensions. Preview protocol tests cover ownership, resize and cleanup. | Actual font/cell sizing and visible cleanup in each chosen terminal. |
 | macOS companion clipboard | A real, unique private pasteboard test reads PNG and TIFF, preserves text, and never accesses the general clipboard. | The user's copy/paste shortcut, source application and existing native chat. |
 | Windows companion | Windows compilation and the [historical acceptance report](windows-acceptance-20260913.md). | The complete current-build Windows/SSH checks below. Earlier limited physical evidence did not establish draft retention, every shortcut, resize or cleanup. |
-| Native delivery | Exact-target, DND, queue and receipt tests use harmless stand-ins. | Human hook/MCP trust, actual message handling and explicit recipient acknowledgement. Claude/Copilot automatic delivery remains unimplemented. |
+| Native delivery | Conversation/run targeting, resume, sender provenance, deduplication, DND, queue and receipt tests use harmless stand-ins. | Human hook/MCP trust, actual message handling and explicit recipient acknowledgement. Claude/Copilot automatic delivery remains unimplemented. |
 
 Direct local Flere uses Kitty graphics, including Ghostty. The SSH companion
 uses Sixel on Windows/Linux/macOS and requires both Sixel and cell-geometry

@@ -86,3 +86,69 @@ exact definition. These hooks never answer permissions. Once delivery state is
 saved, older binaries reject a downgrade before replacing the supervisor, so
 receipts and focus state cannot be silently lost. Physical/native acceptance is
 tracked in the [acceptance checklist](../acceptance.md).
+
+## Send to an existing conversation
+
+Use `send_chat_message` for ordinary agent-to-agent conversation. Read
+`list_workspaces` first and supply the recipient's fresh workspace, session and
+run identities, a nonempty `request_id` (at most 256 bytes), and `body` (at most
+16 KiB). Optional `user_request_ref` (at most 4 KiB) records a source reference as
+context; it does not authenticate human permission. The service records the
+actual sending agent's workspace, session, run and native conversation.
+
+```json
+{
+  "workspace": 12,
+  "session": 34,
+  "run": "<fresh run from list_workspaces>",
+  "request_id": "followup-1",
+  "body": "Read your inbox and continue the work within your existing assignment.",
+  "user_request_ref": "<original request reference, when relevant>"
+}
+```
+
+The message belongs to the recipient's workspace and verified native conversation.
+Each delivery attempt proves the current exact process/run. If that same chat
+resumes, pending mail follows it automatically. A different conversation on the
+card cannot read, receive or acknowledge it. Multiple live instances of the same
+conversation defer delivery. Stopped chats retain mail without being launched by
+messaging. The initial session/run remains in the receipt for inspection.
+
+Reuse the same `request_id` when retrying a lost reply. An identical retry from the
+same sending workspace/conversation returns the original message and its current status,
+including after the sender resumes. A changed body, recipient conversation or
+source reference is rejected. A retry may retain the original target arguments
+or supply the fresh run of the same recipient conversation. A new request with a
+stale target is rejected before saving. Existing `send_message` remains card mail;
+its workspace routing and lack of send deduplication are unchanged.
+
+Busy recipients receive notices at a trusted boundary; idle recipients use the
+native queue. Only a fixed inbox notice and IDs go into that queue. The body and
+agent/source provenance are read through Flere's inbox, so slash commands and
+quoted permissions are conversation data. Drafts, DND and native permission
+requests remain protected. `message_status` distinguishes saved, queued, surfaced
+and acknowledged and reports the specific idle predicate that blocks delivery.
+Completed prose mentioning permission/trust and decorative dots around a dim
+empty placeholder no longer falsely imply a draft or approval dialog.
+
+A queued or uncertain handoff is never requeued just because a chat restarts.
+Inspect its original message ID; the same conversation can still read and
+acknowledge it through `inbox`. Recipients must handle an ID only once and retain
+operation/checkpoint records where their work has side effects. An acknowledgment
+records handling; it does not prove successful work or grant native approval.
+
+Install the new core and explicitly refresh Flere to activate this behavior.
+Existing native processes and drafts survive a coordinated supervisor refresh.
+The new MCP tool requires a tool-catalog reload through the harness's supported
+MCP controls. If it is not yet listed, the existing scoped CLI fallback works
+from inside the sending native session:
+
+```sh
+flere --state "$FLERE_STATE" agent-call send_chat_message '<JSON arguments>'
+```
+
+Native hook activation is still required for automatic attention. Message storage
+and refresh handoffs use version 8 so older binaries cannot silently discard the
+conversation binding during downgrade. The acceptance tests exercise harmless
+native stand-ins; actual native-model handling remains a separate human-run
+acceptance check.

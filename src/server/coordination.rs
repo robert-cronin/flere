@@ -17,6 +17,8 @@ pub struct Message {
     pub acknowledged: Option<u64>,
     #[serde(default)]
     pub(super) delivery: Option<super::delivery::Receipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) chat: Option<super::chat_messages::Address>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Decision {
@@ -70,7 +72,10 @@ impl Coordination {
         if !m.is_file() || m.len() > 8 * 1024 * 1024 {
             return Err(invalid("invalid coordination store"));
         }
-        serde_json::from_reader(io::BufReader::new(f)).map_err(io::Error::other)
+        let result: Self =
+            serde_json::from_reader(io::BufReader::new(f)).map_err(io::Error::other)?;
+        result.validate_chat_messages()?;
+        Ok(result)
     }
 }
 impl Server {
@@ -82,25 +87,37 @@ impl Server {
         args: &Value,
     ) -> io::Result<Value> {
         let agent = native.is_some();
+        if op == "send_chat_message" {
+            return self.send_chat_message(wid, native, args);
+        }
         if matches!(
             op,
             "messaging_activation" | "message_status" | "set_focus" | "deliver_message"
         ) {
             return self.delivery_operation(wid, native, op, args);
         }
+        let conversation = if matches!(op, "context" | "inbox" | "read_message") {
+            self.mailbox_conversation(wid, native)
+        } else {
+            None
+        };
+        let recipient = |m: &Message| {
+            (m.to == wid && (!agent || m.for_conversation(conversation.as_deref())))
+                || (!agent && m.to == 0)
+        };
         if op == "context"
             && agent
             && self
                 .coordination
                 .messages
                 .iter()
-                .any(|m| m.to == wid && m.acknowledged.is_none() && m.native_surfaced.is_none())
+                .any(|m| recipient(m) && m.acknowledged.is_none() && m.native_surfaced.is_none())
         {
             let mut next = self.coordination.clone();
             for m in next
                 .messages
                 .iter_mut()
-                .filter(|m| m.to == wid && m.acknowledged.is_none())
+                .filter(|m| recipient(m) && m.acknowledged.is_none())
                 .take(32)
             {
                 m.surfaced.get_or_insert(now());
@@ -133,7 +150,6 @@ impl Server {
             .iter()
             .find(|w| w.id == wid)
             .ok_or_else(|| invalid("unknown workspace"))?;
-        let recipient = |m: &Message| m.to == wid || (!agent && m.to == 0);
         if op == "context" {
             // Pending work must not disappear behind an older page of acknowledged records.
             let messages = self
@@ -175,7 +191,7 @@ impl Server {
                 "checkpoints": self.coordination.checkpoints.iter().rev()
                     .filter(|c|c["workspace"]==wid).take(8).collect::<Vec<_>>(),
                 "coordination_workflow": super::dispatch::COORDINATION_WORKFLOW,
-                "messaging":self.activation(wid),
+                "messaging":self.activation_at(wid,native.map(|(s,r)|(s,r.to_owned())).or_else(||self.recipient(wid).ok())),
                 "instructions":"Use this context; do not replay it as a prompt. Read inbox at checkpoints and acknowledge exact handled IDs. A decision/result never grants publication or native approval."
             }));
         }
@@ -208,7 +224,6 @@ impl Server {
                 "use submit_result to request human review; Done is human-controlled",
             ));
         }
-        let recipient = |m: &Message| m.to == wid || (!agent && m.to == 0);
         let mut next = self.coordination.clone();
         let result = match op {
             "set_status" => json!({"status":next_status}),
@@ -280,6 +295,7 @@ impl Server {
                     native_surfaced: None,
                     acknowledged: None,
                     delivery: None,
+                    chat: None,
                 };
                 let result = json!({"message":m,"delivery":"saved; native delivery checks run separately; inspect message_status for waiting/queue receipts"});
                 next.messages.push(m);
