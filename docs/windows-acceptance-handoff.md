@@ -220,7 +220,10 @@ Record each case separately as pass/fail/blocked, following [acceptance.md](acce
   the saver open. A key or paste wakes it without changing the underlying draft.
   Check reduced motion, the Duck choice and Flere in the enabled sidebar pet.
   This uses terminal cells; success does not depend on Sixel or a desktop overlay.
-- **Arcade:** Actions → Arcade: Context Ruins (`Ctrl+Space, &`), choose each avatar,
+- **Arcade (optional; deferred):** the owner has deferred arcade input work;
+  skip this case for installation/distribution acceptance. It is not a release
+  gate. These checks remain for a future arcade pass:
+  Actions → Arcade: Context Ruins (`Ctrl+Space, &`), choose each avatar,
   move with arrows/h/l, jump with Space, climb with Up/Down/k/j, collect a key and
   open its door, then pause and exit. Check the 40×20 camera, resize and focus
   loss pause, full-game screenshots, and that queued paste/Enter never reaches
