@@ -67,7 +67,12 @@ pub(super) fn selected(
         owner.guidance.clear();
         return Ok(owner);
     }
-    if let Some(manager) = manager::nix(&executable)
+    #[cfg(windows)]
+    let windows_manager = chocolatey(&executable, build, &owner.sha256);
+    #[cfg(not(windows))]
+    let windows_manager: Option<ManagerUpgrade> = None;
+    if let Some(manager) = windows_manager
+        .or_else(|| manager::nix(&executable))
         .or_else(|| manager::homebrew(&executable, &build.package_version))
         .or_else(|| manager::cargo(&executable, &build.package_version))
         .or_else(|| manager::system_package(&executable))
@@ -122,4 +127,85 @@ pub(super) fn check(expected: &InstallationOwner) -> io::Result<()> {
 
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+fn chocolatey(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<ManagerUpgrade> {
+    let leaf = |path: &Path, name: &str| {
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case(name))
+    };
+    if !leaf(executable, "flere.exe") && !leaf(executable, "flere-connect.exe") {
+        return None;
+    }
+    let app = executable.parent()?;
+    let tools = app.parent()?;
+    let package = tools.parent()?;
+    let lib = package.parent()?;
+    if !leaf(app, "app")
+        || !leaf(tools, "tools")
+        || !leaf(package, "flere-connect")
+        || !leaf(lib, "lib")
+    {
+        return None;
+    }
+    // The observed ordinary default installation is the trust anchor. A package
+    // path must never choose arbitrary <prefix>/bin/choco.exe. Custom roots stay
+    // unknown until independently established; no PATH or receipt command lookup.
+    const ROOT: &str = r"C:\ProgramData\Chocolatey";
+    let verified = (|| -> Option<()> {
+        let root = fs::canonicalize(ROOT).ok()?;
+        let expected_app = fs::canonicalize(root.join("lib/flere-connect/tools/app")).ok()?;
+        if app != expected_app {
+            return None;
+        }
+        let program = root.join("bin/choco.exe");
+        regular(&program, manifest::MAX_PAYLOAD).ok()?;
+        let manifest = receipt(&app.join("manifest.json"))?;
+        let parsed: Manifest = serde_json::from_value(manifest.clone()).ok()?;
+        parsed.validate().ok()?;
+        let metadata = regular(executable, manifest::MAX_PAYLOAD)
+            .ok()?
+            .metadata()
+            .ok()?;
+        if !manager::chocolatey::manifest_matches(
+            &manifest,
+            &serde_json::to_value(build).ok()?,
+            metadata.len(),
+            hash,
+        ) {
+            return None;
+        }
+        let query = |args: &[&str], maximum| -> Option<String> {
+            run(
+                Command::new(&program)
+                    .args(args)
+                    .env("ChocolateyInstall", ROOT)
+                    .stdin(Stdio::null()),
+                maximum,
+                Duration::from_secs(10),
+            )
+            .ok()
+            .and_then(|v| String::from_utf8(v).ok())
+        };
+        let version = query(&["--version"], 128)?;
+        let version = version.trim();
+        if !manager::chocolatey::supported_version(version) {
+            return None;
+        }
+        let output = query(&["list", "--limit-output"], 65536)?;
+        manager::chocolatey::installed(&output, version, &build.package_version).then_some(())
+    })()
+    .is_some();
+    Some(ManagerUpgrade {
+        manager: "Chocolatey",
+        verified,
+        command: verified.then(|| "choco upgrade flere-connect".into()),
+        detail: if verified {
+            "Run this in a shell using the same Chocolatey package source, then reopen the companion. In-app Apply is disabled for this installation."
+        } else {
+            "Chocolatey ownership could not be verified. Reopen the companion from its installed command and review the package-manager installation; in-app Apply is disabled."
+        },
+    })
 }

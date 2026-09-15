@@ -3,6 +3,9 @@
 use super::query;
 use super::{ManagerUpgrade, receipt};
 use std::path::Path;
+#[cfg(any(windows, test))]
+#[path = "chocolatey.rs"]
+pub(super) mod chocolatey;
 #[path = "nix.rs"]
 mod nix;
 #[cfg(any(target_os = "linux", all(test, unix)))]
