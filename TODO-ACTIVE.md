@@ -519,7 +519,10 @@
   Apple configuration before builds and retains an exact submission checkpoint
   for resume-only notarization. The first hosted Linux/Windows profile passed
   as the v0.3.4 release above; complete-profile native signing and external
-  catalogue updates remain unfinished.
+  catalogue updates remain unfinished. The workflow now prepares a verified
+  per-platform channel artifact after public verification. Signed publication
+  uses the existing local signer; unattended promotion still needs a configured
+  trusted path to that hardware signer. No private key was transferred.
   The Linux manual Release path is complete; v0.3.0 remains latest, and
   macOS/Windows channels were not advanced by v0.3.3.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive

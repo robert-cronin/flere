@@ -36,5 +36,11 @@ creation uses a private seed with independently verified legacy Mac pins and
 unavailable Linux/Windows records; subsequent promotions must use the actual
 published channel. Verify the published bytes after pushing.
 
-Automated channel publication and package-bucket updates remain separate work.
-GitHub's shared latest pointer stays at 0.3.0; this map does not alter that release.
+The Release workflow prepares a channel artifact after verifying a published
+Linux/Windows or complete release. It records current main's exact channel
+preimage and uploads only the proposal and its provenance; historical Linux-only
+profiles explicitly skip this step. Apply the artifact through the signed local
+main workflow above. Hosted runners have no configured path to the existing
+hardware SSH signer, so unattended signed promotion remains separate work.
+Package-bucket updates also remain separate. GitHub's shared latest pointer
+stays at 0.3.0; this map does not alter that release.

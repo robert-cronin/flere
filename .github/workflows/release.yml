@@ -656,6 +656,103 @@ jobs:
             --run-id "$GITHUB_RUN_ID" --workflow-sha "$RELEASE_WORKFLOW_SHA" \
             --descriptor-sha256 "$RELEASE_DESCRIPTOR_SHA" >> "$GITHUB_STEP_SUMMARY"
 
+  prepare-channel:
+    needs: [select, aggregate, verify-public]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.aggregate.result == 'success' && needs.verify-public.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.select.outputs.commit }}
+      RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      RELEASE_DESCRIPTOR_SHA: ${{ needs.aggregate.outputs.descriptor_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.aggregate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - id: channel
+        name: Prepare a channel artifact against current main data; never commit or push
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.request
+
+          spec = importlib.util.spec_from_file_location('channel', 'automation/scripts/release-channel.py')
+          channel = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(channel)
+          release = channel.release
+          descriptor = release.read(Path('candidate/release.json'), 65536)
+          if release.sha(descriptor) != os.environ['RELEASE_DESCRIPTOR_SHA']:
+              raise ValueError('channel candidate descriptor differs from aggregate output')
+          schema = json.loads(descriptor)['schema_version']
+          if type(schema) is not int or schema not in (1, 2, 3, 4):
+              raise ValueError('unsupported channel release schema')
+          if schema in (1, 2):
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('Channel preparation skipped: historical Linux-only schema has no current channel promotion.\n')
+          else:
+              def download(url, limit):
+                  with urllib.request.build_opener(release.NoRedirect()).open(url, timeout=30) as response:
+                      raw = response.read(limit + 1)
+                  if not 0 < len(raw) <= limit:
+                      raise ValueError('current-main channel response exceeds bound')
+                  return raw
+
+              # Only fixed public endpoints are read, without credentials or redirects.
+              # Latest main contributes data only; all executable code stays workflow-pinned.
+              ref = json.loads(download('https://api.github.com/repos/robert-cronin/flere/git/ref/heads/main', 16384))
+              head = ref['object']['sha']
+              if (ref['ref'] != 'refs/heads/main' or ref['object']['type'] != 'commit'
+                      or not isinstance(head, str) or not re.fullmatch('[0-9a-f]{40}', head)):
+                  raise ValueError('current main reference identity differs')
+              url = f'https://raw.githubusercontent.com/robert-cronin/flere/{head}/packaging/channels/stable.json'
+              raw = download(url, 8192)
+              run, attempt = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT']
+              if not all(re.fullmatch('[1-9][0-9]*', value) for value in (run, attempt)):
+                  raise ValueError('channel run/attempt identity is invalid')
+              root = Path.home() / '.cache/flere/tmp' / f'release-channel-{run}-{attempt}'
+              root.mkdir(mode=0o700, parents=True)
+              previous = root / 'previous-stable.json'
+              previous.write_bytes(raw)
+              output = root / 'promotion'
+              receipt = channel.prepare(Path('candidate'), previous, release.sha(raw), output,
+                  os.environ['RELEASE_VERSION'], os.environ['RELEASE_COMMIT'], run,
+                  os.environ['RELEASE_WORKFLOW_SHA'], os.environ['RELEASE_DESCRIPTOR_SHA'])
+              preimage = {'schema_version': 1, 'repository': 'robert-cronin/flere',
+                  'ref': 'refs/heads/main', 'commit': head, 'path': 'packaging/channels/stable.json',
+                  'url': url, 'bytes': len(raw), 'sha256': release.sha(raw)}
+              (output / 'main-preimage.json').write_bytes(release.json_bytes(preimage))
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as outputs:
+                  outputs.write(f'directory={output}\n')
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write(json.dumps(receipt) + '\n')
+          PY
+      - name: Retain only the proposed channel and its exact preimage/provenance
+        if: steps.channel.outputs.directory != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prepared-channel-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.channel.outputs.directory }}/stable.json
+            ${{ steps.channel.outputs.directory }}/promotion.json
+            ${{ steps.channel.outputs.directory }}/main-preimage.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+
   prepare-recipes:
     needs: [select, aggregate, verify-public]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.aggregate.result == 'success' && needs.verify-public.result == 'success' }}
