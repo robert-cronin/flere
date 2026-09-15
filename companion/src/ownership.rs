@@ -68,7 +68,8 @@ pub(super) fn selected(
         return Ok(owner);
     }
     #[cfg(windows)]
-    let windows_manager = chocolatey(&executable, build, &owner.sha256);
+    let windows_manager = chocolatey(&executable, build, &owner.sha256)
+        .or_else(|| winget(&executable, build, &owner.sha256));
     #[cfg(not(windows))]
     let windows_manager: Option<ManagerUpgrade> = None;
     if let Some(manager) = windows_manager
@@ -206,6 +207,83 @@ fn chocolatey(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<Ma
             "Run this in a shell using the same Chocolatey package source, then reopen the companion. In-app Apply is disabled for this installation."
         } else {
             "Chocolatey ownership could not be verified. Reopen the companion from its installed command and review the package-manager installation; in-app Apply is disabled."
+        },
+    })
+}
+
+#[cfg(windows)]
+fn winget(executable: &Path, build: &BuildMetadata, hash: &str) -> Option<ManagerUpgrade> {
+    let leaf = |path: &Path, name: &str| {
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case(name))
+    };
+    let package = executable.parent()?;
+    let packages = package.parent()?;
+    if (!leaf(executable, "flere.exe") && !leaf(executable, "flere-connect.exe"))
+        || !leaf(package, manager::winget::PRODUCT_CODE)
+        || !leaf(packages, "Packages")
+        || !leaf(packages.parent()?, "WinGet")
+    {
+        return None;
+    }
+    let verified = (|| -> Option<()> {
+        let value = receipt(&package.join("manifest.json"))?;
+        let parsed: Manifest = serde_json::from_value(value.clone()).ok()?;
+        parsed.validate().ok()?;
+        let metadata = regular(executable, manifest::MAX_PAYLOAD)
+            .ok()?
+            .metadata()
+            .ok()?;
+        // Both Windows aliases carry the same portable companion manifest.
+        if !manager::chocolatey::manifest_matches(
+            &value,
+            &serde_json::to_value(build).ok()?,
+            metadata.len(),
+            hash,
+        ) {
+            return None;
+        }
+        let output = run(
+            Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    manager::winget::QUERY,
+                ])
+                .stdin(Stdio::null()),
+            65536,
+            Duration::from_secs(5),
+        )
+        .ok()?;
+        let output = String::from_utf8(output).ok()?;
+        let record = manager::winget::record(&output, &build.package_version)?;
+        // Read LocalAppData from the actual Windows profile, not fixture HOME,
+        // inherited LOCALAPPDATA, a package receipt or a remote value.
+        if !Path::new(record.local_appdata).is_absolute()
+            || !Path::new(record.install_location).is_absolute()
+        {
+            return None;
+        }
+        let root = fs::canonicalize(record.local_appdata).ok()?;
+        let expected = fs::canonicalize(
+            root.join("Microsoft/WinGet/Packages")
+                .join(manager::winget::PRODUCT_CODE),
+        )
+        .ok()?;
+        (package == expected && fs::canonicalize(record.install_location).ok()? == expected)
+            .then_some(())
+    })()
+    .is_some();
+    Some(ManagerUpgrade {
+        manager: "WinGet",
+        verified,
+        command: None,
+        detail: if verified {
+            "This companion is installed as a WinGet portable package. Use WinGet with the next reviewed Flere manifest/package, then reopen the companion. In-app Apply is disabled."
+        } else {
+            "WinGet ownership could not be verified. Reopen the companion from its installed command and review the package-manager installation; in-app Apply is disabled."
         },
     })
 }

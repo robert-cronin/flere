@@ -216,8 +216,11 @@
   cold-profile equality. Retained diagnostics show only PowerShell startup data
   and an empty Chocolatey temporary directory were added; existing state and
   SSH files stayed unchanged. A reviewed fixture change initializes those normal
-  tools before measuring preservation; 25 helper checks pass, native validation
-  pending. Version upgrades, Scoop and physical desktop acceptance remain separate.
+  tools before measuring preservation. Corrected run `34930361884` passed
+  all 28 native commands, actual installed ownership, six aliases, exact later
+  state/PATH preservation and normal removal; 25 helper checks also passed.
+  Cold-profile no-write behavior is not claimed. Version upgrades, Scoop and
+  physical desktop acceptance remain separate.
 - [x] Automate manifest/checksum generation from verified release assets and
   document upgrade ownership for each installation method. The Linux generator
   now derives a shared Debian/RPM/AUR lock from an explicitly pinned sealed release;
@@ -319,8 +322,15 @@
   all-target compilation passed. Actual installed-product recognition passed
   through the normal shim in both retained Windows runs above; coordinated
   preparation refusal remains unverified. Custom Chocolatey roots remain Unknown;
-  WinGet and Scoop detectors are still missing. Use actual installed-manager
-  records and exact executable identity. Native
+  WinGet now recognizes the observed user-scope local-manifest installation
+  through a fixed read-only HKCU/64 query, the actual Windows profile location,
+  and exact manifest/build/payload identity. It invokes no WinGet catalogue query
+  and provides commandless manifest guidance with Apply disabled. Two functional
+  record regressions, all 306 core/companion Mac unit tests, formatting, strict
+  Clippy and Windows cross-compilation pass. Native installed WinGet recognition
+  remains pending; catalogue/custom-root installations stay Unknown. The Scoop
+  detector is still missing. Use actual installed-manager records and exact
+  executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.

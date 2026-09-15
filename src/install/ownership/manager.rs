@@ -11,6 +11,9 @@ mod nix;
 #[cfg(any(target_os = "linux", all(test, unix)))]
 #[path = "pacman.rs"]
 mod pacman;
+#[cfg(any(windows, test))]
+#[path = "winget.rs"]
+pub(super) mod winget;
 pub(super) fn nix(executable: &Path) -> Option<ManagerUpgrade> {
     nix::detect(executable)
 }
