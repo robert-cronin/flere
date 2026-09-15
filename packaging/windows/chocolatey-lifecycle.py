@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """First Chocolatey install/remove of an exact retained ZIP, on a disposable hosted VM.
 
-This captures manager records; it does NOT prove in-app Windows manager detection,
-version upgrade, a public download URL, signing, physical UI, or SSH acceptance.
+The historical input captures manager records; the selected current candidate also
+checks installed ownership JSON. Neither proves coordinated UI refusal, version
+upgrade, a public download URL, signing, physical UI, or SSH acceptance.
 """
 import argparse
 import base64
@@ -12,7 +13,7 @@ import importlib.util
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import platform
 import re
 import shutil
@@ -47,6 +48,92 @@ PUBLIC_URL = f"https://github.com/{REPO}/releases/download/v{VERSION}/{ZIP_NAME}
 ANNOUNCEMENT = b"The package flere-connect wants to run 'chocolateyInstall.ps1'."
 PROMPT = b"Do you want to run the script?([Y]es/[A]ll scripts/[N]o/[P]rint): "
 MAX_LOG = 256 * 1024
+
+# Explicit immutable inputs only. The no-input/default invocation keeps the
+# previously passed 422 recipe artifact and does not require its absent owner API.
+DEFAULT_INPUT = "recipes-422058c"
+LEGACY_INPUT = dict(name=DEFAULT_INPUT, run=RUN, artifact=ARTIFACT, artifact_bytes=ARTIFACT_BYTES,
+                    artifact_name=f"windows-recipes-{RUN}-1", workflow=WORKFLOW, artifact_sha=ARTIFACT_SHA,
+                    product=PRODUCT, source=SOURCE, zip_sha=ZIP_SHA, zip_bytes=1771884,
+                    payload_sha=PAYLOAD_SHA, nuspec_sha=NUSPEC_SHA, script_sha=SCRIPT_SHA,
+                    nupkg_sha=NUPKG_SHA, source_entries=365, artifact_entries=26, owner_check=False)
+CURRENT_INPUT = dict(LEGACY_INPUT, name="candidate-21cf68c", run=34922477345, artifact=10378607989,
+                    artifact_bytes=1827529, artifact_name="windows-candidate-34922477345-1",
+                    workflow="21cf68c4dd930a52dfbe29ae488c86dacc901cd1",
+                    artifact_sha="f598123665ebfe4b8e7d73d012954a4b6ae254cb6513bdf915b9fee2cf7b9caa",
+                    product="21cf68c4dd930a52dfbe29ae488c86dacc901cd1",
+                    source="1b06da4588ffb4ceb63fccf34931ee96b234044116134fb8bb05eb548337153e",
+                    zip_sha="12859ecb36b5259186e0d9992cda60eb048407d50ba7507ba2e98e0b251f07c7",
+                    zip_bytes=1785918,
+                    payload_sha="c44f70cad2570d9873d56925a5221c16af20b86b947c5f0d2e165ecbc3f8ce80",
+                    script_sha="320e7399f05b7901d9b184aada2f3610f47dfc77e7a3eb6d1d08a2f11b61bcac",
+                    nupkg_sha="5f3cf646471037d67694ec29f175bf6fa6e7d4269b4a0b8cbde8ee93fbf4628a",
+                    receipt_sha="27a8b7375479f8a4aca5a0610a1207a937f0c22e29b57a0f492705830c40555b",
+                    source_entries=376, artifact_entries=33, owner_check=True)
+INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT)}
+OWNER_GUIDANCE = ("Local Chocolatey: choco upgrade flere-connect Run this in a shell using the same "
+                  "Chocolatey package source, then reopen the companion. In-app Apply is disabled for this installation.")
+
+
+def selection(name=DEFAULT_INPUT):
+    require(name in INPUTS, "only an exact reviewed retained input may be selected")
+    return dict(INPUTS[name])
+
+
+def verify_installed_owner(value, manifest, executable):
+    """Read-only diagnostics proof, not an assertion that the Windows UI was opened."""
+    require(isinstance(value, dict) and {k: v for k, v in value.items() if k != "ownership"} == {
+        "schema_version": 1, "running_build": manifest["build"], "installation": None,
+        "other_frontends": "untracked"}, "installed update-status fields/build differ")
+    owner = value.get("ownership")
+    require(isinstance(owner, dict) and isinstance(owner.get("executable"), str), "owner report missing")
+    # Rust canonicalize retains the ordinary Win32 extended-path prefix. Python's
+    # resolve may omit it; compare the same absolute DOS path, case-insensitively.
+    actual = PureWindowsPath(owner["executable"].removeprefix("\\\\?\\"))
+    expected = PureWindowsPath(str(executable).removeprefix("\\\\?\\"))
+    require(actual.is_absolute() and ".." not in actual.parts and actual == expected,
+            "owner executable is not the installed payload")
+    require(owner == {"kind": "manager", "executable": owner["executable"],
+                      "sha256": manifest["payload"]["sha256"], "attempt": None,
+                      "guidance": OWNER_GUIDANCE}, "verified Chocolatey owner/guidance differs")
+    return owner
+
+
+def candidate_proof(archive, selected):
+    data = archive.read("candidate.json")
+    require(sha(data) == selected["receipt_sha"], "candidate receipt bytes differ")
+    receipt = json.loads(data)
+    require(receipt["schema"] == "flere-windows-candidate-v1" and receipt["status"] == "prepared_not_published"
+            and receipt["commit"] == selected["product"] and receipt["workflow_sha"] == selected["workflow"]
+            and receipt["run_id"] == str(selected["run"]) and receipt["run_attempt"] == "1"
+            and receipt["version"] == VERSION and receipt["target"] == "x86_64-pc-windows-msvc"
+            and receipt["source_sha256"] == selected["source"] and receipt["source_unchanged"] is True
+            and receipt["stateless_checks"] == 6 and receipt["stateless_state_unchanged"] is True
+            and receipt["chocolatey"]["version"] == "2.7.4"
+            and receipt["chocolatey"]["status"] == receipt["winget"]["status"] == "passed",
+            "candidate proof identity differs")
+    checks = ["01-toolchain", "02-rustc", "03-cargo", "04-fetch", "05-fmt", "06-clippy", "07-tests",
+              "08-release", "09-package", "10-flat-assets"]
+    checks += [f"portable-{alias}-{flag}" for alias in ("flere", "flere-connect")
+               for flag in ("build-info", "version", "help")]
+    checks += ["winget-version", "winget-validate", "chocolatey-version", "chocolatey-pack"]
+    require([row["name"] for row in receipt["checks"]] == checks, "candidate checks differ")
+    expected = {"candidate.json", "source.json", "source-receipt.json"}
+    expected |= {"logs/" + name + ".log" for name in checks}
+    expected |= {"windows/" + name for name in receipt["generated_files"]}
+    require(set(archive.namelist()) == expected, "candidate output allowlist differs")
+    for row in receipt["checks"]:
+        log = archive.read("logs/" + row["name"] + ".log")
+        require(row["status"] == "passed" and row["exit"] == 0 and not row.get("log_dropped_bytes")
+                and len(log) == row["log_bytes"] and sha(log) == row["log_sha256"], "candidate check/log differs")
+    for name, pin in receipt["generated_files"].items():
+        data = archive.read("windows/" + name)
+        require(len(data) == pin["bytes"] and sha(data) == pin["sha256"], "candidate file differs")
+    source = json.loads(archive.read("source.json"))
+    require(json.loads(archive.read("source-receipt.json")) == {
+        "git_commit": selected["product"], "dirty": False, "source_sha256": selected["source"],
+        "checks": checks[:8]}, "candidate source receipt differs")
+    return receipt, source
 
 
 @contextmanager
@@ -100,19 +187,19 @@ def prompt_ready(data, answered):
     return count == 1 and not answered
 
 
-def verify_api(value):
-    require(value["id"] == ARTIFACT and value["name"] == f"windows-recipes-{RUN}-1"
-            and value["size_in_bytes"] == ARTIFACT_BYTES and not value["expired"]
-            and value["digest"] == "sha256:" + ARTIFACT_SHA
-            and value["workflow_run"]["id"] == RUN
-            and value["workflow_run"]["head_sha"] == WORKFLOW, "recipe artifact API identity differs")
+def verify_api(value, selected=LEGACY_INPUT):
+    require(value["id"] == selected["artifact"] and value["name"] == selected["artifact_name"]
+            and value["size_in_bytes"] == selected["artifact_bytes"] and not value["expired"]
+            and value["digest"] == "sha256:" + selected["artifact_sha"]
+            and value["workflow_run"]["id"] == selected["run"]
+            and value["workflow_run"]["head_sha"] == selected["workflow"], "artifact API identity differs")
 
 
-def inputs(data, work):
-    require(len(data) == ARTIFACT_BYTES and sha(data) == ARTIFACT_SHA, "recipe artifact bytes differ")
+def inputs(data, work, selected=LEGACY_INPUT):
+    require(len(data) == selected["artifact_bytes"] and sha(data) == selected["artifact_sha"], "recipe artifact bytes differ")
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = archive.namelist()
-        require(len(names) == 26 and len(set(names)) == 26, "recipe artifact inventory differs")
+        require(len(names) == selected["artifact_entries"] and len(set(names)) == len(names), "recipe artifact inventory differs")
         total = 0
         for item in archive.infolist():
             require(not item.is_dir() and item.file_size <= 8 * 1024 * 1024
@@ -121,36 +208,39 @@ def inputs(data, work):
                     and ((item.external_attr >> 16) & 0o170000) in (0, 0o100000), "unsafe artifact entry")
             total += item.file_size
         require(total < 16 * 1024 * 1024, "artifact expanded bound exceeded")
-        receipt = json.loads(archive.read("receipt.json"))
-        require(receipt["schema"] == "flere-windows-recipes-only-v1"
-                and receipt["status"] == "recipes_validated_not_published"
-                and receipt["run_id"] == str(RUN) and receipt["run_attempt"] == "1"
-                and receipt["workflow_sha"] == WORKFLOW and receipt["product_commit"] == PRODUCT
-                and receipt["source_sha256"] == SOURCE and receipt["zip_sha256"] == ZIP_SHA
-                and receipt["chocolatey_version"] == "2.7.4", "recipe proof identity differs")
-        require(len(receipt["checks"]) == 6, "recipe check count differs")
-        for row in receipt["checks"]:
-            require(row["status"] == "passed" and row["exit"] == 0
-                    and re.fullmatch(r"[a-z-]+", row["name"]), "recipe check failed")
-            for stream in ("stdout", "stderr"):
-                if row["name"] == "artifact-download" and stream == "stdout":
-                    continue  # This binary is retained by its original artifact pin, not as a log.
-                log = archive.read("logs/" + row["name"] + ("-stderr" if stream == "stderr" else "") + ".log")
-                require(len(log) == row[stream + "_bytes"] and sha(log) == row[stream + "_sha256"], "recipe log differs")
-        for name, pin in receipt["files"].items():
-            value = archive.read("windows/" + name)
-            require(len(value) == pin["bytes"] and sha(value) == pin["sha256"], "recipe file differs")
-        source = json.loads(archive.read("input/source.json"))
-        require(source["commit"] == PRODUCT and source["source_sha256"] == SOURCE
-                and len(source["entries"]) == 365
-                and candidate.module("release-source").fingerprint(source["entries"]) == SOURCE,
+        if selected["owner_check"]:
+            receipt, source = candidate_proof(archive, selected)
+        else:
+            receipt = json.loads(archive.read("receipt.json"))
+            require(receipt["schema"] == "flere-windows-recipes-only-v1"
+                    and receipt["status"] == "recipes_validated_not_published"
+                    and receipt["run_id"] == str(RUN) and receipt["run_attempt"] == "1"
+                    and receipt["workflow_sha"] == WORKFLOW and receipt["product_commit"] == PRODUCT
+                    and receipt["source_sha256"] == SOURCE and receipt["zip_sha256"] == ZIP_SHA
+                    and receipt["chocolatey_version"] == "2.7.4", "recipe proof identity differs")
+            require(len(receipt["checks"]) == 6, "recipe check count differs")
+            for row in receipt["checks"]:
+                require(row["status"] == "passed" and row["exit"] == 0
+                        and re.fullmatch(r"[a-z-]+", row["name"]), "recipe check failed")
+                for stream in ("stdout", "stderr"):
+                    if row["name"] == "artifact-download" and stream == "stdout":
+                        continue  # This binary is retained by its original artifact pin, not as a log.
+                    log = archive.read("logs/" + row["name"] + ("-stderr" if stream == "stderr" else "") + ".log")
+                    require(len(log) == row[stream + "_bytes"] and sha(log) == row[stream + "_sha256"], "recipe log differs")
+            for name, pin in receipt["files"].items():
+                value = archive.read("windows/" + name)
+                require(len(value) == pin["bytes"] and sha(value) == pin["sha256"], "recipe file differs")
+            source = json.loads(archive.read("input/source.json"))
+        require(source["commit"] == selected["product"] and source["source_sha256"] == selected["source"]
+                and len(source["entries"]) == selected["source_entries"]
+                and candidate.module("release-source").fingerprint(source["entries"]) == selected["source"],
                 "source inventory differs")
         portable = archive.read("windows/" + ZIP_NAME)
         spec = archive.read("windows/chocolatey/flere-connect/flere-connect.nuspec")
         script = archive.read("windows/chocolatey/flere-connect/tools/chocolateyInstall.ps1")
         packed = archive.read("windows/chocolatey-package/flere-connect.0.3.4.nupkg")
-    require(sha(portable) == ZIP_SHA and len(portable) == 1771884
-            and sha(spec) == NUSPEC_SHA and sha(script) == SCRIPT_SHA and sha(packed) == NUPKG_SHA,
+    require(sha(portable) == selected["zip_sha"] and len(portable) == selected["zip_bytes"]
+            and sha(spec) == selected["nuspec_sha"] and sha(script) == selected["script_sha"] and sha(packed) == selected["nupkg_sha"],
             "reviewed ZIP/recipe pins differ")
     zip_path = work / ZIP_NAME; zip_path.write_bytes(portable)
     package = work / "flere-connect.0.3.4.nupkg"; package.write_bytes(packed)
@@ -158,20 +248,24 @@ def inputs(data, work):
     with zipfile.ZipFile(io.BytesIO(portable)) as archive:
         payload = {name: archive.read(name) for name in ("flere.exe", "flere-connect.exe", "manifest.json", "LICENSE")}
     manifest = json.loads(payload["manifest.json"])
-    require(manifest["source"]["git_commit"] == PRODUCT and not manifest["source"]["dirty"]
-            and manifest["source"]["source_sha256"] == SOURCE
-            and manifest["payload"]["sha256"] == PAYLOAD_SHA
+    require(manifest["source"]["git_commit"] == selected["product"] and not manifest["source"]["dirty"]
+            and manifest["source"]["source_sha256"] == selected["source"]
+            and manifest["payload"]["sha256"] == selected["payload_sha"]
             and sha(payload["LICENSE"]) == source["entries"]["LICENSE"]["sha256"], "payload provenance differs")
     candidate.verify_zip(zip_path, manifest, payload["LICENSE"])
+    if selected["owner_check"]:
+        require(manifest["build"] == receipt["build"] and receipt["payload_sha256"] == selected["payload_sha"]
+                and receipt["zip"] == {"name": ZIP_NAME, "bytes": selected["zip_bytes"], "sha256": selected["zip_sha"]},
+                "candidate full build/payload differs")
     return portable, spec, script, manifest, payload, receipt
 
 
-def local_script(script, port):
-    require(sha(script) == SCRIPT_SHA and script.count(PUBLIC_URL) == 1
+def local_script(script, port, selected=LEGACY_INPUT):
+    require(sha(script) == selected["script_sha"] and script.count(PUBLIC_URL) == 1
             and 49152 <= port <= 65535, "script or loopback port differs")
     url = f"http://127.0.0.1:{port}/{ZIP_NAME}".encode()
     result = script.replace(PUBLIC_URL, url)
-    require(result.replace(url, PUBLIC_URL) == script and ZIP_SHA.encode() in result,
+    require(result.replace(url, PUBLIC_URL) == script and selected["zip_sha"].encode() in result,
             "non-URL script change")
     return result
 
@@ -187,7 +281,7 @@ def request_failure(method, path, status):
             "status": status, "reason": http.server.BaseHTTPRequestHandler.responses.get(status, ("Unknown",))[0]}
 
 
-def verify_mirror(responses, attempts, rejections, dropped, internal_errors):
+def verify_mirror(responses, attempts, rejections, dropped, internal_errors, selected=LEGACY_INPUT):
     """Accept only completed exact-object responses; rejected traffic is an observation."""
     require(not internal_errors, "loopback internal error")
     require(len(rejections) <= 8 and not dropped, "loopback diagnostic overflow")
@@ -196,9 +290,9 @@ def verify_mirror(responses, attempts, rejections, dropped, internal_errors):
         require(400 <= row["status"] <= 499 or row["status"] == 501, "unexpected loopback error status")
     for row in responses:
         require(row["status"] == 200 and row["path"] == "/" + ZIP_NAME
-                and row["method"] in ("GET", "HEAD") and row["content_length"] == 1771884,
+                and row["method"] in ("GET", "HEAD") and row["content_length"] == selected["zip_bytes"],
                 "loopback response identity differs")
-        require((row["method"] == "GET" and row["bytes"] == 1771884 and row["sha256"] == ZIP_SHA)
+        require((row["method"] == "GET" and row["bytes"] == selected["zip_bytes"] and row["sha256"] == selected["zip_sha"])
                 or (row["method"] == "HEAD" and row["bytes"] == 0 and row["sha256"] is None),
                 "loopback response body differs")
     require(any(row["method"] == "GET" for row in responses), "complete exact loopback GET was not observed")
@@ -208,8 +302,8 @@ class Mirror(http.server.HTTPServer):
     """One immutable object, one loopback listener; no filesystem HTTP handler."""
     allow_reuse_address = False
 
-    def __init__(self, data):
-        require(sha(data) == ZIP_SHA, "mirror payload differs")
+    def __init__(self, data, selected=LEGACY_INPUT):
+        require(sha(data) == selected["zip_sha"], "mirror payload differs")
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, *_args):
                 pass
@@ -347,7 +441,7 @@ def runtime_env(environment):
             if not any(word in k.upper() for word in ("TOKEN", "PASSWORD", "SECRET", "CREDENTIAL"))}
 
 
-def main(output):
+def main(output, selected=LEGACY_INPUT):
     candidate.hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64")
             and sys.version_info >= (3, 12), "native Windows AMD64/Python3.12+ required")
@@ -361,12 +455,14 @@ def main(output):
         stream.write("evidence=" + str(proof) + "\n")
     receipt = {"schema": "flere-chocolatey-lifecycle-v1", "status": "running", "checks": [],
                "workflow_sha": os.environ["FLERE_WORKFLOW_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
-               "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "input_artifact": ARTIFACT,
-               "artifact_sha256": ARTIFACT_SHA, "product_commit": PRODUCT, "source_sha256": SOURCE,
-               "zip_sha256": ZIP_SHA, "limits": ["First private-loopback install/remove, not version upgrade or public URL proof.",
-               "No Windows manager detector, coordinated UI refusal, physical UI, SSH, signing or publication claim."],
+               "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "input_artifact": selected["artifact"],
+               "artifact_sha256": selected["artifact_sha"], "product_commit": selected["product"], "source_sha256": selected["source"],
+               "zip_sha256": selected["zip_sha"], "limits": ["First private-loopback install/remove, not version upgrade or public URL proof.",
+               "No coordinated UI refusal, physical UI, SSH, signing or publication claim."],
                "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
                            "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
+    receipt["input_selection"] = selected["name"]
+    receipt["installed_owner_check_required"] = selected["owner_check"]
     environment = runtime_env(os.environ)
     mirror = None; changed_confirmation = False; attempted_install = False; uninstalled = False
     baseline_features = baseline_packages = None
@@ -481,11 +577,11 @@ def main(output):
 
     try:
         gh = shutil.which("gh.exe"); require(gh, "existing GitHub CLI unavailable")
-        api = f"repos/{REPO}/actions/artifacts/{ARTIFACT}"
+        api = f"repos/{REPO}/actions/artifacts/{selected['artifact']}"
         metadata = json.loads(command("artifact-api", [gh, "api", api], env=os.environ.copy(), maximum=65536))
-        verify_api(metadata); record("artifact-api", metadata)
+        verify_api(metadata, selected); record("artifact-api", metadata)
         portable, spec, script, manifest, payload, original = inputs(command("artifact-download", [gh, "api", api + "/zip"],
-            env=os.environ.copy(), destination=work / "artifact.zip", maximum=ARTIFACT_BYTES), work)
+            env=os.environ.copy(), destination=work / "artifact.zip", maximum=selected["artifact_bytes"]), work, selected)
         record("input-recipe-receipt", original); record("manifest", manifest)
         root = Path(os.environ.get("ChocolateyInstall", ""))
         require(root.resolve() == Path(r"C:\ProgramData\chocolatey").resolve(), "normal Chocolatey root required")
@@ -525,8 +621,8 @@ def main(output):
                         for key, value in environment.items()), "inherited checksum override is unsupported")
         require(features("features-during") == dict(baseline_features, allowGlobalConfirmation=False),
                 "features changed beyond confirmation tightening")
-        mirror = Mirror(portable)
-        install_script = local_script(script, mirror.server_port)
+        mirror = Mirror(portable, selected)
+        install_script = local_script(script, mirror.server_port, selected)
         recipe = work / "recipe"; (recipe / "tools").mkdir(parents=True)
         (recipe / "flere-connect.nuspec").write_bytes(spec)
         (recipe / "tools/chocolateyInstall.ps1").write_bytes(install_script)
@@ -538,7 +634,7 @@ def main(output):
             require(private.read("flere-connect.nuspec") == original_package.read("flere-connect.nuspec"),
                     "normal pack changed the reviewed package metadata")
         record("private-package", {"sha256": sha(nupkg.read_bytes()), "port": mirror.server_port,
-                "original_script_sha256": SCRIPT_SHA, "private_script_sha256": sha(install_script),
+                "original_script_sha256": selected["script_sha"], "private_script_sha256": sha(install_script),
                 "inventory": candidate.verify_nupkg(nupkg, install_script)})
         attempted_install = True
         command("install", [choco, "install", PACKAGE, "--version=" + VERSION,
@@ -557,7 +653,7 @@ def main(output):
         for alias in ("flere.exe", "flere-connect.exe"):
             path = Path(shutil.which(alias) or "missing")
             require(path.resolve() == (root / "bin" / alias).resolve(), "normal PATH alias not the Chocolatey shim")
-            require(file_record(path)["sha256"] != PAYLOAD_SHA, "alias is a payload copy, not a generated shim")
+            require(file_record(path)["sha256"] != selected["payload_sha"], "alias is a payload copy, not a generated shim")
             aliases.append(path)
             for flag in ("--help", "--version", "--build-info"):
                 data = command(alias[:-4] + "-" + flag[2:], [path, flag], env=child_env, seconds=20, maximum=32768)
@@ -588,8 +684,8 @@ def main(output):
                 target.write_bytes(data); ledger.append({"path": str(path), "retained": target.name, "sha256": sha(data)})
         record("registration-files", ledger)
         # Optional diagnostic: capture needed manager records first, without changing module paths/policy.
-        selected = work / "metadata-paths.json"; selected.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
-        escaped = str(selected).replace("'", "''")
+        metadata_paths = work / "metadata-paths.json"; metadata_paths.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
+        escaped = str(metadata_paths).replace("'", "''")
         try:
             acl = powershell("owned-acls", "$paths = Get-Content -Raw -LiteralPath '" + escaped + "' | ConvertFrom-Json; @($paths | ForEach-Object { $a=Get-Acl -LiteralPath $_; [pscustomobject]@{path=$_;owner=$a.Owner;sddl=$a.Sddl} }) | ConvertTo-Json -Depth 3 -Compress")
             require(len(acl) == len(paths) and all(row["sddl"] and row["owner"] for row in acl), "owned ACL capture incomplete")
@@ -598,13 +694,35 @@ def main(output):
         except Exception as error:
             receipt["acl_diagnostic"] = {"status": "failed", "required_for_lifecycle": False, "error": str(error)}
         save()
+        if selected["owner_check"]:
+            # Normal installed shim, before any console/connection handling. This
+            # standalone command has no host argument and uses only local records.
+            before_owner = [file_record(path) for path in paths]
+            data = command("installed-update-status", [aliases[1], "update-status"], env=child_env,
+                           seconds=60, maximum=32768, separate_stderr=True)
+            status = json.loads(data)
+            owner = verify_installed_owner(status, manifest, app / "flere-connect.exe")
+            record("installed-update-status", status)
+            require([file_record(path) for path in paths] == before_owner,
+                    "installed update-status changed owned package/registration files")
+            require(owned_paths(package_root) == [p for p in paths if p == package_root or package_root in p.parents]
+                    and owned_registration() == registrations, "installed update-status changed installed inventory")
+            require(candidate.tree(fixture) == before_state and path_hashes() == paths_before,
+                    "installed update-status changed synthetic state or PATH")
+            require(packages("packages-after-owner") == dict(baseline_packages, **{PACKAGE: VERSION}),
+                    "installed update-status changed package inventory")
+            record("installed-owner", {"owner": owner, "running_build": status["running_build"],
+                   "package_and_registration_unchanged": True, "synthetic_state_unchanged": True,
+                   "path_unchanged": True, "package_inventory_unchanged": True,
+                   "coordinated_ui_refusal_verified": False})
+            receipt["installed_owner_verified"] = True
         require(candidate.tree(fixture) == before_state, "stateless alias calls changed synthetic state")
         command("uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
         uninstalled = True
         verify_removal(removal_snapshot("removal", packages("packages-after")))
         record("path-after", path_hashes()); record("state-after", candidate.tree(fixture))
         receipt.update(status="lifecycle_complete_pending_mirror", aliases_checked=6, synthetic_state_preserved=True,
-                       package_inventory_preserved=True, no_product_ownership_claim=True)
+                       package_inventory_preserved=True, no_product_ownership_claim=not selected["owner_check"])
     except BaseException as error:
         receipt.update(status="failed", error=str(error), traceback=traceback.format_exc())
     finally:
@@ -641,7 +759,7 @@ def main(output):
             try:
                 require(receipt.get("loopback_closed") is True, "loopback must close before final verification")
                 verify_mirror(mirror.requests, mirror.attempts, mirror.rejections,
-                              mirror.rejections_dropped, mirror.internal_errors)
+                              mirror.rejections_dropped, mirror.internal_errors, selected)
                 receipt["loopback_verified"] = True
                 if receipt["status"] == "lifecycle_complete_pending_mirror":
                     receipt["status"] = "lifecycle_passed"
@@ -667,6 +785,95 @@ def self_test():
     import tempfile
 
     class Guards(unittest.TestCase):
+
+        def test_default_retains_old_recipe_pins_and_no_owner_command(self):
+            default = selection()
+            self.assertEqual((default["run"], default["artifact"], default["workflow"], default["product"]),
+                             (34912671194, 10374816947, "a445b8fce5f8ad17faebc3f518005f87fc9bb27a",
+                              "422058c0fa4dda3cff7693a32953fea1b2c5404e"))
+            self.assertEqual((default["zip_bytes"], default["zip_sha"], default["owner_check"]),
+                             (1771884, "e562f99168a34202ecaa2dc163db265e9df3c0007699fbb7fea6b24c6c8e7392", False))
+            default["artifact"] = 0
+            self.assertEqual(selection()["artifact"], 10374816947)
+
+        def test_only_the_named_reviewed_inputs_are_selectable(self):
+            current = selection("candidate-21cf68c")
+            self.assertEqual((current["run"], current["artifact"], current["product"], current["owner_check"]),
+                             (34922477345, 10378607989, "21cf68c4dd930a52dfbe29ae488c86dacc901cd1", True))
+            for name in ("", "main", "candidate", "https://example.invalid/artifact", "21cf68c", "candidate-21CF68c"):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    selection(name)
+            self.assertEqual(selection()["owner_check"], False)
+
+        def test_current_artifact_cannot_be_substituted_for_legacy_or_another_run(self):
+            selected = selection("candidate-21cf68c")
+            value = {"id": selected["artifact"], "name": selected["artifact_name"],
+                     "size_in_bytes": selected["artifact_bytes"], "expired": False,
+                     "digest": "sha256:" + selected["artifact_sha"],
+                     "workflow_run": {"id": selected["run"], "head_sha": selected["workflow"]}}
+            verify_api(value, selected)
+            with self.assertRaises(ValueError):
+                verify_api(value)
+            for key, wrong in (("id", ARTIFACT), ("name", selected["artifact_name"][:-1] + "2"),
+                               ("size_in_bytes", ARTIFACT_BYTES), ("expired", True),
+                               ("digest", "sha256:" + ARTIFACT_SHA),
+                               ("workflow_run", {"id": RUN, "head_sha": selected["workflow"]}),
+                               ("workflow_run", {"id": selected["run"], "head_sha": WORKFLOW})):
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    verify_api(dict(value, **{key: wrong}), selected)
+
+        def test_current_mirror_uses_current_size_and_digest(self):
+            selected = selection("candidate-21cf68c")
+            row = {"status": 200, "path": "/" + ZIP_NAME, "method": "GET",
+                   "content_length": selected["zip_bytes"], "bytes": selected["zip_bytes"],
+                   "sha256": selected["zip_sha"]}
+            verify_mirror([row], 1, [], 0, 0, selected)
+            with self.assertRaises(ValueError):
+                verify_mirror([row], 1, [], 0, 0)
+            for changes in ({"bytes": 1771884}, {"sha256": ZIP_SHA}):
+                with self.assertRaises(ValueError):
+                    verify_mirror([dict(row, **changes)], 1, [], 0, 0, selected)
+
+        def owner_fixture(self):
+            executable = r"C:\ProgramData\chocolatey\lib\flere-connect\tools\app\flere-connect.exe"
+            manifest = {"build": {"build_id": "fixture-generation", "component": "flere-connect",
+                                  "package_version": VERSION, "target": "x86_64-pc-windows-msvc"},
+                        "payload": {"sha256": CURRENT_INPUT["payload_sha"]}}
+            value = {"schema_version": 1, "running_build": manifest["build"], "installation": None,
+                     "other_frontends": "untracked", "ownership": {"kind": "manager", "executable": executable,
+                     "sha256": manifest["payload"]["sha256"], "attempt": None, "guidance": OWNER_GUIDANCE}}
+            return value, manifest, executable
+
+        def test_owner_report_keeps_old_status_fields_and_accepts_canonical_dos_path(self):
+            value, manifest, executable = self.owner_fixture()
+            original = json.dumps(value, sort_keys=True)
+            self.assertEqual(verify_installed_owner(value, manifest, executable), value["ownership"])
+            self.assertEqual(json.dumps(value, sort_keys=True), original)
+            value["ownership"]["executable"] = "\\\\?\\" + executable.upper()
+            verify_installed_owner(value, manifest, executable)
+
+        def test_owner_report_rejects_unknown_manual_stale_or_wrong_payload(self):
+            value, manifest, executable = self.owner_fixture()
+            for changes in ({"kind": "unknown"}, {"kind": "manual"}, {"kind": "managed", "attempt": "fixture"},
+                            {"attempt": "stale"}, {"sha256": "0" * 64}, {"guidance": "choco upgrade other"},
+                            {"executable": r"C:\ProgramData\chocolatey\bin\flere-connect.exe"},
+                            {"executable": executable.replace("flere-connect.exe", "flere.exe")},
+                            {"executable": executable.replace("app\\", "app\\..\\app\\")},
+                            {"executable": "flere-connect.exe"}, {"extra": "unverified"}):
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    verify_installed_owner(dict(value, ownership=dict(value["ownership"], **changes)), manifest, executable)
+
+        def test_owner_report_rejects_missing_owner_or_changed_full_build_status(self):
+            value, manifest, executable = self.owner_fixture()
+            for changes in ({"ownership": None}, {"schema_version": 2}, {"installation": {"attempt": "old"}},
+                            {"other_frontends": "tracked"}, {"running_build": dict(manifest["build"], component="flere")},
+                            {"running_build": dict(manifest["build"], package_version="0.3.3")},
+                            {"unexpected": True}):
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    verify_installed_owner(dict(value, **changes), manifest, executable)
+            with self.assertRaises(ValueError):
+                verify_installed_owner({k: v for k, v in value.items() if k != "ownership"}, manifest, executable)
+
         def test_hosted_main_only(self):
             env = {"GITHUB_ACTIONS": "true", "FLERE_RUNNER_ENVIRONMENT": "github-hosted",
                    "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REPOSITORY": REPO,
@@ -828,10 +1035,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--input", choices=tuple(INPUTS), default=DEFAULT_INPUT)
     args = parser.parse_args()
     if args.self_test:
         require(args.output is None, "self-test takes no output path")
         self_test()
     else:
         require(args.output is not None, "fresh output directory required")
-        main(args.output.resolve())
+        main(args.output.resolve(), selection(args.input))
