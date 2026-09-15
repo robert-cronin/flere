@@ -1385,6 +1385,20 @@ pub fn launcher(args: &[String]) -> io::Result<bool> {
     }
 }
 
+fn status_report(
+    store: &Store,
+    ownership: crate::remote_update::InstallationOwner,
+) -> io::Result<Value> {
+    Ok(json!({
+        "schema_version": 1,
+        "running_build": serde_json::from_str::<Value>(crate::build_info::json())
+            .map_err(io::Error::other)?,
+        "installation": store.status()?,
+        "other_frontends": "untracked",
+        "ownership": ownership,
+    }))
+}
+
 /// Standalone installation/update commands execute before console/raw-input setup.
 /// Returns true when handled. Reconnect is explicit and strips one-shot images.
 pub fn command(args: &[String]) -> io::Result<bool> {
@@ -1433,7 +1447,11 @@ pub fn command(args: &[String]) -> io::Result<bool> {
         if args.len() != 1 {
             return Err(invalid("update-status takes no arguments"));
         }
-        println!("{}", serde_json::to_string_pretty(&json!({"schema_version":1,"running_build":serde_json::from_str::<Value>(crate::build_info::json()).map_err(io::Error::other)?,"installation":store.status()?,"other_frontends":"untracked"})).map_err(io::Error::other)?);
+        let report = status_report(&store, ownership::current()?)?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(io::Error::other)?
+        );
         return Ok(true);
     }
     let mut local = None;
@@ -1702,6 +1720,83 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn update_status_preserves_legacy_fields_and_reports_owner_without_state_changes() {
+        use crate::remote_update::{InstallationOwner, OwnerKind};
+        fn files(root: &Path) -> Vec<(PathBuf, u32, Option<Vec<u8>>)> {
+            let mut result = Vec::new();
+            for entry in fs::read_dir(root).unwrap() {
+                let path = entry.unwrap().path();
+                let metadata = fs::symlink_metadata(&path).unwrap();
+                assert!(!metadata.file_type().is_symlink());
+                let bytes = if metadata.is_dir() {
+                    result.extend(files(&path));
+                    None
+                } else {
+                    Some(fs::read(&path).unwrap())
+                };
+                result.push((path, metadata.permissions().mode(), bytes));
+            }
+            result.sort();
+            result
+        }
+        fn check(f: &Fixture, executable: &Path, kind: OwnerKind) {
+            let before = files(&f.root);
+            let build = serde_json::from_str(crate::build_info::json()).unwrap();
+            let owner = ownership::selected(&f.store, executable, &build).unwrap();
+            assert_eq!(owner.kind, kind);
+            let legacy = json!({
+                "schema_version": 1,
+                "running_build": serde_json::from_str::<Value>(crate::build_info::json()).unwrap(),
+                "installation": f.store.status().unwrap(),
+                "other_frontends": "untracked",
+            });
+            let mut report = status_report(&f.store, owner.clone()).unwrap();
+            let reported: InstallationOwner = serde_json::from_value(
+                report.as_object_mut().unwrap().remove("ownership").unwrap(),
+            )
+            .unwrap();
+            reported.validate().unwrap();
+            assert_eq!(reported, owner);
+            assert_eq!(
+                report, legacy,
+                "existing status fields must remain unchanged"
+            );
+            assert_eq!(
+                files(&f.root),
+                before,
+                "status must not stage or alter state"
+            );
+        }
+        let f = Fixture::new();
+        let original = f.package("status-original");
+        private_dir(&f.store.bin).unwrap();
+        fs::copy(original.join(COMPONENT), f.store.destination()).unwrap();
+        executable(&f.store.destination()).unwrap();
+        check(&f, &f.store.destination(), OwnerKind::Manual);
+        let cargo = f.store.bin.parent().unwrap().join(".crates2.json");
+        let id = format!(
+            "flere-connect {} (registry+https://github.com/rust-lang/crates.io-index)",
+            env!("CARGO_PKG_VERSION")
+        );
+        write_json(
+            &cargo,
+            &json!({"installs":{id:{"bins":[COMPONENT],"profile":"release"}}}),
+        )
+        .unwrap();
+        check(&f, &f.store.destination(), OwnerKind::Manager);
+        fs::write(&cargo, b"{broken").unwrap();
+        check(&f, &f.store.destination(), OwnerKind::Unknown);
+        assert!(
+            !f.store.root.exists(),
+            "read-only reports must not create an install root"
+        );
+        fs::remove_file(cargo).unwrap();
+        let prepared = prepare_in(&f.store, original.to_str().unwrap()).unwrap();
+        let installed = install_prepared_in(&f.store, &prepared, true).unwrap();
+        check(&f, &installed.current.executable, OwnerKind::Managed);
+    }
+
     #[test]
     fn coordinated_owner_requires_exact_executable_and_rechecks_under_lock() {
         let f = Fixture::new();
