@@ -7,8 +7,9 @@ both output inventories passed in hosted run
 at workflow commit `2d52985845ed322b1c6c0f3018eaedf38d6bcead`. Separate native
 Nix-on-Ubuntu ownership/profile acceptance passed for the newer v0.3.4 development
 source, as described below. Actual private-profile version upgrades and emulated
-NixOS core runtime checks also passed. Physical clipboard and external companion
-SSH acceptance remain open; this is not a Nixpkgs submission or a supported
+NixOS core runtime checks also passed. Real OpenSSH from the installed macOS
+companion to the Nix-built core passed the separate check below. Physical
+clipboard remains open; this is not a Nixpkgs submission or a supported
 installation method yet.
 
 The [manual workflow](../../.github/workflows/nix-acceptance.yml) used a disposable
@@ -172,9 +173,17 @@ rejected a deprecated API call. Replacing it with the equivalent current method
 retained type checks and all runtime assertions. The separate hosted KVM probe
 remains blocked by device permissions; no permissions or security settings changed.
 
-Physical desktop clipboard and external companion SSH acceptance remain open.
-The emulated guest tested the core only. Neither macOS nor cross compilation is
-covered by these runs. The pinned v0.3.3 recipe
+A separate native Linux check on September 15, 2026 tested exact core source
+`2d52985` with Nix 2.35.2 and the installed macOS companion over real OpenSSH.
+Two normal attachments preserved the same shell/supervisor and an unsubmitted
+draft. One Enter after reconnect produced exactly one appended result. Independent
+review verified terminal/status records, unchanged companion bytes and normal
+session/supervisor shutdown followed by exact container removal. Earlier fixture
+failures remain retained. This container used its unchanged default
+`sandbox = false`; it does not replace the strict-sandbox evidence above.
+
+Physical desktop clipboard remains open. The Nix-packaged companion was not used
+in that SSH check; the emulated guest tested the core only. The pinned v0.3.3 recipe
 still lacks proof-based Nix update ownership: do not use its installation controls
 to replace Nix-owned files. No profile or NixOS/Home Manager upgrade command can
 be inferred safely from a store path alone. The published recipe remains

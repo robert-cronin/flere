@@ -128,8 +128,16 @@
   All 12 stateless checks, both owner/refusal UIs and normal cleanup passed;
   synthetic state stayed unchanged. The previous pair used the declared parser
   patch; fresh outputs are separate from the earlier 485-test binaries.
-- [ ] Complete physical desktop clipboard and external companion SSH acceptance
-  before promoting the Nix draft to supported status. TCG is emulated core
+- [x] Validate real OpenSSH from the installed macOS companion to a Nix-built
+  Linux core at exact source `2d52985`. Two normal attachments preserved the
+  exact shell/supervisor and unsubmitted draft; one Enter after reconnect
+  produced exactly one appended result. Independent review verified normal
+  session/supervisor shutdown, exact container removal and unchanged companion
+  bytes. This separate native check used Nix 2.35.2's container default settings;
+  it does not extend the earlier strict-sandbox suite or test a Nix-packaged
+  companion. Earlier fixture failures remain retained.
+- [ ] Complete physical desktop clipboard acceptance before promoting the Nix
+  draft to supported status. TCG is emulated core
   runtime evidence; native Nix-on-Ubuntu profile upgrades do not establish
   NixOS/Home Manager activation. The pinned v0.3.3 recipe still lacks the newer
   ownership code and was not repinned.
