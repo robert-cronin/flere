@@ -6,6 +6,7 @@ version upgrade, a public download URL, signing, physical UI, or SSH acceptance.
 """
 import argparse
 import base64
+from contextlib import contextmanager
 import http.server
 import importlib.util
 import io
@@ -46,6 +47,17 @@ PUBLIC_URL = f"https://github.com/{REPO}/releases/download/v{VERSION}/{ZIP_NAME}
 ANNOUNCEMENT = b"The package flere-connect wants to run 'chocolateyInstall.ps1'."
 PROMPT = b"Do you want to run the script?([Y]es/[A]ll scripts/[N]o/[P]rint): "
 MAX_LOG = 256 * 1024
+
+
+@contextmanager
+def command_logs(path, separate_stderr=False):
+    """PowerShell JSON needs its own stdout; ordinary install prompts stay merged."""
+    with path.open("xb") as stdout:
+        if separate_stderr:
+            with path.with_name(path.stem + "-stderr.log").open("xb") as stderr:
+                yield stdout, stderr
+        else:
+            yield stdout, subprocess.STDOUT
 
 
 def parse_features(data):
@@ -308,21 +320,23 @@ def main(output):
     def record(name, value):
         (proof / "records" / (name + ".json")).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    def command(name, argv, *, env=environment, seconds=120, maximum=MAX_LOG, confirm=False, destination=None, cwd=work):
+    def command(name, argv, *, env=environment, seconds=120, maximum=MAX_LOG, confirm=False, destination=None, cwd=work, separate_stderr=False):
         require(time.monotonic() < deadline, "lifecycle phase budget exhausted")
         seconds = min(seconds, deadline - time.monotonic())
         log = destination or proof / "logs" / (name + ".log")
         row = {"name": name, "argv": list(map(str, argv)), "status": "running", "confirmed_script": False}
         receipt["checks"].append(row); save(); start = time.monotonic(); failure = None
-        with log.open("xb") as stream:
+        stderr_log = log.with_name(log.stem + "-stderr.log") if separate_stderr else None
+        outputs = [log] + ([stderr_log] if stderr_log else [])
+        with command_logs(log, separate_stderr) as (stream, errors):
             proc = subprocess.Popen(list(map(str, argv)), cwd=cwd, env=env,
                                     stdin=subprocess.PIPE if confirm else subprocess.DEVNULL,
-                                    stdout=stream, stderr=subprocess.STDOUT)
+                                    stdout=stream, stderr=errors)
             row["pid"] = proc.pid
             try:
                 while proc.poll() is None:
                     require(time.monotonic() - start < seconds, name + " timed out")
-                    require(log.stat().st_size <= maximum, name + " output exceeds bound")
+                    require(all(path.stat().st_size <= maximum for path in outputs), name + " output exceeds bound")
                     if confirm and prompt_ready(log.read_bytes(), row["confirmed_script"]):
                         proc.stdin.write(b"y\r\n"); proc.stdin.flush()
                         row["confirmed_script"] = True
@@ -340,10 +354,14 @@ def main(output):
                 proc.wait(timeout=15)
                 if proc.stdin:
                     proc.stdin.close()
-        if log.stat().st_size > maximum:
-            failure = failure or ValueError(name + " output exceeds bound")
-            with log.open("r+b") as stream:
-                stream.truncate(maximum)
+        for path in outputs:
+            if path.stat().st_size > maximum:
+                failure = failure or ValueError(name + " output exceeds bound")
+                with path.open("r+b") as stream:
+                    stream.truncate(maximum)
+        if stderr_log:
+            errors = stderr_log.read_bytes()
+            row.update(stderr_bytes=len(errors), stderr_sha256=sha(errors), stderr_log=stderr_log.name)
         data = log.read_bytes()
         row.update(exit=proc.returncode, seconds=round(time.monotonic() - start, 3),
                    log_bytes=len(data), log_sha256=sha(data), status="failed")
@@ -369,7 +387,7 @@ def main(output):
 
     def powershell(name, code):
         encoded = base64.b64encode(("$ErrorActionPreference='Stop'; " + code).encode("utf-16-le")).decode()
-        return json.loads(command(name, [ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]))
+        return json.loads(command(name, [ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], separate_stderr=True))
 
     def owned_registration():
         path = root / ".chocolatey"
@@ -543,8 +561,9 @@ def main(output):
 
 
 def self_test():
-    """Pure safety/format regressions; no manager, native process, network or state."""
+    """Safety/format regressions; no manager, Windows payload, network or application state."""
     import unittest
+    import tempfile
 
     class Guards(unittest.TestCase):
         def test_hosted_main_only(self):
@@ -589,6 +608,38 @@ def self_test():
             self.assertEqual(runtime_env({"PATH": "normal", "PSModulePath": "normal-modules", "SystemRoot": "system",
                                           "GH_TOKEN": "test", "ACTIONS_RUNTIME_TOKEN": "test", "OTHER_PASSWORD": "test"}),
                              {"PATH": "normal", "PSModulePath": "normal-modules", "SystemRoot": "system"})
+
+        def test_actual_powershell_progress_stays_out_of_json(self):
+            # Exact first-use CLIXML progress bytes retained from native run34915209443.
+            progress = (b'#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+                        b'<Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T>'
+                        b'<T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record">'
+                        b'<AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC>'
+                        b'<T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>')
+            native_merged = progress[:11] + b"true\r\n" + progress[11:]
+            self.assertEqual(sha(native_merged), "1f0811f57c3afe1272c800316b52c9bdb91835fd4e58bc00fa30a1650570f702")
+            with self.assertRaises(ValueError):
+                json.loads(native_merged)  # The exact pre-fix native failure.
+            root = Path.home() / ".cache/flere/tmp"; root.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="choco-json-", dir=root) as folder:
+                log = Path(folder) / "elevation.log"
+                program = "import os; os.write(1, b'true\\r\\n'); os.write(2, " + repr(progress) + ")"
+                with command_logs(log, True) as (stdout, stderr):
+                    subprocess.run([sys.executable, "-I", "-B", "-c", program], check=True, timeout=10,
+                                   stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, env=runtime_env(os.environ))
+                self.assertIs(json.loads(log.read_bytes()), True)
+                self.assertEqual((Path(folder) / "elevation-stderr.log").read_bytes(), progress)
+
+        def test_ordinary_prompt_output_remains_merged(self):
+            root = Path.home() / ".cache/flere/tmp"; root.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="choco-prompt-", dir=root) as folder:
+                log = Path(folder) / "install.log"
+                program = "import os; os.write(1, " + repr(ANNOUNCEMENT + b"\r\n") + "); os.write(2, " + repr(PROMPT) + ")"
+                with command_logs(log) as (stdout, stderr):
+                    subprocess.run([sys.executable, "-I", "-B", "-c", program], check=True, timeout=10,
+                                   stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, env=runtime_env(os.environ))
+                self.assertTrue(prompt_ready(log.read_bytes(), False))
+                self.assertFalse((Path(folder) / "install-stderr.log").exists())
 
         def test_artifact_api_must_match_run_revision_digest(self):
             value = {"id": ARTIFACT, "name": f"windows-recipes-{RUN}-1", "size_in_bytes": ARTIFACT_BYTES,
