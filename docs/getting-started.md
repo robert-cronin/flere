@@ -34,9 +34,10 @@ wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/ins
 ```
 
 The [shell bootstrap](../scripts/install.sh) downloads the Python installer from
-an immutable Git commit over HTTPS and checks its pinned size and SHA-256 before
-running it. The [release index](../packaging/channels/stable.json) selects Linux
-v0.3.7 or the unsigned macOS arm64 v0.3.0 prebuilt. Each selected manifest is
+[commit `48e1cf9`](https://github.com/robert-cronin/flere/commit/48e1cf96e2bea721f7f305dae81f4c28b2daa385)
+over HTTPS and checks its pinned size and SHA-256 before running it. The
+[release index](../packaging/channels/stable.json) selects Linux
+v0.3.8 or the unsigned macOS arm64 v0.3.0 prebuilt. Each selected manifest is
 verified against the index before its payload is used. The bootstrap requires
 no Rust, source checkout, GitHub login or sudo, and does not install
 system tools, edit PATH or start chats. Add `~/.local/bin`
@@ -49,10 +50,10 @@ existing manual user installation. Other installer arguments are forwarded
 unchanged. Intel macOS prebuilts and notarized Mac downloads remain pending;
 see [platform limits](reference/compatibility.md) and the source build below.
 
-To select Linux v0.3.7 explicitly instead of following the platform default:
+To select Linux v0.3.8 explicitly instead of following the platform default:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh -s -- https://github.com/robert-cronin/flere/releases/download/v0.3.7/flere-x86_64-unknown-linux-gnu.manifest.json
+wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh -s -- https://github.com/robert-cronin/flere/releases/download/v0.3.8/flere-x86_64-unknown-linux-gnu.manifest.json
 ```
 
 This selects the matching core/companion pair; append `--core-only` for a server.
@@ -68,11 +69,12 @@ scoop install flere/flere
 flere ssh dev
 ```
 
-Or [download and verify the public v0.3.7 ZIP](../packaging/windows/README.md#install-the-public-windows-zip).
+Or [download and verify the public v0.3.8 ZIP](../packaging/windows/README.md#install-the-public-windows-zip).
 Replace `dev` with your OpenSSH hostname or configured alias. Both `flere.exe`
 and `flere-connect.exe` launch the native Windows companion for a Linux/macOS
 workbench. No Rust build or WSL is required. Use Scoop to upgrade/remove its
-installation; WinGet and Chocolatey catalogue publication remains pending.
+installation. WinGet submission is deferred; Chocolatey catalogue publication
+remains pending.
 
 ## Install with Homebrew
 
@@ -94,24 +96,24 @@ flere-connect --version
 ```
 
 The [published tap](https://github.com/robert-cronin/homebrew-flere) builds the
-pinned v0.3.7 source locally and supplies Rust as a build dependency. Ensure
+pinned v0.3.8 source locally and supplies Rust as a build dependency. Ensure
 Homebrew's `bin` directory is on PATH, then [open a project](#open-a-project).
 Use Homebrew for upgrades and removal. See the
 [tap guide](../packaging/homebrew/README.md) for commands and
 [validation limits](distribution.md#install-with-homebrew): Linux and isolated
 macOS 15/26 install, upgrade and removal were validated through v0.3.2. The
-v0.3.7 update changes the verified source pins with unchanged installation logic
-and dependencies; its native source checks passed.
+v0.3.8 formulas use the verified release source; this pin update does not repeat
+those earlier native Homebrew lifecycle checks.
 
 ## Install with Cargo
 
-The published [flere 0.3.7 crate](https://crates.io/crates/flere/0.3.7) builds the
+The published [flere 0.3.8 crate](https://crates.io/crates/flere/0.3.8) builds the
 core locally on Linux x86_64 or macOS with **Rust 1.98+** and a system C linker.
 macOS needs Xcode Command Line Tools. Intel macOS has compile-check evidence;
 see [platform limits](reference/compatibility.md).
 
 ```sh
-cargo install flere --locked --version 0.3.7
+cargo install flere --locked --version 0.3.8
 flere --version
 ```
 
@@ -221,9 +223,9 @@ Use `--core-only` on a remote server, or supply a core manifest URL and
 `--companion-url` for a custom HTTPS channel. Each component records its own
 installation; the report identifies any partial failure so it can be repaired.
 
-Default-channel intent is a newer receipt policy, not a migration of old installs.
-When the selected release supports it, the Unix default installer and first SSH
-bootstrap save `default_channel`; later explicit Update prepares the newly selected
+Version 0.3.8 supports retained default-channel intent without migrating old
+installs. The Unix default installer and first SSH bootstrap save
+`default_channel`; later explicit Update prepares the newly selected
 immutable package. Apply uses that already verified package and never resolves the
 index again. An explicit URL stays pinned, a local package stays local, and old
 Public receipts—including v0.3.7 installs—stay pinned. There is no background
@@ -234,14 +236,14 @@ New receipts require supporting readers. Candidate and retained Windows-launcher
 support are checked before this policy is saved, including when rolling back.
 An unsupported older package cannot be restored while retaining this policy; use
 an explicit reviewed Public/Local replacement to change intent, or a supporting
-package. Rollout of a default-follow installer therefore waits for a supporting
-published release; v0.3.7 itself does not provide it. Package-manager ownership
-continues to direct updates through the owning manager.
+package. A retained v0.3.7 Windows launcher cannot read this policy, so using a
+v0.3.8 worker alone does not enable it. Package-manager ownership continues to
+direct updates through the owning manager.
 
 Windows uses [install-companion.ps1](../scripts/install-companion.ps1) with
 `-ManifestUrl`, installing both `flere.exe` and the `flere-connect.exe` alias.
 These installers work without Rust or a source checkout. They do not change PATH,
-start chats or publish a release. Public v0.3.7 provides Linux x86_64 GNU
+start chats or publish a release. Public v0.3.8 provides Linux x86_64 GNU
 (glibc 2.39+) and the Windows companion; macOS arm64 prebuilts and GitHub's latest
 pointer remain v0.3.0. Physical acceptance remains separate from those downloads.
 If a release or target is unavailable, use the source-build instructions above

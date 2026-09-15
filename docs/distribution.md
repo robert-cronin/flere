@@ -7,38 +7,44 @@ OpenSSH/clipboard companion for a workbench on a Linux or macOS host.
 
 ## Available downloads
 
-[Flere v0.3.7](https://github.com/robert-cronin/flere/releases/tag/v0.3.7) provides
+[Flere v0.3.8](https://github.com/robert-cronin/flere/releases/tag/v0.3.8) provides
 Linux x86_64 core/companion, a Debian package, the Windows x86_64 MSVC companion
 and its portable ZIP, complete source, manifests and checksums. All 11 anonymous
-downloads match the sealed immutable release from source `48e209ba`, published by
-[run 34958704741](https://github.com/robert-cronin/flere/actions/runs/34958704741).
-All nine required jobs passed; six macOS jobs were excluded by the selected
-Linux/Windows profile. Windows passed 93 native tests with one physical clipboard
-ignore, plus six alias checks and native recipe validation. Linux completed its
-core/companion checks and 191 Python tests with one skip. The earlier v0.3.6
-release remains tied to `8729733` and its separate evidence.
+downloads match the sealed immutable release from source `48e1cf9`, published by
+[run 34969732255](https://github.com/robert-cronin/flere/actions/runs/34969732255).
+This Linux/Windows release does not publish new macOS prebuilts.
+
+The earlier v0.3.7 release remains tied to source `48e209ba` and
+[run 34958704741](https://github.com/robert-cronin/flere/actions/runs/34958704741):
+all nine required jobs passed; six macOS jobs were excluded. Windows passed 93
+native tests with one physical clipboard ignore, plus six alias checks and native
+recipe validation. Linux completed its core/companion checks and 191 Python tests
+with one skip. The earlier v0.3.6 release retains its separate `8729733` evidence.
 Linux prebuilt executables require **glibc 2.39 or newer**. See the
 [verified Windows ZIP quickstart](../packaging/windows/README.md#install-the-public-windows-zip).
 
 macOS arm64 prebuilt core/companion downloads remain at
 [v0.3.0](https://github.com/robert-cronin/flere/releases/tag/v0.3.0), without
 Developer ID notarization. Older macOS and Intel runtime acceptance are not
-established by that release. Homebrew source formulas now track v0.3.7.
+established by that release. Homebrew source formulas now track v0.3.8.
 
-The Unix shell bootstrap pins the verified installer at commit `5297628`. It
-selects Linux v0.3.7 or the unsigned macOS arm64 v0.3.0 prebuilt from the
+The Unix shell bootstrap pins the verified installer at commit `48e1cf9`. It
+selects Linux v0.3.8 or the unsigned macOS arm64 v0.3.0 prebuilt from the
 [per-platform release index](../packaging/channels/stable.json), independently of
-GitHub's unchanged latest pointer. The v0.3.7 companion uses that same index for
+GitHub's unchanged latest pointer. The v0.3.8 companion uses that same index for
 default remote-core bootstrap. Intel Mac prebuilt selection is unavailable.
 The [installation guide](getting-started.md#install-from-your-terminal) also
 shows explicit version selection. The installer verifies a core/companion pair
 under `~/.local/bin` and records each source; it needs Python 3, but no Rust
 toolchain or source checkout.
 
-Managed installation receipts save the resolved versioned manifest URL. This
-discovery change does not make those saved sources follow the channel for future
-updates; select a newer verified source explicitly. Automatic channel-following
-updates remain planned.
+Default v0.3.8 installs retain `default_channel` in their managed receipt. A later
+explicit Update resolves the index during preparation; Apply uses the already
+verified package. Explicit manifest URLs and old Public receipts stay pinned,
+local packages stay local, and package-manager installs stay with their manager.
+There is no background update or automatic migration of older receipts. The
+unsigned macOS v0.3.0 route remains a legacy pin. See the
+[receipt and reader limits](getting-started.md#install-a-published-package).
 
 ## Package-manager channels
 
@@ -48,12 +54,12 @@ channels retain their individual validation and publication requirements.
 
 | Channel | Scope | Status |
 | --- | --- | --- |
-| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.7 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
-| [Cargo / crates.io](https://crates.io/crates/flere/0.3.7) | Core source package for Linux/macOS | Published v0.3.7 through Trusted Publishing from the matching GitHub source. Companion excluded |
-| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.7 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
+| [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.8 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
+| [Cargo / crates.io](https://crates.io/crates/flere/0.3.8) | Core source package for Linux/macOS | Published v0.3.8 through Trusted Publishing from the matching GitHub source. Companion excluded |
+| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.8 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
-| [Scoop bucket](https://github.com/robert-cronin/scoop-flere) | Windows x86_64 companion | Published v0.3.7 recipe uses the verified public ZIP. Earlier owned-Git-bucket upgrade, ownership, local UI refusal and removal/preservation passed on candidate `4f3b693`; the new public bucket route and physical acceptance remain untested |
-| [WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.7 ZIP and native manifest validation passed. Earlier local-recipe upgrades, both installed-owner reports and removal/preservation passed; community submission and physical acceptance remain pending |
+| [Scoop bucket](https://github.com/robert-cronin/scoop-flere) | Windows x86_64 companion | Published v0.3.8 recipe uses the verified public ZIP. Earlier owned-Git-bucket upgrade, ownership, local UI refusal and removal/preservation passed on candidate `4f3b693`; the new public bucket route and physical acceptance remain untested |
+| [WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.8 ZIP and native manifest validation passed. Earlier local-recipe upgrades, both installed-owner reports and removal/preservation passed. Community submission is deferred; physical acceptance remains pending |
 | [Nix draft](../packaging/nix/README.md) | Proposed source builds for Linux x86_64 | The draft remains pinned to public v0.3.5 source `8744d35`, which passed 543 tests, strict-sandbox builds and exact inventories in [run 34950280814](https://github.com/robert-cronin/flere/actions/runs/34950280814). Historical v0.3.3 plus the declared parser patch passed 485 tests and strict-sandbox builds. Separate development ownership/UI, real 0.3.3 → 0.3.4 profile upgrade and emulated NixOS core runtime checks passed. Real SSH from the installed macOS companion to the Nix-built core passed; physical clipboard remains open. Not a supported installation method |
 | [RPM](../packaging/linux/rpm/README.md) | Prebuilt Linux x86_64 with glibc 2.39+ | Native Fedora 44 container on Linux: v0.3.0 → v0.3.3 upgrade, 12 CLI checks, core/companion ownership refusal, preservation and removal passed. The v0.3.3 wrapper is unsigned and unpublished; checked-in recipes remain v0.3.0 |
 | [Chocolatey](../packaging/windows/README.md#chocolatey-recipe) | Windows x86_64 companion | Native packing and public v0.3.4 → candidate v0.3.5 upgrade, both installed-owner reports and removal/preservation passed. Physical acceptance and catalogue publication remain pending |
@@ -111,7 +117,7 @@ remote-core refusal, actual SSH or physical-terminal behavior. The prior
 [run 34952666337](https://github.com/robert-cronin/flere/actions/runs/34952666337)
 remains failed before UI startup because of a Python console-wrapper error,
 with normal package/bucket cleanup. The owned Scoop bucket is now published at
-v0.3.7. WinGet/Chocolatey UI refusal, their catalogue publication/upgrades and
+v0.3.8. WinGet/Chocolatey UI refusal, their catalogue publication/upgrades and
 physical acceptance remain pending; the historical bucket fixtures do not prove
 the newly published bucket's download route.
 
@@ -128,13 +134,13 @@ flere --version
 brew install robert-cronin/flere/flere-connect  # optional local SSH/clipboard companion
 ```
 
-Homebrew builds locally from the pinned v0.3.7 source archive and supplies Rust
+Homebrew builds locally from the pinned v0.3.8 source archive and supplies Rust
 1.98 or newer as a build dependency. Ensure Homebrew's `bin` directory is on PATH.
 Use `brew upgrade robert-cronin/flere/flere` after `brew update`; upgrade the
 companion through Homebrew too if installed. See the
 [tap guide](../packaging/homebrew/README.md) for removal and maintenance.
-Both published formulas at [tap commit `593f84b`](https://github.com/robert-cronin/homebrew-flere/commit/593f84b22fb7f96ec01738f585f782a1b23cf99a)
-match the verified v0.3.7 release recipes. This pin update did not repeat the
+Both published formulas at [tap commit `118dc16`](https://github.com/robert-cronin/homebrew-flere/commit/118dc161632343cee49fd48df914161804844c43)
+match the verified v0.3.8 release recipes. This pin update did not repeat the
 earlier full Homebrew lifecycle checks below.
 
 Native Linux and hosted macOS 15/26 arm64 checks passed source installation,
@@ -161,16 +167,18 @@ intact and require no Apple Developer Program membership from users.
 ### Install with Cargo
 
 ```sh
-cargo install flere --locked --version 0.3.7
+cargo install flere --locked --version 0.3.8
 ```
 
 This builds the core with Rust 1.98+ and a system C linker; macOS needs Xcode
 Command Line Tools. Cargo normally installs into `~/.cargo/bin`. The companion
 is separate. See [Cargo setup](getting-started.md#install-with-cargo).
 
-The v0.3.7 archive records the matching release source `48e209ba`. Its registry
+The v0.3.8 archive records the matching release source `48e1cf9`. Its registry
 API/index checksum and anonymous download were independently verified against
-all 133 packaged source/metadata files: the 1,814,130-byte crate has SHA-256
+all 134 packaged source/metadata files. The 1,820,774-byte crate has SHA-256
+`9e26bfa8356cfeedeed89c951ca1c14a7b11a6b3d61dad3bc25542de8a6ea4f8`.
+The historical v0.3.7 crate retains its separate source `48e209ba` and SHA-256
 `0f83abcb1ed7b13e61d5a7cd11c31d0f6b692240f1dc26922f4434f2f81eeef9`.
 
 ### Install the Debian package
@@ -179,9 +187,9 @@ On Ubuntu 24.04 x86_64, or another compatible Debian-based x86_64 system with
 glibc 2.39 or newer:
 
 ```sh
-wget -O flere_0.3.7-1_amd64.deb https://github.com/robert-cronin/flere/releases/download/v0.3.7/flere_0.3.7-1_amd64.deb && \
-  echo '5b0d6ebd69ab39cd4f17ec0e78202ac4c0f0b19a4bda98f89dbc02ce6108dadb  flere_0.3.7-1_amd64.deb' | sha256sum --check && \
-  sudo apt install ./flere_0.3.7-1_amd64.deb
+wget -O flere_0.3.8-1_amd64.deb https://github.com/robert-cronin/flere/releases/download/v0.3.8/flere_0.3.8-1_amd64.deb && \
+  echo 'b93d7d550af3aaca381579615b6283fe7ad7ade03034814ea2f209d971156dde  flere_0.3.8-1_amd64.deb' | sha256sum --check && \
+  sudo apt install ./flere_0.3.8-1_amd64.deb
 ```
 
 The checksum must pass before APT runs. The package
@@ -234,7 +242,7 @@ acceptance at exact source `2d52985`: both normal source installs, formula tests
 six stateless checks and actual core/companion update UIs passed. Both refused
 preparation before staging, kept their installed binaries and manager receipts
 unchanged, then exited and uninstalled normally with synthetic state preserved.
-The private formulas used a verified local source URL. The current v0.3.7 tap
+The private formulas used a verified local source URL. The current v0.3.8 tap
 retains this correction; the earlier v0.3.2 tap did not. No active sessions
 or external SSH were exercised by that lifecycle check.
 

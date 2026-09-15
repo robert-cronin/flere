@@ -1,7 +1,7 @@
 # Default release selection
 
 `stable.json` selects independently verified releases per platform. Linux and
-Windows currently select 0.3.7. macOS arm64 explicitly retains the unsigned
+Windows currently select 0.3.8. macOS arm64 explicitly retains the unsigned
 0.3.0 prebuilt; current Mac source builds are available through Homebrew.
 Intel Mac prebuilt selection is unavailable.
 
@@ -14,8 +14,16 @@ remote installation still attaches without channel discovery.
 
 Companion binaries from 0.3.7 use this index for missing-remote bootstrap.
 Earlier binaries retain their previous discovery behavior. The shell
-loader pins the self-contained Python installer at commit `5297628` with its
+loader pins the self-contained Python installer at commit `48e1cf9` with its
 verified size and SHA-256. Old saved loader copies keep their original pin.
+
+Version 0.3.8 default installs retain `default_channel` in the managed receipt.
+A later explicit Update resolves this map during preparation; Apply uses that
+already verified package. Explicit URLs and old Public receipts stay pinned;
+local packages and manager-owned installations keep their existing ownership.
+This does not migrate old receipts, update in the background or change the legacy
+Mac pin. Supporting candidate and retained-launcher readers are required before
+the policy can be saved or restored.
 
 ## Prepare a promotion
 

@@ -132,6 +132,16 @@
   signature were verified; recipe bytes match the producer and the public ZIP.
   This is bucket publication, not central catalogue approval or a new physical
   Windows acceptance result.
+- [x] Publish v0.3.8 through Release run `34969732255` at `48e1cf9`.
+  All nine required jobs passed; six Mac jobs were intentionally skipped.
+  Independent verification matched all eleven public assets and 403 source files.
+  Cargo Trusted Publishing completed with a verified 134-file archive. Homebrew
+  source formulas are published at signed `118dc16`; Scoop at signed `88d54642`.
+  Exact public recipe bytes, GitHub signatures and the requested commit identity
+  were verified. Channel promotion `fd3e893` and installer `a962f85` are public
+  and verified; Linux/Windows select v0.3.8, while Mac records remain unchanged.
+  This does not establish new physical desktop or package-manager lifecycle
+  acceptance; the remaining checks below retain their original scope.
 - [ ] Configure the AUR maintainer identity and publishing access.
 - [x] Check the intended AUR package name: official AUR exact-info/name-search
   and Arch package APIs returned no matching `flere-bin` package on 2026-09-14
@@ -541,11 +551,19 @@
   default-channel intent without changing the installation; a supporting
   v0.3.8 launcher changed only the receipt policy and attempt. Independent
   artifact review verified source, logs, payload hashes and owned cleanup.
-  Real public default-channel promotion/update acceptance remains open.
+  Real public Linux installation downloaded and installed both v0.3.8 components
+  with exact payloads, default-channel receipts and successful status/reader
+  checks. The final fixture diagnostics remain open: the original checker used
+  the wrong companion file mode, and the corrected fixture reached a Unix socket
+  path-length error before its no-supervisor and SSH-help checks completed.
+  Both attempts removed their disposable homes and preserved the existing
+  installation. Resume with a shorter private fixture path; do not repeat the
+  release build. A later release-advance update check also remains open.
   Release v0.3.8 completed as `34969732255`: all nine required jobs passed.
   Independent verification matched all eleven public assets, 403 source files,
   the 134-file Cargo archive and the prepared recipes/channel. The promoted
-  channel selects v0.3.8 for Linux/Windows; installer activation is still pending.
+  channel selects v0.3.8 for Linux/Windows. The updated Unix loader is published
+  at `a962f85`; its immutable and normal public download bytes both verified.
   No live protocol or RPC capability was changed.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
