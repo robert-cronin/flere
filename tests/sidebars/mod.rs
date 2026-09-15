@@ -583,21 +583,29 @@ fn sidebar_default_navigation_skips_children_until_explicit_terminal_entry() {
     let before = f.snapshot();
     let mut ui = Ui::attach(&f, 160, 42, 38, &scene.expanded);
     ui.key(b"\0hj");
+    ui.wait(|_| f.snapshot().active == scene.review);
     assert_eq!(
         f.snapshot().active,
         scene.review,
         "expanded children add no card stops"
     );
     ui.key(b"\x1b[A");
+    ui.wait(|_| f.snapshot().active == scene.first);
     assert_eq!(f.snapshot().active, scene.first);
     ui.key(b"\x1b[B");
+    ui.wait(|_| f.snapshot().active == scene.review);
     assert_eq!(f.snapshot().active, scene.review);
     ui.key(b"k\t");
+    ui.wait(|s| s.grid.line(41).contains("NAV Terminals"));
     let current = f.snapshot().tab;
     assert_eq!(current, scene.first_tabs[0].id);
     ui.key(b"j");
     assert_eq!(f.snapshot().tab, current, "child navigation is passive");
     ui.key(b"\x1b[B\x1b[A\r");
+    ui.wait(|s| {
+        !s.grid.line(41).trim_start().starts_with("NAV")
+            && f.snapshot().tab == scene.first_tabs[1].id
+    });
     assert_eq!(f.snapshot().active, scene.first);
     assert_eq!(
         f.snapshot().tab,
@@ -606,15 +614,24 @@ fn sidebar_default_navigation_skips_children_until_explicit_terminal_entry() {
     );
     for back in [b"h".as_slice(), b"\x1b[D", b"\x1b"] {
         ui.key(b"\0h\t");
+        ui.wait(|s| s.grid.line(41).contains("NAV Terminals"));
         ui.key(back);
-        assert!(ui.screen.grid.line(41).contains("NAV"));
+        ui.wait(|s| s.grid.line(41).contains("NAV Cards"));
+        assert!(
+            ui.screen.grid.line(41).contains("NAV Cards"),
+            "return key restores card scope: {back:?}"
+        );
         ui.key(b"j");
+        ui.wait(|_| f.snapshot().active == scene.review);
         assert_eq!(
             f.snapshot().active,
             scene.review,
-            "return key restores card traversal"
+            "return key restores card traversal: {back:?}"
         );
         ui.key(b"k\r");
+        ui.wait(|s| {
+            !s.grid.line(41).trim_start().starts_with("NAV") && f.snapshot().active == scene.first
+        });
         assert_eq!(f.snapshot().tab, scene.first_tabs[1].id);
     }
     assert_eq!(
@@ -624,6 +641,7 @@ fn sidebar_default_navigation_skips_children_until_explicit_terminal_entry() {
     // Mouse expansion is independent of the keyboard scope. Tab reopens a folded
     // card and selects its current terminal, then Escape returns to its header.
     ui.key(b"\0h");
+    ui.wait(|s| s.grid.line(41).contains("NAV Cards"));
     let (_, y) = ui.find("Flere");
     ui.click(2, y);
     assert!(
@@ -632,7 +650,10 @@ fn sidebar_default_navigation_skips_children_until_explicit_terminal_entry() {
             .unwrap()
             .contains(&json!(scene.first))
     );
-    ui.key(b"\t\x1b");
+    ui.key(b"\t");
+    ui.wait(|s| s.grid.line(41).contains("NAV Terminals"));
+    ui.key(b"\x1b");
+    ui.wait(|s| s.grid.line(41).contains("NAV Cards"));
     assert!(
         preferences(&f)["expanded_cards"]
             .as_array()
@@ -640,15 +661,18 @@ fn sidebar_default_navigation_skips_children_until_explicit_terminal_entry() {
             .contains(&json!(scene.first))
     );
     ui.key(b"j");
+    ui.wait(|_| f.snapshot().active == scene.review);
     assert_eq!(f.snapshot().active, scene.review);
     ui.key(b"\t");
+    ui.wait(|s| s.grid.line(41).contains("NAV Terminals"));
     f.req(&[
         "focus",
         &scene.first.to_string(),
         &scene.first_tabs[1].id.to_string(),
     ]);
-    ui.pump();
+    ui.wait(|s| s.grid.line(41).contains("NAV Cards"));
     ui.key(b"j");
+    ui.wait(|_| f.snapshot().active == scene.review);
     assert_eq!(
         f.snapshot().active,
         scene.review,
