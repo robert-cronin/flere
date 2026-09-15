@@ -29,6 +29,7 @@ base = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(base)
 candidate, require, sha = base.candidate, base.require, base.sha
 PACKAGE, VERSION = "RobertCronin.FlereConnect", "0.3.4"
+PRODUCT_CODE = PACKAGE + "__DefaultSource"
 WINGET_VERSION = "v1.11.510"
 SOURCE_URL = "https://cdn.winget.microsoft.com/cache"
 SOURCE_ID = "Microsoft.Winget.Source_8wekyb3d8bbwe"
@@ -152,6 +153,20 @@ def own_record(records, *, complete=True):
                 and values.get("InstallDirectoryAddedToPath", 0) == 0,
                 "portable install incomplete or alias fallback occurred")
     return row
+
+
+def local_package_args(owned, *, remove=False):
+    # Local-manifest portable installs use the observed default-source product
+    # code, not the community catalogue ID. Never execute an ARP command string.
+    own_record([owned], complete=False)
+    require(owned["subkey"] == ARP + "\\" + PRODUCT_CODE
+            and owned["values"].get("UninstallString") == "winget uninstall --product-code " + PRODUCT_CODE,
+            "local portable product code differs")
+    selection = (["uninstall", "--product-code", PRODUCT_CODE] if remove else
+                 ["list", "--name", owned["values"]["DisplayName"]])
+    # Keep the one reviewed community source; source-less commands would open
+    # all configured sources. --manifest and --source are mutually exclusive.
+    return selection + ["--exact", "--scope", "user", "--source", "winget"]
 
 
 def verify_inventory(before, after, installed):
@@ -448,7 +463,7 @@ def main(output):
         (proof/"records/portable-index.bin").write_bytes(extras[0].read_bytes())
         run.record("installed-layout", {"registry": owned, "files": installed_files,
                    "index_retained": "portable-index.bin", "identity_note": "Observed native file IDs/hashes; no product manager detector claim."})
-        listing = run.command("installed-list-exact", [winget,"list","--id",PACKAGE,"--exact","--scope","user","--source","winget"], source_prompt=True)
+        listing = run.command("installed-list-exact", [winget, *local_package_args(owned)], source_prompt=True)
         require(PACKAGE.encode() in clean_console(listing) and VERSION.encode() in listing, "normal installed manager identity missing")
         after_links = link_inventory(links)
         require({k:v for k,v in after_links.items() if k not in ("flere.exe","flere-connect.exe")} == before_links, "unrelated portable links changed")
@@ -470,7 +485,7 @@ def main(output):
                     require(b"--build-info" in data and b"ssh" in data, "alias help differs")
             require(base.file_record(path.resolve()) == aliases[alias]["resolved"], "alias payload changed")
         run.record("aliases", aliases); require(candidate.tree(fixture) == before_state, "stateless calls changed state")
-        run.command("uninstall", [winget,"uninstall","--manifest",manifests,"--scope","user","--source","winget"], seconds=180, source_prompt=True)
+        run.command("uninstall", [winget, *local_package_args(owned, remove=True)], seconds=180, source_prompt=True)
         removed = True; removal("removal")
         run.command("installed-list-after", [winget,"list","--source","winget"], source_prompt=True)
         require(link_inventory(packages) == before_package_dirs, "unrelated portable package directories changed")
@@ -491,7 +506,7 @@ def main(output):
                         path = Path(owned["values"]["InstallLocation"])
                         require(path.is_absolute() and path.parent.resolve() == packages.resolve(), "cleanup record path differs")
                         installed_root = path
-                    run.command("failure-uninstall", [winget,"uninstall","--manifest",manifests,"--scope","user","--source","winget"], source_prompt=True)
+                    run.command("failure-uninstall", [winget, *local_package_args(owned, remove=True)], source_prompt=True)
                 removal("failure-removal")
             except BaseException as error:
                 errors.append("normal uninstall: "+str(error))
@@ -621,6 +636,38 @@ def self_test():
             own["values"]["InstallDirectoryAddedToPath"]=1
             self.assertEqual(own_record([own],complete=False),own)
             with self.assertRaises(ValueError):own_record([own])
+
+        def test_local_manifest_manager_selection_uses_observed_record_not_catalog_id(self):
+            # WinGet 1.11.510 retained this shape after a normal local-manifest
+            # install; the generated ARP uninstall command uses --product-code.
+            owned = {"hive": "HKCU", "view": "64", "subkey": ARP + "\\" + PRODUCT_CODE,
+                "values": {"WinGetPackageIdentifier": PACKAGE, "DisplayName": "Flere Connect",
+                    "DisplayVersion": VERSION, "WinGetInstallerType": "portable",
+                    "WinGetSourceIdentifier": "*DefaultSource",
+                    "UninstallString": "winget uninstall --product-code " + PRODUCT_CODE}}
+            listing = local_package_args(owned)
+            removal = local_package_args(owned, remove=True)
+            self.assertEqual(listing, ["list", "--name", "Flere Connect", "--exact", "--scope", "user", "--source", "winget"])
+            self.assertEqual(removal, ["uninstall", "--product-code", PRODUCT_CODE, "--exact", "--scope", "user", "--source", "winget"])
+            self.assertNotIn("--manifest", removal)
+            self.assertNotIn("--id", listing)
+
+        def test_local_manager_selection_rejects_other_or_injected_arp_target(self):
+            owned = {"hive": "HKCU", "view": "64", "subkey": ARP + "\\" + PRODUCT_CODE,
+                "values": {"WinGetPackageIdentifier": PACKAGE, "DisplayName": "Flere Connect",
+                    "DisplayVersion": VERSION, "WinGetInstallerType": "portable",
+                    "WinGetSourceIdentifier": "*DefaultSource",
+                    "UninstallString": "winget uninstall --product-code " + PRODUCT_CODE}}
+            for field, replacement in (("subkey", ARP + "\\OtherPackage"), ("hive", "HKLM"),
+                ("WinGetSourceIdentifier", SOURCE_ID), ("DisplayVersion", "0.0.0"),
+                ("UninstallString", "winget uninstall --product-code OtherPackage"),
+                ("UninstallString", "winget uninstall --product-code " + PRODUCT_CODE + " & extra")):
+                changed = copy.deepcopy(owned)
+                if field in changed: changed[field] = replacement
+                else: changed["values"][field] = replacement
+                for remove in (False, True):
+                    with self.subTest(field=field, remove=remove), self.assertRaises(ValueError):
+                        local_package_args(changed, remove=remove)
 
         def test_unrelated_inventory_and_own_key_preservation(self):
             old=[{"key":"HKLM/64/other","sha256":"b"*64,"values":{}}];own=self.owned()

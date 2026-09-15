@@ -420,6 +420,21 @@ def path_hashes():
 
 
 
+def preservation_snapshot(before_state, after_state, before_paths, after_paths):
+    """Retain relative names/hash-only deltas before the unchanged strict assertion."""
+    changed = sorted(name for name in before_state.keys() | after_state.keys()
+                     if before_state.get(name) != after_state.get(name))
+    after_names = sorted(after_state)
+    return {"synthetic_state_preserved": after_state == before_state,
+            "path_preserved": after_paths == before_paths,
+            "state_after": {name: after_state[name] for name in after_names[:256]},
+            "state_after_entries": len(after_names), "state_after_truncated": len(after_names) > 256,
+            "state_changes": {name: {"before": before_state.get(name), "after": after_state.get(name)}
+                              for name in changed[:256]},
+            "state_changed_entries": len(changed), "state_changes_truncated": len(changed) > 256,
+            "path_after": after_paths}
+
+
 def verify_removal(value):
     """Stored history is distinct from installed files, according to observed policy."""
     require(set(value["aliases"]) == {"flere.exe", "flere-connect.exe"}, "both alias predicates required")
@@ -553,6 +568,8 @@ def main(output, selected=LEGACY_INPUT):
     def removal_snapshot(name, installed):
         # Capture each predicate before asserting, including normal historical registration retention.
         registrations = owned_registration()
+        after_state, after_paths = candidate.tree(fixture), path_hashes()
+        record(name + "-state", preservation_snapshot(before_state, after_state, paths_before, after_paths))
         value = {"installed_package_present": PACKAGE in installed,
                  "package_inventory_preserved": installed == baseline_packages,
                  "package_directory_exists": os.path.lexists(root / "lib" / PACKAGE),
@@ -560,8 +577,8 @@ def main(output, selected=LEGACY_INPUT):
                  "aliases": {alias: {"shim_exists": os.path.lexists(root / "bin" / alias),
                                       "path_resolution": shutil.which(alias)}
                              for alias in ("flere.exe", "flere-connect.exe")},
-                 "path_preserved": path_hashes() == paths_before,
-                 "synthetic_state_preserved": candidate.tree(fixture) == before_state,
+                 "path_preserved": after_paths == paths_before,
+                 "synthetic_state_preserved": after_state == before_state,
                  "remove_package_information_on_uninstall": baseline_features["removePackageInformationOnUninstall"],
                  "registration_paths": list(map(str, registrations)),
                  "historical_registration_retained": bool(registrations)}
@@ -707,7 +724,9 @@ def main(output, selected=LEGACY_INPUT):
                     "installed update-status changed owned package/registration files")
             require(owned_paths(package_root) == [p for p in paths if p == package_root or package_root in p.parents]
                     and owned_registration() == registrations, "installed update-status changed installed inventory")
-            require(candidate.tree(fixture) == before_state and path_hashes() == paths_before,
+            after_state, after_paths = candidate.tree(fixture), path_hashes()
+            record("after-owner-state", preservation_snapshot(before_state, after_state, paths_before, after_paths))
+            require(after_state == before_state and after_paths == paths_before,
                     "installed update-status changed synthetic state or PATH")
             require(packages("packages-after-owner") == dict(baseline_packages, **{PACKAGE: VERSION}),
                     "installed update-status changed package inventory")
@@ -785,6 +804,31 @@ def self_test():
     import tempfile
 
     class Guards(unittest.TestCase):
+
+        def test_preservation_diagnostics_keep_actual_added_removed_changed_names_and_strict_result(self):
+            before = {"state/preserved.json": "a" * 64, ".ssh/config": "b" * 64, "removed": "directory"}
+            after = {"state/preserved.json": "a" * 64, ".ssh/config": "c" * 64, "temp/tool": "directory"}
+            paths = {"process": "d" * 64}
+            value = preservation_snapshot(before, after, paths, paths)
+            self.assertFalse(value["synthetic_state_preserved"])
+            self.assertTrue(value["path_preserved"])
+            self.assertEqual(value["state_after"], after)
+            self.assertEqual(value["state_changes"], {
+                ".ssh/config": {"before": "b" * 64, "after": "c" * 64},
+                "removed": {"before": "directory", "after": None},
+                "temp/tool": {"before": None, "after": "directory"}})
+            self.assertEqual(value["state_changed_entries"], 3)
+            self.assertFalse(value["state_changes_truncated"])
+            self.assertTrue(preservation_snapshot(before, before, paths, paths)["synthetic_state_preserved"])
+            self.assertFalse(preservation_snapshot(before, before, paths, {"process": "e" * 64})["path_preserved"])
+
+        def test_preservation_diagnostic_cap_never_turns_a_changed_tree_into_preserved(self):
+            after = {f"temp/tool-{i:04}": "directory" for i in range(257)}
+            value = preservation_snapshot({}, after, {}, {})
+            self.assertFalse(value["synthetic_state_preserved"])
+            self.assertEqual((value["state_after_entries"], value["state_changed_entries"]), (257, 257))
+            self.assertEqual((len(value["state_after"]), len(value["state_changes"])), (256, 256))
+            self.assertTrue(value["state_after_truncated"] and value["state_changes_truncated"])
 
         def test_default_retains_old_recipe_pins_and_no_owner_command(self):
             default = selection()
