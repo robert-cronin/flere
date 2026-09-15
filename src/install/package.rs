@@ -1,4 +1,4 @@
-use super::{MAX_JSON, private_dir, read_json, regular, run, sync_dir};
+use super::{MAX_JSON, private_dir, read_json, regular, run, run_inspection, sync_dir};
 use crate::wire::invalid;
 use std::{
     fs::{self, OpenOptions},
@@ -60,7 +60,7 @@ pub fn sha256(path: &Path) -> io::Result<String> {
 
 pub fn inspect_binary(binary: &Path) -> io::Result<BuildMetadata> {
     regular(binary, MAX_PAYLOAD)?;
-    let bytes = run(
+    let bytes = run_inspection(
         Command::new(binary)
             .arg("--build-info")
             .stdin(Stdio::null()),
