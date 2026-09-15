@@ -365,7 +365,14 @@ def candidate_input(run, selected):
     return portable, manifest
 
 
-def main(output, selected=PUBLIC_INPUT):
+def owner_ui_module():
+    spec=importlib.util.spec_from_file_location("windows_owner_ui", Path(__file__).with_name("owner-ui.py"))
+    module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
+
+
+def main(output, selected=PUBLIC_INPUT, *, owner_ui=False):
+    owner_ui_module().enabled(selected, owner_ui)
     hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64") and sys.version_info >= (3, 12), "native Windows/Python3.12+ required")
     require(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=candidate.PROJECT, text=True, timeout=15).strip()
@@ -379,12 +386,12 @@ def main(output, selected=PUBLIC_INPUT):
     receipt = {"schema": "flere-scoop-lifecycle-v1", "status": "running", "checks": [],
         "workflow_sha": os.environ["FLERE_WORKFLOW_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
         "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "product_commit": selected["product"], "zip_sha256": selected["zip_sha"],
-        "input_selection": selected["name"], "installed_owner_check_required": selected["owner_check"],
+        "input_selection": selected["name"], "installed_owner_check_required": selected["owner_check"], "installed_ui_refusal_required": owner_ui,
         "limits": ["Per-user installation on an elevated hosted CI VM; not unelevated desktop acceptance.",
-                   ("Public034 install then normal candidate035 upgrade and installed owner JSON; candidate download uses private loopback, no UI refusal proof." if selected["owner_check"] else
+                   (("Public034-to-candidate035 upgrade, installed owner JSON and native owned-console local refusal; passive fixture peer, no actual SSH." if owner_ui else "Public034 install then normal candidate035 upgrade and installed owner JSON; candidate download uses private loopback, no UI refusal proof.") if selected["owner_check"] else
                     "First public-ZIP install/remove and record capture; no upgrade or Scoop owner detector proof."),
                    "Normal bootstrap fetches mutable official Scoop/Main revisions, recorded separately from the pinned installer.",
-                   "No UI, clipboard, external SSH, signing, catalogue or release publication.",
+                   ("Owned classic UTF-8 console only; no physical desktop/Windows Terminal, clipboard, remote core refusal or external SSH acceptance." if owner_ui else "No UI, clipboard, external SSH, signing, catalogue or release publication."),
                    "Bootstrapped Scoop/config/cache and manager-ready PATH remain until disposable VM teardown."],
         "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
                     "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
@@ -490,6 +497,8 @@ def main(output, selected=PUBLIC_INPUT):
                                                env=binary_env, seconds=60, maximum=32768))
                 owners[name] = verify_installed_owner(value, candidate_manifest, (version_dir/(name+".exe")).resolve())
                 run.record(name+"-update-status", value)
+            if owner_ui:
+                receipt["installed_ui_refusal"] = owner_ui_module().check_pair(run, root, selected, candidate_manifest)
             after_files = {path.name:base.file_record(path) for path in version_dir.iterdir()}
             after_shims = {name:{"alias":base.file_record(root/"shims"/(name+".exe")), "definition":base.file_record(root/"shims"/(name+".shim"))} for name in ("flere", "flere-connect")}
             after_state, after_paths = candidate.tree(fixture), base.path_hashes()
@@ -554,7 +563,7 @@ def main(output, selected=PUBLIC_INPUT):
         receipt["status"] = "passed" if receipt.get("package_lifecycle_passed") and receipt.get("cleanup_passed") and "error" not in receipt else "failed"
         run.save()
         files = [path for path in proof.rglob("*") if path.is_file()]
-        require(len(files) <= (160 if bucket else 128) and sum(path.stat().st_size for path in files) <= 16*1024*1024, "proof inventory bound")
+        require(len(files) <= (168 if owner_ui else 160 if bucket else 128) and sum(path.stat().st_size for path in files) <= 16*1024*1024, "proof inventory bound")
         (proof/"hashes.json").write_text(json.dumps({str(path.relative_to(proof)): {"bytes": path.stat().st_size, "sha256": sha(path.read_bytes())} for path in files}, indent=2)+"\n")
     require(receipt["status"] == "passed", "Scoop lifecycle failed; inspect retained proof")
 
@@ -831,10 +840,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", nargs="?", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--owner-ui", action="store_true", help="native local refusal in owned console; reviewed bucket candidate only")
     parser.add_argument("--input", choices=(DEFAULT_INPUT, OWNER_INPUT_NAME, BUCKET_INPUT_NAME), default=DEFAULT_INPUT)
     args = parser.parse_args()
     if args.self_test:
         self_test()
     else:
         require(args.output is not None, "output required")
-        main(args.output, selection(args.input))
+        main(args.output, selection(args.input), owner_ui=args.owner_ui)

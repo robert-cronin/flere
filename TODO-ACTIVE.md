@@ -157,8 +157,11 @@
   draft to supported status. TCG is emulated core
   runtime evidence; native Nix-on-Ubuntu profile upgrades do not establish
   NixOS/Home Manager activation. The draft now pins verified public v0.3.5,
-  including Nix ownership code; only offline recipe/fixture checks are recorded
-  for that repin, with no new Nix build or runtime acceptance claim.
+  including Nix ownership code. Hosted run `34950280814` at workflow `ab97f52`
+  passed all 543 tests for exact public source `8744d35`, both release builds,
+  declared install checks and executable/license inventories under effective
+  strict sandbox settings. Independent review verified all retained evidence.
+  This repin does not extend the earlier profile, NixOS or SSH runtime scopes.
 - [ ] Finish current Windows physical clipboard/SSH/draft/image acceptance, then
   publish the companion through Scoop and submit a WinGet manifest.
   The public v0.3.5 ZIP is available from exact source `8744d35`; its native
@@ -510,6 +513,18 @@
   sessions, selections and frontend attachments preserved. Installed core and
   companion hashes match the verified packages; frontends still require their
   normal UI reload. This is separate from public macOS signing/notarization.
+- [x] Integrate retained-conversation delivery from concurrent main and install
+  the reviewed local update at `ab97f52`. The merged runtime at `fe5d969` passed
+  all 558 tests, both formatting/strict Clippy checks and both release builds.
+  A final native delivery guard now rechecks the message's bound conversation
+  against the freshly proven target. The resulting package passed three delivery
+  unit tests, eight conversation live tests, core formatting/Clippy and both
+  release builds with a complete 392-file source seal. Normal installation and
+  both supervisor updates preserved all seven sessions, selections and frontend
+  attachments; installed binaries match the verified package. An earlier
+  read-only preflight stopped when a new session appeared, before any mutation.
+  Existing frontends need their normal UI reload. This local development package
+  is distinct from the immutable public v0.3.5 release.
 - [ ] Add Developer ID signing and notarization for prebuilt macOS packages after
   Apple enrollment and credential setup. The staged producer now separates build,
   signing, resumable notarization and final signed-byte verification; 17 pure

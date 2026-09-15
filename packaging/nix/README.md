@@ -1,9 +1,21 @@
 # Nix packaging draft
 
-This draft now pins the published **v0.3.5** source at `8744d35`, including
-proof-based Nix ownership and the corrected path parser. The updated recipe has
-only offline fixture/source checks so far; no v0.3.5 Nix build or runtime result
-is claimed. Physical clipboard acceptance remains open.
+This draft pins the published **v0.3.5** source at `8744d35`, including
+proof-based Nix ownership and the corrected path parser. Native strict-sandbox
+builds, full offline suites and both output inventories passed in
+[run 34950280814](https://github.com/robert-cronin/flere/actions/runs/34950280814),
+using workflow `ab97f5259cbbc5d9f2cf839004dec34b7b958727` on a disposable Ubuntu
+24.04.5 x86_64 VM. All **543 tests** passed: 208 core library, 215 live,
+13 installer, 105 companion unit and 2 companion example tests, with none failed,
+ignored or filtered. Both release builds, installed build-info records, exact
+executable/license inventories and the artifact digest were independently checked.
+
+Nix 2.33.3 enforced `sandbox = true` and `sandbox-fallback = false`; a fresh
+namespace/PTY probe passed before builds. The declared hash-helper substitutions
+and bounded test-fixture adaptations below remain part of this packaging result.
+The tested product is public v0.3.5 source `8744d35`, not the workflow checkout's
+newer ab97 runtime. This run did not create a user profile or extend the separate
+installed-owner, NixOS, clipboard or SSH acceptance below.
 
 Historical v0.3.3 plus the explicit parser correction passed native
 strict-sandbox builds, all **485 tests** and both output inventories in hosted run
@@ -16,8 +28,8 @@ companion to the Nix-built core passed the separate check below. Physical
 clipboard remains open; this is not a Nixpkgs submission or a supported
 installation method yet.
 
-The [manual workflow](../../.github/workflows/nix-acceptance.yml) used a disposable
-native x86_64 Ubuntu 24.04.5 GitHub VM. The 485 passing tests comprise 183 core
+The earlier run of the [manual workflow](../../.github/workflows/nix-acceptance.yml)
+used a disposable native x86_64 Ubuntu 24.04.5 GitHub VM. Its 485 passing tests comprise 183 core
 library, 213 live, 13 installer and 76 companion/example tests, with none failed,
 ignored or filtered. Independent review matched every summary to its actual test
 assembly and verified both build-info records, exact executable/license
@@ -127,11 +139,10 @@ substitute a previous result for this acceptance run. No user profile, Flere
 session, native model or release is installed or launched. Fixtures exercise the
 product using owned stand-ins. A failed check remains failed.
 
-The v0.3.5 preparation checks the exact copied/current and historical lockfiles,
-fixture scope, vendor conflicts and already-integrated parser fix. These offline
-checks are not a Nix evaluation/build or full-suite result. The historical five
-Python regressions and offline Cargo output-layout reproduction remain separate
-from the subsequent v0.3.3 hosted acceptance above.
+The v0.3.5 preparation also checks the exact copied/current and historical
+lockfiles, fixture scope, vendor conflicts and already-integrated parser fix.
+These offline regressions remain separate from the successful native full-suite
+run above. Historical v0.3.3 preparation and acceptance retain their original scope.
 
 The separate [installed-owner workflow](../../.github/workflows/nix-owner-acceptance.yml)
 passed [run 34874904110](https://github.com/robert-cronin/flere/actions/runs/34874904110)
@@ -201,8 +212,9 @@ failures remain retained. This container used its unchanged default
 
 Physical desktop clipboard remains open. The Nix-packaged companion was not used
 in that SSH check; the emulated guest tested the core only. The current v0.3.5
-draft includes the proof-based ownership code; it has not yet been built or tested
-under Nix. Earlier v0.3.3 outputs lack that owner code and must not use the in-app
+draft includes the proof-based ownership code and passed the native full suites
+above; installed-owner/profile acceptance remains tied to the separately tested
+v0.3.4 development source. Earlier v0.3.3 outputs lack that owner code and must not use the in-app
 updater to replace Nix-owned files. No profile or NixOS/Home Manager upgrade command
 can be inferred safely from a store path alone. All historical results retain their
 recorded versions and scopes.

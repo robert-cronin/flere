@@ -12,6 +12,11 @@ on:
           - public-v0.3.4
           - candidate-scoop-owner
           - candidate-scoop-bucket-owner
+      owner_ui:
+        description: 'Native owned-console local update refusal (reviewed bucket candidate only)'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -52,6 +57,8 @@ jobs:
         run: |
           python -B packaging/windows/scoop-lifecycle.py --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Scoop lifecycle guards failed.' }
+          python -B packaging/windows/owner-ui.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Owned-console fixture checks failed.' }
           python -B scripts/test_windows_manifests.py
           if ($LASTEXITCODE -ne 0) { throw 'Windows manifest and actual PowerShell hook checks failed.' }
       - id: lifecycle
@@ -60,13 +67,17 @@ jobs:
         env:
           FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           FLERE_INPUT_SET: ${{ inputs.input_set }}
+          FLERE_OWNER_UI: ${{ inputs.owner_ui }}
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $HOME '.cache/flere/tmp'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $Output = Join-Path $Root ("scoop-lifecycle-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
-          python -B packaging/windows/scoop-lifecycle.py $Output --input $env:FLERE_INPUT_SET
+          $Options = @()
+          if ($env:FLERE_OWNER_UI -eq 'true') { $Options += '--owner-ui' }
+          elseif ($env:FLERE_OWNER_UI -ne 'false') { throw 'Invalid owned-console choice.' }
+          python -B packaging/windows/scoop-lifecycle.py $Output --input $env:FLERE_INPUT_SET @Options
           if ($LASTEXITCODE -ne 0) { throw 'Scoop lifecycle failed; inspect retained proof.' }
       - name: Retain bounded proof without package publication
         if: always() && steps.lifecycle.outputs.evidence != ''
