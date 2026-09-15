@@ -260,7 +260,10 @@
   and the exact container was removed. Formulas used the verified source via a
   private local URL; published Homebrew remains v0.3.2. No active-session or
   external SSH acceptance is claimed.
-- [ ] Complete Windows package-manager runtime ownership acceptance. Native
+- [ ] Implement and validate Windows package-manager ownership recognition.
+  Chocolatey, WinGet and Scoop detectors are still missing; the current Unknown
+  refusal does not establish manager recognition or correct upgrade guidance.
+  Use actual installed-manager records and exact executable identity. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.

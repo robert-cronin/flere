@@ -1,0 +1,67 @@
+name: Windows Chocolatey retained candidate lifecycle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-chocolatey-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  lifecycle:
+    if: github.repository == 'robert-cronin/flere' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      FLERE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Require the disposable hosted manual Windows job
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:FLERE_RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+              $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REPOSITORY -ne 'robert-cronin/flere' -or
+              $env:GITHUB_REF -ne 'refs/heads/main' -or $env:RUNNER_OS -ne 'Windows' -or
+              $env:RUNNER_ARCH -ne 'X64' -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
+            throw 'Only the hosted manual Windows AMD64 job is supported.'
+          }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check lifecycle guards without running a manager
+        shell: pwsh
+        run: |
+          python -B packaging/windows/chocolatey-lifecycle.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Chocolatey lifecycle guard checks failed.' }
+      - id: lifecycle
+        name: Normal Chocolatey install, aliases, records and removal
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $HOME '.cache/flere/tmp'
+          New-Item -ItemType Directory -Force -Path $Root | Out-Null
+          $Output = Join-Path $Root ("chocolatey-lifecycle-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
+          python -B packaging/windows/chocolatey-lifecycle.py $Output
+          if ($LASTEXITCODE -ne 0) { throw 'Chocolatey lifecycle failed; inspect retained proof.' }
+      - name: Retain bounded proof, without package or executable publication
+        if: always() && steps.lifecycle.outputs.evidence != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-chocolatey-lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.lifecycle.outputs.evidence }}/receipt.json
+            ${{ steps.lifecycle.outputs.evidence }}/logs/*.log
+            ${{ steps.lifecycle.outputs.evidence }}/records/*.json
+            ${{ steps.lifecycle.outputs.evidence }}/records/*.bin
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false

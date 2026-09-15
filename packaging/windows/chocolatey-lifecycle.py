@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""First Chocolatey install/remove of an exact retained ZIP, on a disposable hosted VM.
+
+This captures manager records; it does NOT prove in-app Windows manager detection,
+version upgrade, a public download URL, signing, physical UI, or SSH acceptance.
+"""
+import argparse
+import base64
+import http.server
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import zipfile
+
+sys.dont_write_bytecode = True
+SPEC = importlib.util.spec_from_file_location("candidate", Path(__file__).with_name("hosted-candidate.py"))
+candidate = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(candidate)
+require, sha = candidate.require, candidate.sha
+REPO = "robert-cronin/flere"
+RUN, ARTIFACT, ARTIFACT_BYTES = 34912671194, 10374816947, 1806160
+WORKFLOW = "a445b8fce5f8ad17faebc3f518005f87fc9bb27a"
+ARTIFACT_SHA = "e7fba2e1cec9bce69fd2696848a7275285edbbb0a207acb7ddb0bd81307bdf38"
+PRODUCT = "422058c0fa4dda3cff7693a32953fea1b2c5404e"
+SOURCE = "ef49b87e4b4ce6975c22ca9ce7c9f00e061495ff5658137655be60ff08834562"
+VERSION, PACKAGE = "0.3.4", "flere-connect"
+ZIP_NAME = "flere-connect-0.3.4-x86_64-pc-windows-msvc.zip"
+ZIP_SHA = "e562f99168a34202ecaa2dc163db265e9df3c0007699fbb7fea6b24c6c8e7392"
+PAYLOAD_SHA = "9622d73775ce583009a05d0ce6ee57e1ff1ec84e6d83f12ff04dd0f6968ce21f"
+NUSPEC_SHA = "8ba0dd77f894cdfebfa093019dad91e3bd50aafe7c1f180a2665c0a5bc6dc681"
+SCRIPT_SHA = "cdb7bc527b18583fb251dc0d278231dde4271585d0eeef7b2aaf3170fe05c6bf"
+NUPKG_SHA = "93834412a8d70dd52bd9317b919f518508e3eb78f70ffb6659c7b2fdf018d0b1"
+PUBLIC_URL = f"https://github.com/{REPO}/releases/download/v{VERSION}/{ZIP_NAME}".encode()
+ANNOUNCEMENT = b"The package flere-connect wants to run 'chocolateyInstall.ps1'."
+PROMPT = b"Do you want to run the script?([Y]es/[A]ll scripts/[N]o/[P]rint): "
+MAX_LOG = 256 * 1024
+
+
+def parse_features(data):
+    result = {}
+    for line in data.decode("utf-8-sig").splitlines():
+        fields = line.split("|", 2)
+        require(len(fields) == 3 and re.fullmatch(r"[A-Za-z][A-Za-z0-9]+", fields[0])
+                and fields[1] in ("Enabled", "Disabled") and fields[0] not in result,
+                "unexpected Chocolatey feature output")
+        result[fields[0]] = fields[1] == "Enabled"
+    require(result.get("checksumFiles") is True and "allowGlobalConfirmation" in result,
+            "checksum policy or confirmation feature unavailable")
+    return result
+
+
+def parse_packages(data):
+    result = {}
+    for line in data.decode("utf-8-sig").splitlines():
+        fields = line.split("|")
+        require(len(fields) == 2 and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", fields[0])
+                and re.fullmatch(r"[0-9][A-Za-z0-9.+_-]*", fields[1])
+                and fields[0].lower() not in result, "unexpected Chocolatey package output")
+        result[fields[0].lower()] = fields[1]
+    require("chocolatey" in result, "normal installed Chocolatey record absent")
+    return result
+
+
+def prompt_ready(data, answered):
+    """Never prefeed approval; match the single exact ordinary 2.7.4 script prompt."""
+    clean = data.replace(b"\r\n", b"\n")
+    requests = re.findall(rb"The package [^\n]+ wants to run '[^\n]+'.", clean)
+    require(all(item == ANNOUNCEMENT for item in requests) and len(requests) <= 1,
+            "unexpected package/script confirmation")
+    count = clean.count(PROMPT)
+    require(count <= 1 and clean.count(b"Do you want to run ") <= 1,
+            "unexpected or repeated script prompt")
+    if count:
+        require(len(requests) == 1 and clean.index(ANNOUNCEMENT) < clean.index(PROMPT),
+                "script prompt lacks exact package announcement")
+    return count == 1 and not answered
+
+
+def verify_api(value):
+    require(value["id"] == ARTIFACT and value["name"] == f"windows-recipes-{RUN}-1"
+            and value["size_in_bytes"] == ARTIFACT_BYTES and not value["expired"]
+            and value["digest"] == "sha256:" + ARTIFACT_SHA
+            and value["workflow_run"]["id"] == RUN
+            and value["workflow_run"]["head_sha"] == WORKFLOW, "recipe artifact API identity differs")
+
+
+def inputs(data, work):
+    require(len(data) == ARTIFACT_BYTES and sha(data) == ARTIFACT_SHA, "recipe artifact bytes differ")
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        names = archive.namelist()
+        require(len(names) == 26 and len(set(names)) == 26, "recipe artifact inventory differs")
+        total = 0
+        for item in archive.infolist():
+            require(not item.is_dir() and item.file_size <= 8 * 1024 * 1024
+                    and not item.filename.startswith("/") and "\\" not in item.filename
+                    and all(p not in ("", ".", "..") for p in item.filename.split("/"))
+                    and ((item.external_attr >> 16) & 0o170000) in (0, 0o100000), "unsafe artifact entry")
+            total += item.file_size
+        require(total < 16 * 1024 * 1024, "artifact expanded bound exceeded")
+        receipt = json.loads(archive.read("receipt.json"))
+        require(receipt["schema"] == "flere-windows-recipes-only-v1"
+                and receipt["status"] == "recipes_validated_not_published"
+                and receipt["run_id"] == str(RUN) and receipt["run_attempt"] == "1"
+                and receipt["workflow_sha"] == WORKFLOW and receipt["product_commit"] == PRODUCT
+                and receipt["source_sha256"] == SOURCE and receipt["zip_sha256"] == ZIP_SHA
+                and receipt["chocolatey_version"] == "2.7.4", "recipe proof identity differs")
+        require(len(receipt["checks"]) == 6, "recipe check count differs")
+        for row in receipt["checks"]:
+            require(row["status"] == "passed" and row["exit"] == 0
+                    and re.fullmatch(r"[a-z-]+", row["name"]), "recipe check failed")
+            for stream in ("stdout", "stderr"):
+                if row["name"] == "artifact-download" and stream == "stdout":
+                    continue  # This binary is retained by its original artifact pin, not as a log.
+                log = archive.read("logs/" + row["name"] + ("-stderr" if stream == "stderr" else "") + ".log")
+                require(len(log) == row[stream + "_bytes"] and sha(log) == row[stream + "_sha256"], "recipe log differs")
+        for name, pin in receipt["files"].items():
+            value = archive.read("windows/" + name)
+            require(len(value) == pin["bytes"] and sha(value) == pin["sha256"], "recipe file differs")
+        source = json.loads(archive.read("input/source.json"))
+        require(source["commit"] == PRODUCT and source["source_sha256"] == SOURCE
+                and len(source["entries"]) == 365
+                and candidate.module("release-source").fingerprint(source["entries"]) == SOURCE,
+                "source inventory differs")
+        portable = archive.read("windows/" + ZIP_NAME)
+        spec = archive.read("windows/chocolatey/flere-connect/flere-connect.nuspec")
+        script = archive.read("windows/chocolatey/flere-connect/tools/chocolateyInstall.ps1")
+        packed = archive.read("windows/chocolatey-package/flere-connect.0.3.4.nupkg")
+    require(sha(portable) == ZIP_SHA and len(portable) == 1771884
+            and sha(spec) == NUSPEC_SHA and sha(script) == SCRIPT_SHA and sha(packed) == NUPKG_SHA,
+            "reviewed ZIP/recipe pins differ")
+    zip_path = work / ZIP_NAME; zip_path.write_bytes(portable)
+    package = work / "flere-connect.0.3.4.nupkg"; package.write_bytes(packed)
+    candidate.verify_nupkg(package, script)
+    with zipfile.ZipFile(io.BytesIO(portable)) as archive:
+        payload = {name: archive.read(name) for name in ("flere.exe", "flere-connect.exe", "manifest.json", "LICENSE")}
+    manifest = json.loads(payload["manifest.json"])
+    require(manifest["source"]["git_commit"] == PRODUCT and not manifest["source"]["dirty"]
+            and manifest["source"]["source_sha256"] == SOURCE
+            and manifest["payload"]["sha256"] == PAYLOAD_SHA
+            and sha(payload["LICENSE"]) == source["entries"]["LICENSE"]["sha256"], "payload provenance differs")
+    candidate.verify_zip(zip_path, manifest, payload["LICENSE"])
+    return portable, spec, script, manifest, payload, receipt
+
+
+def local_script(script, port):
+    require(sha(script) == SCRIPT_SHA and script.count(PUBLIC_URL) == 1
+            and 49152 <= port <= 65535, "script or loopback port differs")
+    url = f"http://127.0.0.1:{port}/{ZIP_NAME}".encode()
+    result = script.replace(PUBLIC_URL, url)
+    require(result.replace(url, PUBLIC_URL) == script and ZIP_SHA.encode() in result,
+            "non-URL script change")
+    return result
+
+
+class Mirror(http.server.HTTPServer):
+    """One immutable object, one loopback listener; no filesystem HTTP handler."""
+    allow_reuse_address = False
+
+    def __init__(self, data):
+        require(sha(data) == ZIP_SHA, "mirror payload differs")
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def handle_one_request(self):
+                self.connection.settimeout(3)
+                super().handle_one_request()
+
+            def send_error(self, code, message=None, explain=None):
+                self.server.unexpected = True
+                super().send_error(code, message, explain)
+
+            def do_HEAD(self):
+                self.respond(False)
+
+            def do_GET(self):
+                self.respond(True)
+
+            def respond(self, body):
+                owner = self.server
+                if self.path != "/" + ZIP_NAME or len(owner.requests) >= 8:
+                    owner.unexpected = True
+                    self.send_error(404)
+                    return
+                row = {"method": self.command, "bytes": 0, "sha256": None}
+                owner.requests.append(row)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                if body:
+                    self.wfile.write(data); self.wfile.flush()
+                    row.update(bytes=len(data), sha256=sha(data))
+        # Windows SO_EXCLUSIVEADDRUSE prevents competing binds on the owned listener.
+        super().__init__(("127.0.0.1", 0), Handler, bind_and_activate=False)
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            self.server_bind(); self.server_activate()
+            require(49152 <= self.server_port <= 65535, "OS did not assign a reviewed high port")
+        except BaseException:
+            self.server_close()
+            raise
+        self.requests, self.unexpected = [], False
+        self.worker = threading.Thread(target=self.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
+        self.worker.start()
+
+    def close_owned(self):
+        self.shutdown(); self.server_close(); self.worker.join(timeout=5)
+        require(not self.worker.is_alive(), "loopback worker did not stop")
+        with socket.socket() as probe:
+            probe.settimeout(1)
+            require(probe.connect_ex(("127.0.0.1", self.server_port)) != 0, "loopback port still listening")
+
+
+def file_record(path):
+    before = path.lstat()
+    require(not (getattr(before, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+            and (path.is_file() or path.is_dir()), "unexpected reparse/nonregular manager file")
+    record = {"path": str(path), "directory": path.is_dir(), "device": before.st_dev,
+              "file_id": before.st_ino, "mtime_ns": before.st_mtime_ns, "bytes": before.st_size}
+    require(before.st_ino != 0, "native file identity unavailable")
+    if path.is_file():
+        require(before.st_size <= 8 * 1024 * 1024, "owned file exceeds capture bound")
+        record["sha256"] = sha(path.read_bytes())
+    after = path.lstat()
+    require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+            == (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns), "file changed while observed")
+    return record
+
+
+def owned_paths(root):
+    """Check each directory before descending; never follow a manager reparse point."""
+    result, pending = [], [root]
+    while pending:
+        path = pending.pop()
+        row = file_record(path)
+        result.append(path)
+        require(len(result) + len(pending) <= 128, "owned metadata inventory exceeds bound")
+        if row["directory"]:
+            children = sorted(path.iterdir())
+            require(len(result) + len(pending) + len(children) <= 128, "owned directory exceeds bound")
+            pending.extend(reversed(children))
+    return result
+
+
+def path_hashes():
+    import winreg
+    result = {"process": sha(os.environ.get("PATH", "").encode("utf-8"))}
+    for name, key, path in (("user", winreg.HKEY_CURRENT_USER, r"Environment"),
+                            ("machine", winreg.HKEY_LOCAL_MACHINE,
+                             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")):
+        try:
+            with winreg.OpenKey(key, path) as opened:
+                value, kind = winreg.QueryValueEx(opened, "Path")
+            result[name] = {"sha256": sha(value.encode("utf-8")), "registry_type": kind}
+        except FileNotFoundError:
+            result[name] = {"present": False}
+    return result
+
+
+def runtime_env(environment):
+    # Keep ordinary OS/tool/module paths, but never give package scripts CI credentials.
+    return {k: v for k, v in environment.items()
+            if not any(word in k.upper() for word in ("TOKEN", "PASSWORD", "SECRET", "CREDENTIAL"))}
+
+
+def main(output):
+    candidate.hosted(os.environ)
+    require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64")
+            and sys.version_info >= (3, 12), "native Windows AMD64/Python3.12+ required")
+    require(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=candidate.PROJECT, text=True,
+                                    timeout=15).strip() == os.environ["FLERE_WORKFLOW_SHA"], "workflow checkout differs")
+    require(output.parent.resolve() == Path.home().resolve() / ".cache/flere/tmp"
+            and not output.exists(), "fresh private HOME-cache output required")
+    output.mkdir(); work = output / "work"; proof = output / "proof"
+    work.mkdir(); proof.mkdir(); (proof / "logs").mkdir(); (proof / "records").mkdir()
+    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+        stream.write("evidence=" + str(proof) + "\n")
+    receipt = {"schema": "flere-chocolatey-lifecycle-v1", "status": "running", "checks": [],
+               "workflow_sha": os.environ["FLERE_WORKFLOW_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
+               "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "input_artifact": ARTIFACT,
+               "artifact_sha256": ARTIFACT_SHA, "product_commit": PRODUCT, "source_sha256": SOURCE,
+               "zip_sha256": ZIP_SHA, "limits": ["First private-loopback install/remove, not version upgrade or public URL proof.",
+               "No Windows manager detector, coordinated UI refusal, physical UI, SSH, signing or publication claim."],
+               "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
+                           "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
+    environment = runtime_env(os.environ)
+    mirror = None; changed_confirmation = False; attempted_install = False; uninstalled = False
+    baseline_features = baseline_packages = None
+    deadline = time.monotonic() + 360  # Leave a separate 150s normal cleanup budget inside the 10min job.
+
+    def save():
+        (proof / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def record(name, value):
+        (proof / "records" / (name + ".json")).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def command(name, argv, *, env=environment, seconds=120, maximum=MAX_LOG, confirm=False, destination=None, cwd=work):
+        require(time.monotonic() < deadline, "lifecycle phase budget exhausted")
+        seconds = min(seconds, deadline - time.monotonic())
+        log = destination or proof / "logs" / (name + ".log")
+        row = {"name": name, "argv": list(map(str, argv)), "status": "running", "confirmed_script": False}
+        receipt["checks"].append(row); save(); start = time.monotonic(); failure = None
+        with log.open("xb") as stream:
+            proc = subprocess.Popen(list(map(str, argv)), cwd=cwd, env=env,
+                                    stdin=subprocess.PIPE if confirm else subprocess.DEVNULL,
+                                    stdout=stream, stderr=subprocess.STDOUT)
+            row["pid"] = proc.pid
+            try:
+                while proc.poll() is None:
+                    require(time.monotonic() - start < seconds, name + " timed out")
+                    require(log.stat().st_size <= maximum, name + " output exceeds bound")
+                    if confirm and prompt_ready(log.read_bytes(), row["confirmed_script"]):
+                        proc.stdin.write(b"y\r\n"); proc.stdin.flush()
+                        row["confirmed_script"] = True
+                        # Keep stdin open, send no further data; repeated prompts are rejected.
+                    time.sleep(0.05)
+            except BaseException as error:
+                failure = error
+            finally:
+                row["forced_stop"] = proc.poll() is None
+                if row["forced_stop"]:
+                    killed = subprocess.run([str(Path(os.environ["SystemRoot"]) / "System32/taskkill.exe"),
+                                             "/PID", str(proc.pid), "/T", "/F"], stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                    require(killed.returncode == 0, "exact command tree could not be stopped")
+                proc.wait(timeout=15)
+                if proc.stdin:
+                    proc.stdin.close()
+        if log.stat().st_size > maximum:
+            failure = failure or ValueError(name + " output exceeds bound")
+            with log.open("r+b") as stream:
+                stream.truncate(maximum)
+        data = log.read_bytes()
+        row.update(exit=proc.returncode, seconds=round(time.monotonic() - start, 3),
+                   log_bytes=len(data), log_sha256=sha(data), status="failed")
+        if confirm and failure is None:
+            try:
+                prompt_ready(data, row["confirmed_script"])
+                require(row["confirmed_script"], "ordinary script confirmation was not observed")
+            except ValueError as error:
+                failure = error
+        if failure is None and proc.returncode == 0:
+            row["status"] = "passed"
+        save()
+        if failure is not None:
+            raise failure
+        require(proc.returncode == 0, name + " failed; see bounded proof log")
+        return data
+
+    def features(name):
+        return parse_features(command(name, [choco, "feature", "list", "--limit-output"]))
+
+    def packages(name):
+        return parse_packages(command(name, [choco, "list", "--limit-output"]))
+
+    def powershell(name, code):
+        encoded = base64.b64encode(("$ErrorActionPreference='Stop'; " + code).encode("utf-16-le")).decode()
+        return json.loads(command(name, [ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]))
+
+    def owned_registration():
+        path = root / ".chocolatey"
+        if not path.exists():
+            return []
+        file_record(path)
+        return sorted(path.glob("flere-connect.0.3.4*"))
+
+    try:
+        gh = shutil.which("gh.exe"); require(gh, "existing GitHub CLI unavailable")
+        api = f"repos/{REPO}/actions/artifacts/{ARTIFACT}"
+        metadata = json.loads(command("artifact-api", [gh, "api", api], env=os.environ.copy(), maximum=65536))
+        verify_api(metadata); record("artifact-api", metadata)
+        portable, spec, script, manifest, payload, original = inputs(command("artifact-download", [gh, "api", api + "/zip"],
+            env=os.environ.copy(), destination=work / "artifact.zip", maximum=ARTIFACT_BYTES), work)
+        record("input-recipe-receipt", original); record("manifest", manifest)
+        root = Path(os.environ.get("ChocolateyInstall", ""))
+        require(root.resolve() == Path(r"C:\ProgramData\chocolatey").resolve(), "normal Chocolatey root required")
+        choco = Path(shutil.which("choco.exe") or "missing")
+        require(choco.resolve() == (root / "bin/choco.exe").resolve(), "normal Chocolatey command required")
+        ps = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        admin = powershell("elevation", "$identity=[Security.Principal.WindowsIdentity]::GetCurrent(); $principal=[Security.Principal.WindowsPrincipal]$identity; $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) | ConvertTo-Json -Compress")
+        require(admin is True, "disposable hosted runner is not already elevated; no elevation requested")
+        require(command("choco-version", [choco, "--version"]).decode().strip() == "2.7.4", "reviewed Chocolatey2.7.4 required")
+        receipt["machine"]["chocolatey_version"] = "2.7.4"
+        record("manager", {"root": file_record(root), "command": file_record(choco), "elevated": admin})
+        baseline_features = features("features-before"); baseline_packages = packages("packages-before")
+        require(PACKAGE not in baseline_packages and not (root / "lib" / PACKAGE).exists()
+                and not owned_registration(), "package or registration already exists")
+        require(all(shutil.which(alias) is None and not (root / "bin" / alias).exists()
+                    for alias in ("flere.exe", "flere-connect.exe")), "alias collision")
+        paths_before = path_hashes(); record("path-before", paths_before)
+        fixture = work / "profile"; fixture.mkdir()
+        for folder in ("state", ".ssh", "AppData/Local", "AppData/Roaming", ".cache", "temp"):
+            (fixture / folder).mkdir(parents=True, exist_ok=True)
+        (fixture / "state/preserved.json").write_text('{"synthetic":true,"selection":"retained"}\n')
+        (fixture / ".ssh/config").write_text("# synthetic sentinel; no SSH is launched\n")
+        before_state = candidate.tree(fixture); record("state-before", before_state)
+        child_env = dict(environment, HOME=str(fixture), USERPROFILE=str(fixture),
+                         LOCALAPPDATA=str(fixture / "AppData/Local"), APPDATA=str(fixture / "AppData/Roaming"),
+                         XDG_CACHE_HOME=str(fixture / ".cache"), TEMP=str(fixture / "temp"), TMP=str(fixture / "temp"))
+        if baseline_features["allowGlobalConfirmation"]:
+            changed_confirmation = True  # Restore even if the command changes state then fails.
+            command("require-script-confirmation", [choco, "feature", "disable", "-n", "allowGlobalConfirmation"])
+        require(not any("ignorechecksum" in key.lower() and value.lower() not in ("", "false", "0")
+                        for key, value in environment.items()), "inherited checksum override is unsupported")
+        require(features("features-during") == dict(baseline_features, allowGlobalConfirmation=False),
+                "features changed beyond confirmation tightening")
+        mirror = Mirror(portable)
+        install_script = local_script(script, mirror.server_port)
+        recipe = work / "recipe"; (recipe / "tools").mkdir(parents=True)
+        (recipe / "flere-connect.nuspec").write_bytes(spec)
+        (recipe / "tools/chocolateyInstall.ps1").write_bytes(install_script)
+        packed = work / "packages"; packed.mkdir()
+        command("pack", [choco, "pack", recipe / "flere-connect.nuspec", "--outputdirectory", packed], cwd=recipe)
+        nupkg = packed / "flere-connect.0.3.4.nupkg"
+        require(list(packed.iterdir()) == [nupkg], "unexpected packed output")
+        with zipfile.ZipFile(nupkg) as private, zipfile.ZipFile(work / "flere-connect.0.3.4.nupkg") as original_package:
+            require(private.read("flere-connect.nuspec") == original_package.read("flere-connect.nuspec"),
+                    "normal pack changed the reviewed package metadata")
+        record("private-package", {"sha256": sha(nupkg.read_bytes()), "port": mirror.server_port,
+                "original_script_sha256": SCRIPT_SHA, "private_script_sha256": sha(install_script),
+                "inventory": candidate.verify_nupkg(nupkg, install_script)})
+        attempted_install = True
+        command("install", [choco, "install", PACKAGE, "--version=" + VERSION,
+                            "--source=" + str(packed), "--no-progress"], confirm=True)
+        require(packages("packages-installed") == dict(baseline_packages, **{PACKAGE: VERSION}), "unrelated package change")
+        package_root = root / "lib" / PACKAGE; app = package_root / "tools/app"
+        require(app.is_dir() and {p.name for p in app.iterdir()} == set(payload), "installed app inventory differs")
+        for name, data in payload.items():
+            require(file_record(app / name)["sha256"] == sha(data), "installed payload differs")
+        with zipfile.ZipFile(nupkg) as archive:
+            packed_spec = archive.read("flere-connect.nuspec")
+        require((package_root / "flere-connect.nuspec").read_bytes() == packed_spec
+                and (package_root / "tools/chocolateyInstall.ps1").read_bytes() == install_script,
+                "installed package spec/script differs")
+        aliases = []
+        for alias in ("flere.exe", "flere-connect.exe"):
+            path = Path(shutil.which(alias) or "missing")
+            require(path.resolve() == (root / "bin" / alias).resolve(), "normal PATH alias not the Chocolatey shim")
+            require(file_record(path)["sha256"] != PAYLOAD_SHA, "alias is a payload copy, not a generated shim")
+            aliases.append(path)
+            for flag in ("--help", "--version", "--build-info"):
+                data = command(alias[:-4] + "-" + flag[2:], [path, flag], env=child_env, seconds=20, maximum=32768)
+                if flag == "--build-info":
+                    require(json.loads(data) == manifest["build"], "alias full build info differs")
+                elif flag == "--version":
+                    require(data.decode().strip().startswith("flere-connect " + VERSION + " ")
+                            and manifest["build"]["build_id"] in data.decode(), "alias version/build differs")
+                else:
+                    require(b"--build-info" in data and b"ssh" in data, "alias help differs")
+        # Capture only this install's package files and registration, not other packages/configuration.
+        paths = [root, choco, package_root, *aliases]
+        paths.extend(owned_paths(package_root))
+        registrations = owned_registration()
+        paths.extend(registrations)
+        for path in registrations:
+            paths.extend(owned_paths(path))
+        paths = list(dict.fromkeys(paths)); require(len(paths) <= 128, "owned metadata inventory exceeds bound")
+        records = [file_record(path) for path in paths]
+        record("installed-layout", {"files": records, "registration_observed": list(map(str, registrations)),
+               "native_file_id": "Python os.stat st_ino/st_dev from Windows file identity; observation, not ownership proof"})
+        selected = work / "metadata-paths.json"; selected.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
+        escaped = str(selected).replace("'", "''")
+        acl = powershell("owned-acls", "$paths = Get-Content -Raw -LiteralPath '" + escaped + "' | ConvertFrom-Json; @($paths | ForEach-Object { $a=Get-Acl -LiteralPath $_; [pscustomobject]@{path=$_;owner=$a.Owner;sddl=$a.Sddl} }) | ConvertTo-Json -Depth 3 -Compress")
+        require(len(acl) == len(paths) and all(row["sddl"] and row["owner"] for row in acl), "owned ACL capture incomplete")
+        record("owned-acls", acl)
+        # Keep small manager-generated ledger bytes for the detector review; never copy executables.
+        ledger = []
+        for index, path in enumerate(paths):
+            if any(path == base or base in path.parents for base in registrations) and path.is_file():
+                require(len(ledger) < 12 and path.stat().st_size <= 128 * 1024, "registration record exceeds bound")
+                data = path.read_bytes(); target = proof / "records" / f"registration-{index}.bin"
+                target.write_bytes(data); ledger.append({"path": str(path), "retained": target.name, "sha256": sha(data)})
+        record("registration-files", ledger)
+        require(candidate.tree(fixture) == before_state, "stateless alias calls changed synthetic state")
+        command("uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
+        uninstalled = True
+        require(packages("packages-after") == baseline_packages and not package_root.exists()
+                and not owned_registration() and all(not p.exists() and shutil.which(p.name) is None for p in aliases),
+                "package, registration, alias or unrelated inventory not restored")
+        require(path_hashes() == paths_before and candidate.tree(fixture) == before_state,
+                "PATH or synthetic state changed")
+        record("path-after", path_hashes()); record("state-after", candidate.tree(fixture))
+        require(not mirror.unexpected and any(row["method"] == "GET" and row["sha256"] == ZIP_SHA
+                    for row in mirror.requests), "normal checksummed loopback download was not observed")
+        receipt.update(status="lifecycle_passed", aliases_checked=6, synthetic_state_preserved=True,
+                       package_inventory_preserved=True, no_product_ownership_claim=True)
+    except BaseException as error:
+        receipt.update(status="failed", error=str(error), traceback=traceback.format_exc())
+    finally:
+        deadline = time.monotonic() + 150
+        cleanup_errors = []
+        # Normal package-manager cleanup only. A failure is retained, never papered over by deleting its files.
+        if attempted_install and not uninstalled:
+            try:
+                command("failure-uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
+                require(packages("failure-packages-after") == baseline_packages
+                        and not (root / "lib" / PACKAGE).exists() and not owned_registration()
+                        and all(not (root / "bin" / name).exists() for name in ("flere.exe", "flere-connect.exe")),
+                        "failure cleanup left owned package or changed unrelated inventory")
+            except BaseException as error:
+                cleanup_errors.append("normal uninstall: " + str(error))
+        if changed_confirmation:
+            try:
+                command("restore-confirmation-feature", [choco, "feature", "enable", "-n", "allowGlobalConfirmation"])
+            except BaseException as error:
+                cleanup_errors.append("confirmation restore: " + str(error))
+        if baseline_features is not None:
+            try:
+                require(features("features-restored") == baseline_features, "full original feature list not restored")
+                receipt["features_restored"] = True
+            except BaseException as error:
+                cleanup_errors.append("feature verification: " + str(error))
+        if mirror is not None:
+            receipt["loopback_requests"] = mirror.requests
+            try:
+                mirror.close_owned(); receipt["loopback_closed"] = True
+            except BaseException as error:
+                cleanup_errors.append("loopback cleanup: " + str(error))
+        receipt["cleanup_errors"] = cleanup_errors
+        if cleanup_errors:
+            receipt["status"] = "failed"
+        files = [p for p in proof.rglob("*") if p.is_file() and p.name != "receipt.json"]
+        if len(files) > 64 or sum(p.stat().st_size for p in files) > 8 * 1024 * 1024:
+            receipt.update(status="failed", error="curated proof bound exceeded")
+        receipt["files"] = {p.relative_to(proof).as_posix(): {"bytes": p.stat().st_size, "sha256": sha(p.read_bytes())}
+                            for p in sorted(files)}
+        save()
+    require(receipt["status"] == "lifecycle_passed", "Chocolatey lifecycle failed; see bounded receipt")
+
+
+def self_test():
+    """Pure safety/format regressions; no manager, native process, network or state."""
+    import unittest
+
+    class Guards(unittest.TestCase):
+        def test_hosted_main_only(self):
+            env = {"GITHUB_ACTIONS": "true", "FLERE_RUNNER_ENVIRONMENT": "github-hosted",
+                   "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REPOSITORY": REPO,
+                   "GITHUB_REF": "refs/heads/main", "RUNNER_OS": "Windows", "RUNNER_ARCH": "X64",
+                   "FLERE_WORKFLOW_SHA": "a" * 40, "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"}
+            candidate.hosted(env)
+            for key in env:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    candidate.hosted(dict(env, **{key: "unexpected"}))
+
+        def test_only_complete_prompt_at_every_split(self):
+            text = ANNOUNCEMENT + b"\r\nNote: ordinary script confirmation\r\n" + PROMPT
+            for split in range(len(text)):
+                self.assertFalse(prompt_ready(text[:split], False))
+                self.assertTrue(prompt_ready(text[:split] + text[split:], False))
+                self.assertFalse(prompt_ready(text, True))
+
+        def test_other_or_repeated_prompt_rejected(self):
+            for text in (PROMPT, ANNOUNCEMENT.replace(b"flere-connect", b"other") + PROMPT,
+                         ANNOUNCEMENT + PROMPT + PROMPT, ANNOUNCEMENT + ANNOUNCEMENT + PROMPT):
+                with self.subTest(text=text), self.assertRaises(ValueError):
+                    prompt_ready(text, False)
+
+        def test_features_preserve_explicit_boolean_semantics(self):
+            raw = b"allowGlobalConfirmation|Enabled|Prompt policy\r\nchecksumFiles|Enabled|Validate hashes\r\n"
+            self.assertEqual(parse_features(raw), {"allowGlobalConfirmation": True, "checksumFiles": True})
+            for bad in (raw.replace(b"checksumFiles|Enabled", b"checksumFiles|Disabled"),
+                        raw + raw, raw.replace(b"|Enabled|", b"|unknown|")):
+                with self.assertRaises(ValueError):
+                    parse_features(bad)
+
+        def test_packages_reject_diagnostics_duplicates_and_missing_manager(self):
+            raw = b"chocolatey|2.7.4\r\nflere-connect|0.3.4\r\n"
+            self.assertEqual(parse_packages(raw)[PACKAGE], VERSION)
+            for bad in (raw + b"warning text\n", raw + raw, b"flere-connect|0.3.4\n"):
+                with self.assertRaises(ValueError):
+                    parse_packages(bad)
+
+        def test_credentials_removed_but_system_module_paths_remain(self):
+            self.assertEqual(runtime_env({"PATH": "normal", "PSModulePath": "normal-modules", "SystemRoot": "system",
+                                          "GH_TOKEN": "test", "ACTIONS_RUNTIME_TOKEN": "test", "OTHER_PASSWORD": "test"}),
+                             {"PATH": "normal", "PSModulePath": "normal-modules", "SystemRoot": "system"})
+
+        def test_artifact_api_must_match_run_revision_digest(self):
+            value = {"id": ARTIFACT, "name": f"windows-recipes-{RUN}-1", "size_in_bytes": ARTIFACT_BYTES,
+                     "expired": False, "digest": "sha256:" + ARTIFACT_SHA,
+                     "workflow_run": {"id": RUN, "head_sha": WORKFLOW}}
+            verify_api(value)
+            for key, wrong in (("expired", True), ("digest", "sha256:" + "0" * 64),
+                               ("workflow_run", {"id": RUN, "head_sha": "0" * 40})):
+                with self.assertRaises(ValueError):
+                    verify_api(dict(value, **{key: wrong}))
+
+    require(unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(Guards)).wasSuccessful(),
+            "lifecycle pure guards failed")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        require(args.output is None, "self-test takes no output path")
+        self_test()
+    else:
+        require(args.output is not None, "fresh output directory required")
+        main(args.output.resolve())
