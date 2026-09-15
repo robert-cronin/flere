@@ -14,8 +14,8 @@ remote installation still attaches without channel discovery.
 
 Published companion binaries through 0.3.6 retain their previous discovery
 behavior. The new Rust resolver requires a subsequent binary release. The shell
-loader must pin the published version of the new self-contained Python installer;
-changing the Python source does not update old saved loader copies.
+loader pins the self-contained Python installer at commit `5297628` with its
+verified size and SHA-256. Old saved loader copies keep their original pin.
 
 ## Prepare a promotion
 

@@ -33,11 +33,12 @@ wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/ins
 "$HOME/.local/bin/flere" --version
 ```
 
-The [shell bootstrap](../scripts/install.sh) downloads the published v0.3.0
-Python installer over HTTPS and checks its pinned size and SHA-256 before running
-it. Its default follows GitHub's latest release, still v0.3.0; the new per-target
-channel consumer is prepared but not yet published through this loader. It
-requires no Rust, source checkout, GitHub login or sudo, and does not install
+The [shell bootstrap](../scripts/install.sh) downloads the Python installer from
+an immutable Git commit over HTTPS and checks its pinned size and SHA-256 before
+running it. The [release index](../packaging/channels/stable.json) selects Linux
+v0.3.6 or the unsigned macOS arm64 v0.3.0 prebuilt. Each selected manifest is
+verified against the index before its payload is used. The bootstrap requires
+no Rust, source checkout, GitHub login or sudo, and does not install
 system tools, edit PATH or start chats. Add `~/.local/bin`
 to PATH to use `flere` directly. Git and Vim/Neovim are needed for their respective
 workbench features.
@@ -48,7 +49,7 @@ existing manual user installation. Other installer arguments are forwarded
 unchanged. Intel macOS prebuilts and notarized Mac downloads remain pending;
 see [platform limits](reference/compatibility.md) and the source build below.
 
-For the current Linux v0.3.6 release, select its immutable manifest explicitly:
+To select Linux v0.3.6 explicitly instead of following the platform default:
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh -s -- https://github.com/robert-cronin/flere/releases/download/v0.3.6/flere-x86_64-unknown-linux-gnu.manifest.json
@@ -209,11 +210,11 @@ separate from installing a new package.
 
 ### Install a published package
 
-The terminal bootstrap's pinned v0.3.0 installer fetches the platform’s core and
-companion together, using an explicit manifest or its older latest-release default.
-The maintained [installer source](../scripts/install.py) adds per-target discovery;
-publication through the shell loader is pending. Both versions check the payload
-hashes and matching source/version/protocol before installing either component.
+The terminal bootstrap's pinned [installer](../scripts/install.py) fetches the
+platform’s core and companion together, using an explicit manifest or the
+per-platform release index. Default selection verifies exact manifest size,
+SHA-256, version, component and target. It then checks payload hashes and matching
+source/version/protocol before installing either component.
 Use `--core-only` on a remote server, or supply a core manifest URL and
 `--companion-url` for a custom HTTPS channel. Each component records its own
 installation; the report identifies any partial failure so it can be repaired.

@@ -20,13 +20,14 @@ macOS arm64 prebuilt core/companion downloads remain at
 Developer ID notarization. Older macOS and Intel runtime acceptance are not
 established by that release. Homebrew source formulas now track v0.3.6.
 
-The Unix shell bootstrap still pins the v0.3.0 installer, whose default follows
-GitHub's unchanged v0.3.0 latest pointer. The new per-target consumer and pinned
-channel are prepared; their shell-loader publication remains pending. The
-[installation guide](getting-started.md#install-from-your-terminal) gives an
-explicit v0.3.6 Linux manifest command in the meantime. The installer verifies a
-core/companion pair under `~/.local/bin` and records each source; it needs Python
-3, but no Rust toolchain or source checkout.
+The Unix shell bootstrap pins the verified installer at commit `5297628`. It
+selects Linux v0.3.6 or the unsigned macOS arm64 v0.3.0 prebuilt from the
+[per-platform release index](../packaging/channels/stable.json), independently of
+GitHub's unchanged latest pointer. Intel Mac prebuilt selection is unavailable.
+The [installation guide](getting-started.md#install-from-your-terminal) also
+shows explicit version selection. The installer verifies a core/companion pair
+under `~/.local/bin` and records each source; it needs Python 3, but no Rust
+toolchain or source checkout.
 
 ## Package-manager channels
 

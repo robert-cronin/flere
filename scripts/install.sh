@@ -18,9 +18,9 @@ import tempfile
 import urllib.parse
 import urllib.request
 
-URL = "https://github.com/robert-cronin/flere/releases/download/v0.3.0/install.py"
-SHA256 = "6cf38968d2f39c8a7b67babf85c9791c0b0b854c2b05c1b7ee5daad19f7a9254"
-SIZE = 13366
+URL = "https://raw.githubusercontent.com/robert-cronin/flere/5297628c6b806296d6ec28546d2690578cc3ad1b/scripts/install.py"
+SHA256 = "e7a8867e7c279173b77f056c6c6a5fb5f5ac057a7c7afbf7c5aa7dd349a55be4"
+SIZE = 18539
 
 class HTTPSRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, url):

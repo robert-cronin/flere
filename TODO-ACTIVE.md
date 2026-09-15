@@ -498,9 +498,11 @@
   exact manifest pins and immutable URLs; explicit sources remain available.
   The prepared channel selects verified Linux/Windows 0.3.6, retains explicitly
   unsigned Mac arm64 0.3.0 and marks Intel Mac unavailable. Focused offline
-  consumer and promotion checks pass. Publish and verify the parser/channel,
-  migrate the shell loader's immutable pin, then release the new Rust consumer.
-  Existing released companions retain their old discovery until updated.
+  consumer and promotion checks pass. The parser/index are published in signed
+  commit `5297628` and exact anonymous bytes match. The shell loader now pins
+  that immutable installer; all eight piped-shell/argument/hash-failure checks
+  pass. Release the new Rust consumer next; existing released companions retain
+  their old discovery until updated.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
   an explicit commit/version pair while preserving its historical defaults,

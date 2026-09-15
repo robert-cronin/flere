@@ -44,8 +44,8 @@ wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/ins
 ```
 
 No Rust or source checkout is required. The bootstrap verifies the published
-installer before running it. Its default release remains v0.3.0 while per-target
-discovery is prepared. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
+installer before running it. Default downloads are selected per platform: Linux
+v0.3.6 and the unsigned macOS arm64 v0.3.0 prebuilt. See the [terminal installation guide](docs/getting-started.md#install-from-your-terminal)
 for curl, `--core-only`, PATH setup and existing-installation rules.
 
 With Rust 1.98+ and a system C linker, install the core from crates.io:
