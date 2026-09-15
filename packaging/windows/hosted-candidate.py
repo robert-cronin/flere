@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One nonpublishing Windows/MSVC candidate from the reviewed public commit."""
+"""One nonpublishing Windows/MSVC candidate from an exact reviewed public commit."""
 import argparse
 import hashlib
 import importlib.util
@@ -41,6 +41,17 @@ def module(name):
     return value
 
 
+def selection(commit=None, version=None):
+    """Retain the historical defaults; a release must override both identities."""
+    require((commit is None) == (version is None), "commit and version must be supplied together")
+    if commit is None:
+        commit, version = COMMIT, VERSION
+    require(isinstance(commit, str) and re.fullmatch("[0-9a-f]{40}", commit),
+            "commit must be a full lowercase Git SHA")
+    require(module("windows-manifests").release_version(version), "invalid release version")
+    return commit, version
+
+
 def hosted(env):
     for key, expected in {
         "GITHUB_ACTIONS": "true", "FLERE_RUNNER_ENVIRONMENT": "github-hosted",
@@ -53,15 +64,16 @@ def hosted(env):
                 for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT")), "run identity missing")
 
 
-def source_snapshot(checkout):
+def source_snapshot(checkout, *, commit=None, version=None):
     """Check actual checkout bytes against Git blobs, not only clean status/CRLF filters."""
+    commit, version = selection(commit, version)
     source = module("release-source")
-    source.clean(checkout, COMMIT)
-    subprocess.run(["git", "-C", str(checkout), "merge-base", "--is-ancestor", COMMIT,
+    source.clean(checkout, commit)
+    subprocess.run(["git", "-C", str(checkout), "merge-base", "--is-ancestor", commit,
                     "refs/remotes/origin/main"], check=True, stdin=subprocess.DEVNULL,
                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30)
     entries, documents, total = {}, {}, 0
-    for record in source.git(checkout, "ls-tree", "-rlz", COMMIT).split(b"\0"):
+    for record in source.git(checkout, "ls-tree", "-rlz", commit).split(b"\0"):
         if not record:
             continue
         metadata, raw_name = record.split(b"\t", 1)
@@ -81,8 +93,8 @@ def source_snapshot(checkout):
         entries[name] = {"bytes": len(data), "mode": int(mode, 8) & 0o777, "sha256": sha(data)}
         if name in ("Cargo.toml", "Cargo.lock", "companion/Cargo.toml", "companion/Cargo.lock"):
             documents[name] = data
-    source.package_inputs(entries, documents, VERSION)
-    return {"commit": COMMIT, "version": VERSION, "source_sha256": source.fingerprint(entries),
+    source.package_inputs(entries, documents, version)
+    return {"commit": commit, "version": version, "source_sha256": source.fingerprint(entries),
             "fingerprint_algorithm": source.FINGERPRINT, "entries": entries}
 
 
@@ -112,8 +124,10 @@ def tree(path):
     return result
 
 
-def verify_nupkg(path, install_script):
-    require(path.name == "flere-connect." + VERSION + ".nupkg" and not path.is_symlink()
+def verify_nupkg(path, install_script, *, version=None):
+    version = VERSION if version is None else version
+    require(module("windows-manifests").release_version(version), "invalid release version")
+    require(path.name == "flere-connect." + version + ".nupkg" and not path.is_symlink()
             and path.stat().st_size <= 1024 * 1024, "Chocolatey package identity/bound differs")
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
@@ -128,12 +142,13 @@ def verify_nupkg(path, install_script):
         require(archive.read("tools/chocolateyInstall.ps1") == install_script, "Chocolatey install script differs")
         spec = ET.fromstring(archive.read("flere-connect.nuspec"))
         fields = {node.tag.rsplit("}", 1)[-1]: node.text for node in spec.findall("{*}metadata/{*}*")}
-        require(fields.get("id") == "flere-connect" and fields.get("version") == VERSION,
+        require(fields.get("id") == "flere-connect" and fields.get("version") == version,
                 "Chocolatey package metadata differs")
         return {name: {"bytes": len(data := archive.read(name)), "sha256": sha(data)} for name in sorted(names)}
 
 
-def run(checkout, output):
+def run(checkout, output, *, commit=None, version=None):
+    commit, version = selection(commit, version)
     hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64"), "native Windows AMD64 required")
     require(subprocess.check_output(["git", "-C", str(PROJECT), "rev-parse", "HEAD"], text=True).strip()
@@ -145,8 +160,8 @@ def run(checkout, output):
     proof.mkdir(); work.mkdir(); (proof / "logs").mkdir()
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
         stream.write("evidence=" + str(proof) + "\n")
-    receipt = {"schema": "flere-windows-candidate-v1", "status": "running", "commit": COMMIT,
-               "version": VERSION, "target": TARGET, "workflow_sha": os.environ["FLERE_WORKFLOW_SHA"],
+    receipt = {"schema": "flere-windows-candidate-v1", "status": "running", "commit": commit,
+               "version": version, "target": TARGET, "workflow_sha": os.environ["FLERE_WORKFLOW_SHA"],
                "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
                "machine": {"system": platform.platform(), "machine": platform.machine(),
                            "image_os": os.environ.get("ImageOS"), "image_version": os.environ.get("ImageVersion")},
@@ -202,7 +217,7 @@ def run(checkout, output):
         return data
 
     try:
-        before = source_snapshot(checkout)
+        before = source_snapshot(checkout, commit=commit, version=version)
         (proof / "source.json").write_text(json.dumps(before, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         env = os.environ.copy()
         for name in ("GH_TOKEN", "GITHUB_TOKEN", "CARGO_REGISTRY_TOKEN", "CARGO_REGISTRIES_CRATES_IO_TOKEN",
@@ -233,8 +248,8 @@ def run(checkout, output):
         command("06-clippy", ["cargo", "clippy", *common, "--all-targets", "--", "-D", "warnings"], env, 1200)
         command("07-tests", ["cargo", "test", *common, "--all-targets", "--", "--test-threads=4", "--nocapture"], env, 1200)
         command("08-release", ["cargo", "build", *common, "--release"], env, 1200)
-        require(source_snapshot(checkout) == before, "source changed during checks")
-        source_receipt = {"git_commit": COMMIT, "dirty": False, "source_sha256": before["source_sha256"],
+        require(source_snapshot(checkout, commit=commit, version=version) == before, "source changed during checks")
+        source_receipt = {"git_commit": commit, "dirty": False, "source_sha256": before["source_sha256"],
                           "checks": [row["name"] for row in receipt["checks"] if row["status"] == "passed"]}
         source_path = proof / "source-receipt.json"
         source_path.write_text(json.dumps(source_receipt, indent=2) + "\n", encoding="utf-8")
@@ -243,7 +258,7 @@ def run(checkout, output):
         command("09-package", [binary, "package", binary, package, source_path], env)
         manifest = json.loads((package / "manifest.json").read_bytes())
         require(manifest["source"] == source_receipt and manifest["build"]["component"] == "flere-connect"
-                and manifest["build"]["package_version"] == VERSION and manifest["build"]["target"] == TARGET
+                and manifest["build"]["package_version"] == version and manifest["build"]["target"] == TARGET
                 and manifest["build"]["profile"] == "release", "actual package identity differs")
         assets = work / "assets"
         command("10-flat-assets", [sys.executable, "-B", PROJECT / "scripts/release-assets.py", assets, package], env)
@@ -263,34 +278,34 @@ def run(checkout, output):
                 if flag == "--build-info":
                     require(json.loads(data) == manifest["build"], "portable build identity differs")
                 elif flag == "--version":
-                    require(data.decode().strip().startswith("flere-connect " + VERSION + " ")
+                    require(data.decode().strip().startswith("flere-connect " + version + " ")
                             and manifest["build"]["build_id"] in data.decode(), "portable version/build differs")
                 else:
                     require(b"--build-info" in data and b"ssh" in data, "portable help differs")
                 require(tree(state) == baseline, "stateless alias wrote application state")
         winget = shutil.which("winget.exe")
         if winget:
-            version = command("winget-version", [winget, "--version"], os.environ.copy()).decode().strip()
-            folder = windows / "winget/manifests/r/RobertCronin/FlereConnect" / VERSION
+            winget_version = command("winget-version", [winget, "--version"], os.environ.copy()).decode().strip()
+            folder = windows / "winget/manifests/r/RobertCronin/FlereConnect" / version
             command("winget-validate", [winget, "validate", str(folder), "--disable-interactivity"], os.environ.copy())
-            receipt["winget"] = {"status": "passed", "version": version}
+            receipt["winget"] = {"status": "passed", "version": winget_version}
         else:
             receipt["winget"] = {"status": "blocked", "reason": "WinGet executable unavailable on this hosted image; no installation attempted."}
         choco = shutil.which("choco.exe")
         if choco:
-            version = command("chocolatey-version", [choco, "--version"], os.environ.copy()).decode().strip()
+            chocolatey_version = command("chocolatey-version", [choco, "--version"], os.environ.copy()).decode().strip()
             recipe = windows / "chocolatey/flere-connect"
             packed = windows / "chocolatey-package"; packed.mkdir()
             command("chocolatey-pack", [choco, "pack", str(recipe / "flere-connect.nuspec"),
                     "--outputdirectory", str(packed)], os.environ.copy(), cwd=recipe)
-            package_path = packed / ("flere-connect." + VERSION + ".nupkg")
+            package_path = packed / ("flere-connect." + version + ".nupkg")
             require(list(packed.iterdir()) == [package_path], "Chocolatey output inventory differs")
-            inventory = verify_nupkg(package_path, (recipe / "tools/chocolateyInstall.ps1").read_bytes())
-            receipt["chocolatey"] = {"status": "passed", "version": version,
+            inventory = verify_nupkg(package_path, (recipe / "tools/chocolateyInstall.ps1").read_bytes(), version=version)
+            receipt["chocolatey"] = {"status": "passed", "version": chocolatey_version,
                                      "sha256": sha(package_path.read_bytes()), "inventory": inventory}
         else:
             receipt["chocolatey"] = {"status": "blocked", "reason": "Chocolatey executable unavailable on this hosted image; no installation attempted."}
-        require(source_snapshot(checkout) == before, "source changed during packaging")
+        require(source_snapshot(checkout, commit=commit, version=version) == before, "source changed during packaging")
         receipt.update(status="prepared_not_published", source_sha256=before["source_sha256"],
                        source_unchanged=True, stateless_checks=6, stateless_state_unchanged=True,
                        build=manifest["build"], payload_sha256=manifest["payload"]["sha256"],
@@ -311,5 +326,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--commit", help="reviewed full main commit; supply together with --version")
+    parser.add_argument("--version", help="exact X.Y.Z in both manifests and locks; supply with --commit")
     args = parser.parse_args()
-    run(args.checkout.resolve(), args.output.resolve())
+    run(args.checkout.resolve(), args.output.resolve(), commit=args.commit, version=args.version)

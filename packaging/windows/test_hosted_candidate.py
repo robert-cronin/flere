@@ -30,7 +30,7 @@ class CandidateChecks(unittest.TestCase):
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.root), *args], stderr=subprocess.PIPE).decode().strip()
 
-    def source(self):
+    def source(self, version="0.3.4"):
         self.git("init", "--initial-branch=main")
         self.git("config", "core.autocrlf", "false")
         self.git("config", "commit.gpgsign", "false")
@@ -44,13 +44,36 @@ class CandidateChecks(unittest.TestCase):
         for prefix, name, build in (("", "flere", "build-support/build.rs"),
                                     ("companion/", "flere-connect", "../build-support/build.rs")):
             (self.root / (prefix + "Cargo.toml")).write_text(
-                f'[package]\nname = "{name}"\nversion = "0.3.4"\nrust-version = "1.98"\nbuild = "{build}"\n')
+                f'[package]\nname = "{name}"\nversion = "{version}"\nrust-version = "1.98"\nbuild = "{build}"\n')
             (self.root / (prefix + "Cargo.lock")).write_text(
-                f'[[package]]\nname = "{name}"\nversion = "0.3.4"\n')
+                f'[[package]]\nname = "{name}"\nversion = "{version}"\n')
         self.git("add", "."); self.git("commit", "-qm", "fixture")
         commit = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", commit)
         return commit
+
+    def test_selection_keeps_historical_defaults_and_rejects_partial_or_malformed_input(self):
+        self.assertEqual(candidate.selection(), ("422058c0fa4dda3cff7693a32953fea1b2c5404e", "0.3.4"))
+        self.assertEqual(candidate.selection("b" * 40, "0.3.5"), ("b" * 40, "0.3.5"))
+        for commit, version in (("b" * 40, None), (None, "0.3.5"), ("main", "0.3.5"),
+                                ("B" * 40, "0.3.5"), ("b" * 40, "v0.3.5"),
+                                ("b" * 40, "0.03.5"), ("b" * 40, "2147483648.0.0")):
+            with self.subTest(commit=commit, version=version), mock.patch.object(candidate, "hosted") as guard:
+                with self.assertRaises(ValueError):
+                    candidate.run(self.root, self.root / "output", commit=commit, version=version)
+                guard.assert_not_called()
+                self.assertFalse((self.root / "output").exists())
+
+    def test_explicit_source_and_version_are_checked_without_changing_default_pins(self):
+        original = candidate.selection()
+        commit = self.source("0.3.5")
+        snapshot = candidate.source_snapshot(self.root, commit=commit, version="0.3.5")
+        self.assertEqual((snapshot["commit"], snapshot["version"]), (commit, "0.3.5"))
+        with self.assertRaises(ValueError):
+            candidate.source_snapshot(self.root, commit=commit, version="0.3.4")
+        with self.assertRaises(ValueError):
+            candidate.source_snapshot(self.root, commit="0" * 40, version="0.3.5")
+        self.assertEqual(candidate.selection(), original)
 
     def test_exact_git_bytes_reject_hidden_crlf_and_stale_public_identity(self):
         commit = self.source()
@@ -146,6 +169,25 @@ class CandidateChecks(unittest.TestCase):
                 else:
                     with self.assertRaises(ValueError):
                         candidate.verify_nupkg(path, b"reviewed fixture")
+
+    def test_selected_nupkg_requires_both_matching_filename_and_embedded_version(self):
+        path = self.root / "flere-connect.0.3.5.nupkg"
+        entries = {"_rels/.rels": b"<Relationships/>", "[Content_Types].xml": b"<Types/>",
+                   "tools/chocolateyInstall.ps1": b"fixture",
+                   "package/services/metadata/core-properties/" + "a" * 32 + ".psmdcp": b"<coreProperties/>"}
+        for version in ("0.3.5", "0.3.4"):
+            with zipfile.ZipFile(path, "w") as archive:
+                for name, data in entries.items():
+                    archive.writestr(name, data)
+                archive.writestr("flere-connect.nuspec", '<package xmlns="urn:fixture"><metadata>'
+                                 '<id>flere-connect</id><version>' + version + '</version></metadata></package>')
+            if version == "0.3.5":
+                self.assertEqual(len(candidate.verify_nupkg(path, b"fixture", version="0.3.5")), 5)
+                with self.assertRaisesRegex(ValueError, "identity"):
+                    candidate.verify_nupkg(path, b"fixture")
+            else:
+                with self.assertRaisesRegex(ValueError, "metadata"):
+                    candidate.verify_nupkg(path, b"fixture", version="0.3.5")
 
 
 if __name__ == "__main__":

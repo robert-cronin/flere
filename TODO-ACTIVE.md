@@ -283,8 +283,12 @@
   reconciled the original assets/uploads without rebuilding or publishing twice.
   Ordinary pushes do not publish. Earlier failed receipts remain retained.
 - [ ] Extend release automation to the remaining targets and package channels
-  after their own acceptance checks. The Linux manual Release path is complete;
-  v0.3.0 remains latest, and macOS/Windows channels were not advanced by v0.3.3.
+  after their own acceptance checks. The Windows candidate producer now accepts
+  an explicit commit/version pair while preserving its historical defaults;
+  27 focused candidate, packaging and lifecycle-helper checks pass. The complete
+  multi-target artifact assembly and Release wiring remain to be implemented.
+  The Linux manual Release path is complete; v0.3.0 remains latest, and
+  macOS/Windows channels were not advanced by v0.3.3.
 - [x] Resolve and revalidate UI tests under parallel load. The eight-row archive
   picker now retains a visible result row, and sidebar tests wait for the actual
   click acknowledgement. Both focused tests and the full serial/parallel suites
