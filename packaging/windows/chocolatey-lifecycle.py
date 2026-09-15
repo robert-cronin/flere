@@ -283,6 +283,22 @@ def path_hashes():
     return result
 
 
+
+def verify_removal(value):
+    """Stored history is distinct from installed files, according to observed policy."""
+    require(set(value["aliases"]) == {"flere.exe", "flere-connect.exe"}, "both alias predicates required")
+    errors = [name for name in ("installed_package_present", "package_directory_exists", "payload_directory_exists")
+              if value[name]]
+    errors += [name for name in ("package_inventory_preserved", "path_preserved", "synthetic_state_preserved")
+               if not value[name]]
+    for name, alias in value["aliases"].items():
+        if alias["shim_exists"] or alias["path_resolution"] is not None:
+            errors.append("alias remains: " + name)
+    if value["remove_package_information_on_uninstall"] and value["registration_paths"]:
+        errors.append("registration remains despite removal policy")
+    require(not errors, "removal checks failed: " + ", ".join(errors))
+
+
 def runtime_env(environment):
     # Keep ordinary OS/tool/module paths, but never give package scripts CI credentials.
     return {k: v for k, v in environment.items()
@@ -396,6 +412,31 @@ def main(output):
         file_record(path)
         return sorted(path.glob("flere-connect.0.3.4*"))
 
+    def removal_snapshot(name, installed):
+        # Capture each predicate before asserting, including normal historical registration retention.
+        registrations = owned_registration()
+        value = {"installed_package_present": PACKAGE in installed,
+                 "package_inventory_preserved": installed == baseline_packages,
+                 "package_directory_exists": os.path.lexists(root / "lib" / PACKAGE),
+                 "payload_directory_exists": os.path.lexists(root / "lib" / PACKAGE / "tools/app"),
+                 "aliases": {alias: {"shim_exists": os.path.lexists(root / "bin" / alias),
+                                      "path_resolution": shutil.which(alias)}
+                             for alias in ("flere.exe", "flere-connect.exe")},
+                 "path_preserved": path_hashes() == paths_before,
+                 "synthetic_state_preserved": candidate.tree(fixture) == before_state,
+                 "remove_package_information_on_uninstall": baseline_features["removePackageInformationOnUninstall"],
+                 "registration_paths": list(map(str, registrations)),
+                 "historical_registration_retained": bool(registrations)}
+        record(name, value)  # A later diagnostic read failure must not hide the removal predicates.
+        retained = []
+        for registration in registrations:
+            retained.extend(owned_paths(registration))
+        require(len(retained) <= 128, "retained manager history exceeds bound")
+        value["historical_registration_inventory"] = [file_record(path) for path in retained]
+        record(name, value)
+        receipt["historical_registration_retained"] = bool(registrations)
+        return value
+
     try:
         gh = shutil.which("gh.exe"); require(gh, "existing GitHub CLI unavailable")
         api = f"repos/{REPO}/actions/artifacts/{ARTIFACT}"
@@ -408,13 +449,19 @@ def main(output):
         require(root.resolve() == Path(r"C:\ProgramData\chocolatey").resolve(), "normal Chocolatey root required")
         choco = Path(shutil.which("choco.exe") or "missing")
         require(choco.resolve() == (root / "bin/choco.exe").resolve(), "normal Chocolatey command required")
-        ps = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        ps = Path(shutil.which("pwsh.exe") or "missing")
+        require(ps.is_file(), "existing native PowerShell7 unavailable; no provisioning attempted")
+        ps_info = powershell("powershell-version", "[pscustomobject]@{edition=$PSVersionTable.PSEdition;major=$PSVersionTable.PSVersion.Major;version=$PSVersionTable.PSVersion.ToString();home=$PSHOME} | ConvertTo-Json -Compress")
+        require(ps_info["edition"] == "Core" and ps_info["major"] == 7
+                and (Path(ps_info["home"]) / "pwsh.exe").resolve() == ps.resolve(), "native PowerShell7 identity differs")
+        record("powershell", dict(ps_info, executable=str(ps)))
         admin = powershell("elevation", "$identity=[Security.Principal.WindowsIdentity]::GetCurrent(); $principal=[Security.Principal.WindowsPrincipal]$identity; $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) | ConvertTo-Json -Compress")
         require(admin is True, "disposable hosted runner is not already elevated; no elevation requested")
         require(command("choco-version", [choco, "--version"]).decode().strip() == "2.7.4", "reviewed Chocolatey2.7.4 required")
         receipt["machine"]["chocolatey_version"] = "2.7.4"
         record("manager", {"root": file_record(root), "command": file_record(choco), "elevated": admin})
         baseline_features = features("features-before"); baseline_packages = packages("packages-before")
+        require("removePackageInformationOnUninstall" in baseline_features, "package-information retention policy unavailable")
         require(PACKAGE not in baseline_packages and not (root / "lib" / PACKAGE).exists()
                 and not owned_registration(), "package or registration already exists")
         require(all(shutil.which(alias) is None and not (root / "bin" / alias).exists()
@@ -490,11 +537,6 @@ def main(output):
         records = [file_record(path) for path in paths]
         record("installed-layout", {"files": records, "registration_observed": list(map(str, registrations)),
                "native_file_id": "Python os.stat st_ino/st_dev from Windows file identity; observation, not ownership proof"})
-        selected = work / "metadata-paths.json"; selected.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
-        escaped = str(selected).replace("'", "''")
-        acl = powershell("owned-acls", "$paths = Get-Content -Raw -LiteralPath '" + escaped + "' | ConvertFrom-Json; @($paths | ForEach-Object { $a=Get-Acl -LiteralPath $_; [pscustomobject]@{path=$_;owner=$a.Owner;sddl=$a.Sddl} }) | ConvertTo-Json -Depth 3 -Compress")
-        require(len(acl) == len(paths) and all(row["sddl"] and row["owner"] for row in acl), "owned ACL capture incomplete")
-        record("owned-acls", acl)
         # Keep small manager-generated ledger bytes for the detector review; never copy executables.
         ledger = []
         for index, path in enumerate(paths):
@@ -503,14 +545,21 @@ def main(output):
                 data = path.read_bytes(); target = proof / "records" / f"registration-{index}.bin"
                 target.write_bytes(data); ledger.append({"path": str(path), "retained": target.name, "sha256": sha(data)})
         record("registration-files", ledger)
+        # Optional diagnostic: capture needed manager records first, without changing module paths/policy.
+        selected = work / "metadata-paths.json"; selected.write_text(json.dumps(list(map(str, paths))), encoding="utf-8")
+        escaped = str(selected).replace("'", "''")
+        try:
+            acl = powershell("owned-acls", "$paths = Get-Content -Raw -LiteralPath '" + escaped + "' | ConvertFrom-Json; @($paths | ForEach-Object { $a=Get-Acl -LiteralPath $_; [pscustomobject]@{path=$_;owner=$a.Owner;sddl=$a.Sddl} }) | ConvertTo-Json -Depth 3 -Compress")
+            require(len(acl) == len(paths) and all(row["sddl"] and row["owner"] for row in acl), "owned ACL capture incomplete")
+            record("owned-acls", acl)
+            receipt["acl_diagnostic"] = {"status": "passed", "required_for_lifecycle": False}
+        except Exception as error:
+            receipt["acl_diagnostic"] = {"status": "failed", "required_for_lifecycle": False, "error": str(error)}
+        save()
         require(candidate.tree(fixture) == before_state, "stateless alias calls changed synthetic state")
         command("uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
         uninstalled = True
-        require(packages("packages-after") == baseline_packages and not package_root.exists()
-                and not owned_registration() and all(not p.exists() and shutil.which(p.name) is None for p in aliases),
-                "package, registration, alias or unrelated inventory not restored")
-        require(path_hashes() == paths_before and candidate.tree(fixture) == before_state,
-                "PATH or synthetic state changed")
+        verify_removal(removal_snapshot("removal", packages("packages-after")))
         record("path-after", path_hashes()); record("state-after", candidate.tree(fixture))
         require(not mirror.unexpected and any(row["method"] == "GET" and row["sha256"] == ZIP_SHA
                     for row in mirror.requests), "normal checksummed loopback download was not observed")
@@ -525,10 +574,7 @@ def main(output):
         if attempted_install and not uninstalled:
             try:
                 command("failure-uninstall", [choco, "uninstall", PACKAGE, "--version=" + VERSION, "--no-progress"])
-                require(packages("failure-packages-after") == baseline_packages
-                        and not (root / "lib" / PACKAGE).exists() and not owned_registration()
-                        and all(not (root / "bin" / name).exists() for name in ("flere.exe", "flere-connect.exe")),
-                        "failure cleanup left owned package or changed unrelated inventory")
+                verify_removal(removal_snapshot("failure-removal", packages("failure-packages-after")))
             except BaseException as error:
                 cleanup_errors.append("normal uninstall: " + str(error))
         if changed_confirmation:
@@ -608,6 +654,37 @@ def self_test():
             self.assertEqual(runtime_env({"PATH": "normal", "PSModulePath": "normal-modules", "SystemRoot": "system",
                                           "GH_TOKEN": "test", "ACTIONS_RUNTIME_TOKEN": "test", "OTHER_PASSWORD": "test"}),
                              {"PATH": "normal", "PSModulePath": "normal-modules", "SystemRoot": "system"})
+
+        def test_removal_respects_observed_history_policy(self):
+            value = {"installed_package_present": False, "package_directory_exists": False,
+                     "payload_directory_exists": False, "package_inventory_preserved": True,
+                     "path_preserved": True, "synthetic_state_preserved": True,
+                     "aliases": {name: {"shim_exists": False, "path_resolution": None}
+                                 for name in ("flere.exe", "flere-connect.exe")},
+                     "remove_package_information_on_uninstall": False,
+                     "registration_paths": [r"C:\ProgramData\chocolatey\.chocolatey\flere-connect.0.3.4"]}
+            verify_removal(value)  # Native2.7.4 default: metadata history may outlive the installed package.
+            with self.assertRaisesRegex(ValueError, "registration remains"):
+                verify_removal(dict(value, remove_package_information_on_uninstall=True))
+            verify_removal(dict(value, remove_package_information_on_uninstall=True, registration_paths=[]))
+
+        def test_history_does_not_relax_actual_removal_or_preservation(self):
+            base = {"installed_package_present": False, "package_directory_exists": False,
+                    "payload_directory_exists": False, "package_inventory_preserved": True,
+                    "path_preserved": True, "synthetic_state_preserved": True,
+                    "aliases": {name: {"shim_exists": False, "path_resolution": None}
+                                for name in ("flere.exe", "flere-connect.exe")},
+                    "remove_package_information_on_uninstall": False, "registration_paths": ["own-history"]}
+            for name in ("installed_package_present", "package_directory_exists", "payload_directory_exists",
+                         "package_inventory_preserved", "path_preserved", "synthetic_state_preserved"):
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, name):
+                    verify_removal(dict(base, **{name: not base[name]}))
+            for alias in ({"shim_exists": True, "path_resolution": None},
+                          {"shim_exists": False, "path_resolution": r"C:\other\flere.exe"}):
+                with self.subTest(alias=alias), self.assertRaisesRegex(ValueError, "alias remains"):
+                    verify_removal(dict(base, aliases=dict(base["aliases"], **{"flere.exe": alias})))
+            with self.assertRaisesRegex(ValueError, "both alias"):
+                verify_removal(dict(base, aliases={}))
 
         def test_actual_powershell_progress_stays_out_of_json(self):
             # Exact first-use CLIXML progress bytes retained from native run34915209443.
