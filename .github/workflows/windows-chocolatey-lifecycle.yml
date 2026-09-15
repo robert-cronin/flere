@@ -18,10 +18,11 @@ jobs:
     timeout-minutes: 10
     env:
       FLERE_WORKFLOW_SHA: ${{ github.workflow_sha }}
-      FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Require the disposable hosted manual Windows job
+        env:
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -45,6 +46,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $HOME '.cache/flere/tmp'
