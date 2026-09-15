@@ -375,7 +375,11 @@
   records remain Unknown with Apply disabled. The shared profile extraction
   preserves the corrected WinGet resolver. Thirty-two focused manager tests,
   formatting and strict companion/Windows Clippy pass; native Scoop recognition
-  and literal 0.3.4 → 0.3.5 manager upgrades remain pending. Native
+  and literal 0.3.4 → 0.3.5 manager upgrades remain pending. Integrated
+  source `7e43fa1` passed all 541 native macOS tests and both release builds;
+  strict checks and formatting pass. Normal Scoop/WinGet upgrade workflows
+  are prepared with exact version/build/alias and preservation checks; all 64
+  combined helper checks pass. They await verified 0.3.5 candidate inputs. Native
   Linux checks passed for Debian, Cargo core, Homebrew core/companion, RPM,
   pacman and Nix at their separately recorded versions and scopes above. Physical
   desktop and external companion SSH acceptance remain separate.

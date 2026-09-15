@@ -1,10 +1,20 @@
-name: Windows Scoop public release lifecycle
+name: Windows Scoop lifecycle
 
 on:
   workflow_dispatch:
+    inputs:
+      input_set:
+        description: 'Reviewed package input (candidate requires configured successful 0.3.5 artifact pins)'
+        required: true
+        type: choice
+        default: public-v0.3.4
+        options:
+          - public-v0.3.4
+          - candidate-scoop-owner
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: windows-scoop-lifecycle
@@ -44,16 +54,18 @@ jobs:
           python -B scripts/test_windows_manifests.py
           if ($LASTEXITCODE -ne 0) { throw 'Windows manifest and actual PowerShell hook checks failed.' }
       - id: lifecycle
-        name: Normal per-user Scoop install, records and removal
+        name: Normal per-user install, optional upgrade and owner check, removal
         shell: pwsh
         env:
           FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          FLERE_INPUT_SET: ${{ inputs.input_set }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $HOME '.cache/flere/tmp'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $Output = Join-Path $Root ("scoop-lifecycle-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
-          python -B packaging/windows/scoop-lifecycle.py $Output
+          python -B packaging/windows/scoop-lifecycle.py $Output --input $env:FLERE_INPUT_SET
           if ($LASTEXITCODE -ne 0) { throw 'Scoop lifecycle failed; inspect retained proof.' }
       - name: Retain bounded proof without package publication
         if: always() && steps.lifecycle.outputs.evidence != ''

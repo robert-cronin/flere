@@ -99,14 +99,27 @@ def verify_installed_owner(value, manifest, executable):
     return owner
 
 
+def input_version(selected):
+    """Explicit future candidates may vary version; historical inputs stay 0.3.4."""
+    require(isinstance(selected, dict), "input selection must be a reviewed mapping")
+    version = selected.get("version", VERSION)
+    require(candidate.module("windows-manifests").release_version(version), "invalid selected package version")
+    return version
+
+
+def zip_name(selected):
+    return f"flere-connect-{input_version(selected)}-x86_64-pc-windows-msvc.zip"
+
+
 def candidate_proof(archive, selected):
+    version = input_version(selected)
     data = archive.read("candidate.json")
     require(sha(data) == selected["receipt_sha"], "candidate receipt bytes differ")
     receipt = json.loads(data)
     require(receipt["schema"] == "flere-windows-candidate-v1" and receipt["status"] == "prepared_not_published"
             and receipt["commit"] == selected["product"] and receipt["workflow_sha"] == selected["workflow"]
             and receipt["run_id"] == str(selected["run"]) and receipt["run_attempt"] == "1"
-            and receipt["version"] == VERSION and receipt["target"] == "x86_64-pc-windows-msvc"
+            and receipt["version"] == version and receipt["target"] == "x86_64-pc-windows-msvc"
             and receipt["source_sha256"] == selected["source"] and receipt["source_unchanged"] is True
             and receipt["stateless_checks"] == 6 and receipt["stateless_state_unchanged"] is True
             and receipt["chocolatey"]["version"] == "2.7.4"
@@ -196,6 +209,7 @@ def verify_api(value, selected=LEGACY_INPUT):
 
 
 def inputs(data, work, selected=LEGACY_INPUT):
+    version, portable_name = input_version(selected), zip_name(selected)
     require(len(data) == selected["artifact_bytes"] and sha(data) == selected["artifact_sha"], "recipe artifact bytes differ")
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = archive.namelist()
@@ -235,27 +249,28 @@ def inputs(data, work, selected=LEGACY_INPUT):
                 and len(source["entries"]) == selected["source_entries"]
                 and candidate.module("release-source").fingerprint(source["entries"]) == selected["source"],
                 "source inventory differs")
-        portable = archive.read("windows/" + ZIP_NAME)
+        portable = archive.read("windows/" + portable_name)
         spec = archive.read("windows/chocolatey/flere-connect/flere-connect.nuspec")
         script = archive.read("windows/chocolatey/flere-connect/tools/chocolateyInstall.ps1")
-        packed = archive.read("windows/chocolatey-package/flere-connect.0.3.4.nupkg")
+        packed = archive.read(f"windows/chocolatey-package/flere-connect.{version}.nupkg")
     require(sha(portable) == selected["zip_sha"] and len(portable) == selected["zip_bytes"]
             and sha(spec) == selected["nuspec_sha"] and sha(script) == selected["script_sha"] and sha(packed) == selected["nupkg_sha"],
             "reviewed ZIP/recipe pins differ")
-    zip_path = work / ZIP_NAME; zip_path.write_bytes(portable)
-    package = work / "flere-connect.0.3.4.nupkg"; package.write_bytes(packed)
-    candidate.verify_nupkg(package, script)
+    zip_path = work / portable_name; zip_path.write_bytes(portable)
+    package = work / f"flere-connect.{version}.nupkg"; package.write_bytes(packed)
+    candidate.verify_nupkg(package, script, version=version)
     with zipfile.ZipFile(io.BytesIO(portable)) as archive:
         payload = {name: archive.read(name) for name in ("flere.exe", "flere-connect.exe", "manifest.json", "LICENSE")}
     manifest = json.loads(payload["manifest.json"])
     require(manifest["source"]["git_commit"] == selected["product"] and not manifest["source"]["dirty"]
             and manifest["source"]["source_sha256"] == selected["source"]
             and manifest["payload"]["sha256"] == selected["payload_sha"]
+            and manifest["build"]["package_version"] == version
             and sha(payload["LICENSE"]) == source["entries"]["LICENSE"]["sha256"], "payload provenance differs")
     candidate.verify_zip(zip_path, manifest, payload["LICENSE"])
     if selected["owner_check"]:
         require(manifest["build"] == receipt["build"] and receipt["payload_sha256"] == selected["payload_sha"]
-                and receipt["zip"] == {"name": ZIP_NAME, "bytes": selected["zip_bytes"], "sha256": selected["zip_sha"]},
+                and receipt["zip"] == {"name": portable_name, "bytes": selected["zip_bytes"], "sha256": selected["zip_sha"]},
                 "candidate full build/payload differs")
     return portable, spec, script, manifest, payload, receipt
 
@@ -270,12 +285,12 @@ def local_script(script, port, selected=LEGACY_INPUT):
     return result
 
 
-def request_failure(method, path, status):
+def request_failure(method, path, status, selected=LEGACY_INPUT):
     """Bounded metadata only: never retain headers, arbitrary paths, query values or parser messages."""
     raw = path if isinstance(path, str) else ""
     clean = raw.split("?", 1)[0].split("#", 1)[0]
     return {"method": method if method in ("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "CONNECT", "TRACE", "PATCH") else "<other>",
-            "path": clean if clean == "/" + ZIP_NAME else "<other>",
+            "path": clean if clean == "/" + zip_name(selected) else "<other>",
             "path_form": "absolute" if raw.startswith(("http://", "https://")) else "origin" if raw.startswith("/") else "other",
             "path_characters": len(raw), "query_present": "?" in raw, "fragment_present": "#" in raw,
             "status": status, "reason": http.server.BaseHTTPRequestHandler.responses.get(status, ("Unknown",))[0]}
@@ -289,7 +304,7 @@ def verify_mirror(responses, attempts, rejections, dropped, internal_errors, sel
     for row in rejections:
         require(400 <= row["status"] <= 499 or row["status"] == 501, "unexpected loopback error status")
     for row in responses:
-        require(row["status"] == 200 and row["path"] == "/" + ZIP_NAME
+        require(row["status"] == 200 and row["path"] == "/" + zip_name(selected)
                 and row["method"] in ("GET", "HEAD") and row["content_length"] == selected["zip_bytes"],
                 "loopback response identity differs")
         require((row["method"] == "GET" and row["bytes"] == selected["zip_bytes"] and row["sha256"] == selected["zip_sha"])
@@ -315,7 +330,7 @@ class Mirror(http.server.HTTPServer):
             def send_error(self, code, message=None, explain=None):
                 owner = self.server
                 if len(owner.rejections) < 8:
-                    owner.rejections.append(request_failure(getattr(self, "command", None), getattr(self, "path", None), code))
+                    owner.rejections.append(request_failure(getattr(self, "command", None), getattr(self, "path", None), code, selected))
                 else:
                     owner.rejections_dropped += 1
                 # Standard error body only; never echo arbitrary parser text or filesystem data.
@@ -329,7 +344,7 @@ class Mirror(http.server.HTTPServer):
 
             def respond(self, body):
                 owner = self.server
-                if self.path != "/" + ZIP_NAME:
+                if self.path != "/" + zip_name(selected):
                     self.send_error(404)
                     return
                 owner.attempts += 1
@@ -890,6 +905,38 @@ def self_test():
                           dict(before, **{"AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive": "directory"})):
                 with self.subTest(after=after), self.assertRaises(ValueError):
                     verify_tool_initialization(before, after)
+
+        def test_explicit_version_changes_only_new_candidate_names(self):
+            self.assertEqual(input_version(LEGACY_INPUT), "0.3.4")
+            self.assertEqual(zip_name(LEGACY_INPUT), ZIP_NAME)
+            newer = dict(LEGACY_INPUT, version="0.3.5")
+            self.assertEqual(zip_name(newer), "flere-connect-0.3.5-x86_64-pc-windows-msvc.zip")
+            for bad in (True, None, "0.3.5/other", "00.3.5"):
+                with self.assertRaises(ValueError):
+                    input_version(dict(newer, version=bad))
+            row = {"method":"GET", "path":"/"+zip_name(newer), "status":200,
+                   "content_length":newer["zip_bytes"], "bytes":newer["zip_bytes"], "sha256":newer["zip_sha"]}
+            verify_mirror([row],1,[],0,0,newer)
+            with self.assertRaises(ValueError):
+                verify_mirror([row],1,[],0,0,LEGACY_INPUT)
+            self.assertEqual(request_failure("GET",row["path"],404,newer)["path"],row["path"])
+
+        def test_owned_loopback_serves_only_the_selected_new_version_path(self):
+            import urllib.error
+            import urllib.request
+            data = b"private synthetic candidate ZIP fixture"
+            selected = dict(LEGACY_INPUT, version="0.3.5", zip_bytes=len(data), zip_sha=sha(data))
+            mirror = Mirror(data, selected)
+            try:
+                url = f"http://127.0.0.1:{mirror.server_port}/"
+                with urllib.request.urlopen(url+zip_name(selected), timeout=3) as response:
+                    self.assertEqual(response.read(len(data)+1), data)
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(url+ZIP_NAME, timeout=3)
+                self.assertEqual(error.exception.code, 404)
+            finally:
+                mirror.close_owned()
+            verify_mirror(mirror.requests,mirror.attempts,mirror.rejections,mirror.rejections_dropped,mirror.internal_errors,selected)
 
         def test_default_retains_old_recipe_pins_and_no_owner_command(self):
             default = selection()

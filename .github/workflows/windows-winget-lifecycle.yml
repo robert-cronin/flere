@@ -12,6 +12,11 @@ on:
           - recipes-422058c
           - candidate-9a9183c
           - candidate-9d53f96
+      upgrade_from_public034:
+        description: Normal upgrade from published 0.3.4 (requires the exact reviewed 0.3.5 candidate)
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -57,13 +62,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FLERE_RETAINED_INPUT: ${{ inputs.candidate }}
+          FLERE_UPGRADE_FROM_PUBLIC034: ${{ inputs.upgrade_from_public034 }}
           FLERE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $HOME '.cache/flere/tmp'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $Output = Join-Path $Root ("winget-lifecycle-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-" + [guid]::NewGuid().ToString('N'))
-          python -B packaging/windows/winget-lifecycle.py $Output --input $env:FLERE_RETAINED_INPUT
+          $Upgrade = @()
+          if ($env:FLERE_UPGRADE_FROM_PUBLIC034 -eq 'true') { $Upgrade = @('--upgrade-from-public034') }
+          python -B packaging/windows/winget-lifecycle.py $Output --input $env:FLERE_RETAINED_INPUT @Upgrade
           if ($LASTEXITCODE -ne 0) { throw 'WinGet lifecycle failed; inspect retained proof.' }
       - name: Retain bounded proof, without package or executable publication
         if: always() && steps.lifecycle.outputs.evidence != ''

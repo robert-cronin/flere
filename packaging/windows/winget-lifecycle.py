@@ -3,7 +3,8 @@
 
 Fixed retained inputs; the default preserves the earlier 422 lifecycle.
 The selected candidates also check installed ownership with a synthetic
-profile. No public URL, upgrade, UI, coordinated-refusal or SSH claim.
+profile. The explicit upgrade mode installs published 0.3.4 bytes before the
+reviewed 0.3.5 candidate. No public download-route, UI, coordinated-refusal or SSH claim.
 The community source is contacted normally. Only LocalManifestFiles may change,
 through normal settings commands with readback and original-state restoration.
 """
@@ -92,6 +93,43 @@ PROFILE_INPUT = {'name': 'candidate-9d53f96',
             'RobertCronin.FlereConnect.yaml': '4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049'},
  'owner_check': True}
 INPUTS = {value["name"]: value for value in (LEGACY_INPUT, CURRENT_INPUT, PROFILE_INPUT)}
+
+
+# Exact release producer archive; its ZIP matches immutable public v0.3.4.
+# owner_check selects the candidate proof schema here, not a baseline owner call.
+PUBLIC034_INPUT = {'name': 'published-0.3.4',
+ 'version': '0.3.4',
+ 'run': 34930826557,
+ 'artifact': 10381936022,
+ 'artifact_bytes': 1864914,
+ 'artifact_name': 'release-windows-34930826557-1',
+ 'workflow': '32108e352f4a51d809b1e5ed64cc9dba3bc0be88',
+ 'artifact_sha': 'd87eddb9960995a203887cf5c5d5260034c4059867edf43bf88fb69435159ad6',
+ 'product': '32108e352f4a51d809b1e5ed64cc9dba3bc0be88',
+ 'source': '9a801df30c3e71a1c61bc04cf3ed15b1f8574ea46b9bb2c75561c3850ff3bf35',
+ 'zip_sha': '71fd96f768894d849c4773add52bd0e3131e032c77640a02aa1c4af36e5001db',
+ 'zip_bytes': 1822693,
+ 'payload_sha': 'ccf4985a7df7174206cb6ca9f6df21dd0619a4402f2f8f11736a7b0fd940b302',
+ 'manifest_sha': 'a6038e1f993b13ef953b7818e77fae639b228546cf2d88325a30dcbd8024ff31',
+ 'nuspec_sha': '8ba0dd77f894cdfebfa093019dad91e3bd50aafe7c1f180a2665c0a5bc6dc681',
+ 'script_sha': '6780e4a3ec300809ec52442bfe2142e2e19533772f8d4521811b317ee37c42fc',
+ 'nupkg_sha': '95cd639010892eea109247ebc651aed1f7811fd1fa1080d8cc6d8299276ace9b',
+ 'receipt_sha': '20da0ed83a12bb0c0ade783a5363e6481e095c7e23c9bd2606e7748302a4ea91',
+ 'source_entries': 383,
+ 'artifact_entries': 33,
+ 'winget': {'RobertCronin.FlereConnect.installer.yaml': '0e9f970db74933514c6bef0b24715f2bb906b73d9a6864e3538cb0b9ed172225',
+            'RobertCronin.FlereConnect.locale.en-US.yaml': '782cdfeff696c8fc19920270acef8b7cc5ab6d950c5eab5bbb9b282491ddd8a9',
+            'RobertCronin.FlereConnect.yaml': '4a12e5e84b053b265931e1f5970dce9134f4fc89893c9ffd260850a86d78e049'},
+ 'owner_check': True}
+
+
+def upgrade_baseline(selected, requested):
+    require(type(requested) is bool, "explicit upgrade mode must be boolean")
+    if not requested:
+        return None
+    require(base.input_version(selected) == "0.3.5" and selected["owner_check"] is True,
+            "upgrade requires the fixed reviewed 0.3.5 candidate; same-version reinstall is not an upgrade")
+    return copy.deepcopy(PUBLIC034_INPUT)
 
 
 def selection(name=DEFAULT_INPUT):
@@ -218,19 +256,21 @@ def verify_user_settings(value):
 def local_manifest(name, original, port, selected=LEGACY_INPUT):
     require(type(port) is int and 49152 <= port <= 65535, "owned high loopback port required")
     require(name in selected["winget"] and sha(original) == selected["winget"][name], "frozen manifest differs")
+    version, zip_name = base.input_version(selected), base.zip_name(selected)
+    public_url = f"https://github.com/{base.REPO}/releases/download/v{version}/{zip_name}".encode()
     updated = original
     if name.endswith(".installer.yaml"):
-        require(original.count(base.PUBLIC_URL) == 1, "one installer URL required")
-        local = f"http://127.0.0.1:{port}/{base.ZIP_NAME}".encode()
-        updated = original.replace(base.PUBLIC_URL, local)
-        require(updated.replace(local, base.PUBLIC_URL) == original, "non-URL manifest change")
+        require(original.count(public_url) == 1, "one installer URL required")
+        local = f"http://127.0.0.1:{port}/{zip_name}".encode()
+        updated = original.replace(public_url, local)
+        require(updated.replace(local, public_url) == original, "non-URL manifest change")
     return updated
 
 
 def local_manifests(archive_bytes, destination, port, selected=LEGACY_INPUT):
     require(len(archive_bytes) == selected["artifact_bytes"] and sha(archive_bytes) == selected["artifact_sha"],
             "recipe artifact differs")
-    original_prefix = "windows/winget/manifests/r/RobertCronin/FlereConnect/0.3.4/"
+    original_prefix = f"windows/winget/manifests/r/RobertCronin/FlereConnect/{base.input_version(selected)}/"
     destination.mkdir()
     changes = {}
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
@@ -242,12 +282,12 @@ def local_manifests(archive_bytes, destination, port, selected=LEGACY_INPUT):
     return changes
 
 
-def own_record(records, *, complete=True):
+def own_record(records, *, complete=True, version=VERSION):
     rows = [row for row in records if row["values"].get("WinGetPackageIdentifier") == PACKAGE]
     require(len(rows) == 1, "exactly one active package record required")
     row = rows[0]; values = row["values"]
     require(row["hive"] == "HKCU" and row["view"] == "64"
-            and values.get("DisplayVersion") == VERSION and values.get("DisplayName") == "Flere Connect"
+            and values.get("DisplayVersion") == version and values.get("DisplayName") == "Flere Connect"
             and values.get("WinGetInstallerType") == "portable"
             and values.get("WinGetSourceIdentifier") == "*DefaultSource",
             "active user portable record differs")
@@ -258,10 +298,10 @@ def own_record(records, *, complete=True):
     return row
 
 
-def local_package_args(owned, *, remove=False):
+def local_package_args(owned, *, remove=False, version=VERSION):
     # Local-manifest portable installs use the observed default-source product
     # code, not the community catalogue ID. Never execute an ARP command string.
-    own_record([owned], complete=False)
+    own_record([owned], complete=False, version=version)
     require(owned["subkey"] == ARP + "\\" + PRODUCT_CODE
             and owned["values"].get("UninstallString") == "winget uninstall --product-code " + PRODUCT_CODE,
             "local portable product code differs")
@@ -272,15 +312,23 @@ def local_package_args(owned, *, remove=False):
     return selection + ["--exact", "--scope", "user", "--source", "winget"]
 
 
-def verify_inventory(before, after, installed):
+def verify_inventory(before, after, installed, *, version=VERSION):
     old = {row["key"]: row["sha256"] for row in before}
     new = {row["key"]: row["sha256"] for row in after}
     require(len(old) == len(before) and len(new) == len(after), "duplicate installed record")
     if installed:
-        owned = own_record(after)
+        owned = own_record(after, version=version)
         require(owned["key"] not in old, "owned registry entry existed before install")
         del new[owned["key"]]
     require(new == old, "unrelated installed-program inventory changed")
+
+
+def verify_upgrade_identity(before, after):
+    old = own_record([before], version="0.3.4")
+    new = own_record([after], version="0.3.5")
+    require(old["key"] == new["key"] and old["subkey"] == new["subkey"]
+            and windows_path(old["values"]["InstallLocation"]) == windows_path(new["values"]["InstallLocation"]),
+            "upgrade changed the exact installed package identity/root")
 
 
 def verify_removal(value):
@@ -432,7 +480,9 @@ class Run:
         return json.loads(self.command(name, [self.pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]))
 
 
-def main(output, selected=LEGACY_INPUT):
+def main(output, selected=LEGACY_INPUT, *, upgrade=False):
+    baseline = upgrade_baseline(selected, upgrade)
+    target_version = base.input_version(selected)
     candidate.hosted(os.environ)
     require(os.name == "nt" and platform.machine().lower() in ("amd64", "x86_64") and sys.version_info >= (3, 12), "native Windows AMD64 required")
     require(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=candidate.PROJECT, text=True, timeout=15).strip()
@@ -455,7 +505,12 @@ def main(output, selected=LEGACY_INPUT):
         "Normal Microsoft community-source network access and OS archive malware scanning are enabled."],
         "machine": {"platform": platform.platform(), "image_os": os.environ.get("ImageOS"),
                     "image_version": os.environ.get("ImageVersion"), "python": platform.python_version()}}
-    run = Run(work, proof, receipt); mirror = None; settings_before = None; changed_setting = False
+    if upgrade:
+        receipt["upgrade_from"] = {"version": "0.3.4", "product_commit": baseline["product"],
+            "zip_sha256": baseline["zip_sha"], "artifact_sha256": baseline["artifact_sha"]}
+        receipt["upgrade_to_version"] = target_version
+        receipt["limits"][0] = "Normal local-manifest 0.3.4 to 0.3.5 upgrade; identical public baseline bytes via loopback, not public URL/catalogue acceptance."
+    run = Run(work, proof, receipt); mirrors = []; settings_before = None; changed_setting = False
     user_before = sources_before = None
     attempted = False; removed = False; manifests = work/"manifests"; installed_root = None
 
@@ -497,15 +552,22 @@ def main(output, selected=LEGACY_INPUT):
 
     try:
         gh = shutil.which("gh.exe"); require(gh, "existing GitHub CLI missing")
-        api = f"repos/{base.REPO}/actions/artifacts/{selected['artifact']}"
-        value = json.loads(run.command("artifact-api", [gh,"api",api], env=os.environ.copy(), maximum=65536))
-        base.verify_api(value, selected); run.record("artifact-api", value)
-        artifact = run.command("artifact-download", [gh,"api",api+"/zip"], env=os.environ.copy(),
-                               destination=work/"artifact.zip", maximum=selected["artifact_bytes"])
-        portable, _, _, manifest, payload, original = base.inputs(artifact, work, selected)
-        if selected["owner_check"]:
-            require(sha(payload["manifest.json"]) == selected["manifest_sha"], "candidate manifest bytes differ")
-        run.record("input-recipe-receipt", original); run.record("manifest", manifest)
+        def load_input(chosen, directory, prefix):
+            api = f"repos/{base.REPO}/actions/artifacts/{chosen['artifact']}"
+            value = json.loads(run.command(prefix+"artifact-api", [gh,"api",api], env=os.environ.copy(), maximum=65536))
+            base.verify_api(value, chosen); run.record(prefix+"artifact-api", value)
+            artifact = run.command(prefix+"artifact-download", [gh,"api",api+"/zip"], env=os.environ.copy(),
+                                   destination=directory/"artifact.zip", maximum=chosen["artifact_bytes"])
+            portable, _, _, manifest, payload, original = base.inputs(artifact, directory, chosen)
+            if chosen["owner_check"]:
+                require(sha(payload["manifest.json"]) == chosen["manifest_sha"], "candidate manifest bytes differ")
+            run.record(prefix+"input-recipe-receipt", original); run.record(prefix+"manifest", manifest)
+            return chosen, artifact, portable, manifest, payload
+        target = load_input(selected, work, "")
+        phases = [("", target)]
+        if baseline is not None:
+            old_work = work/"public034"; old_work.mkdir()
+            phases.insert(0, ("baseline-", load_input(baseline, old_work, "baseline-")))
         run.pwsh = Path(shutil.which("pwsh.exe") or "missing"); require(run.pwsh.is_file(), "native PowerShell7 unavailable")
         info = run.ps("machine", "$i=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=[Security.Principal.WindowsPrincipal]$i; "
             "[pscustomobject]@{edition=$PSVersionTable.PSEdition;major=$PSVersionTable.PSVersion.Major;home=$PSHOME;"
@@ -572,74 +634,85 @@ def main(output, selected=LEGACY_INPUT):
             changed_setting = True
             run.command("enable-local-manifest", [winget,"settings","--enable","LocalManifestFiles"])
         verify_settings(settings_before, settings("settings-during"), True)
-        mirror = base.Mirror(portable, selected)
-        run.record("private-manifests", local_manifests(artifact, manifests, mirror.server_port, selected))
-        run.command("validate", [winget,"validate",manifests])
-        attempted = True
-        run.command("install", [winget,"install","--manifest",manifests,"--scope","user","--architecture","x64"], seconds=180)
-        after_inventory = registry_inventory(); run.record("installed-after", after_inventory)
-        verify_inventory(before_inventory, after_inventory, True); owned = own_record(after_inventory)
-        installed_root = Path(owned["values"]["InstallLocation"])
-        require(installed_root.is_absolute() and installed_root.parent.resolve() == packages.resolve(), "portable path outside default user root")
-        base.file_record(packages); base.file_record(installed_root)
-        entries = list(installed_root.iterdir()); extras = [p for p in entries if p.name not in payload]
-        require(len(entries) == len(payload)+1 and len(extras) == 1 and extras[0].suffix == ".db", "portable payload/index inventory differs")
-        installed_files = [base.file_record(path) for path in entries]
-        for name, data in payload.items():
-            require(base.file_record(installed_root/name)["sha256"] == sha(data), "installed payload differs")
-        require(extras[0].stat().st_size <= 512*1024, "portable index exceeds bound")
-        (proof/"records/portable-index.bin").write_bytes(extras[0].read_bytes())
-        run.record("installed-layout", {"registry": owned, "files": installed_files,
-                   "index_retained": "portable-index.bin", "identity_note": "Observed native file IDs/hashes; any owner-query results are recorded separately."})
-        listing = run.command("installed-list-exact", [winget, *local_package_args(owned)], source_prompt=True)
-        require(PACKAGE.encode() in clean_console(listing) and VERSION.encode() in listing, "normal installed manager identity missing")
-        after_links = link_inventory(links)
-        require({k:v for k,v in after_links.items() if k not in ("flere.exe","flere-connect.exe")} == before_links, "unrelated portable links changed")
-        child_env["PATH"] = normal_path()
-        aliases = {}
-        for alias in ("flere.exe", "flere-connect.exe"):
-            path = Path(shutil.which(alias, path=child_env["PATH"]) or "missing")
-            require(path == links/alias and path.is_symlink() and path.resolve() == (installed_root/alias).resolve(), "normal WinGet PATH symlink differs")
-            aliases[alias] = {"link": after_links[alias], "resolved": base.file_record(path.resolve())}
-            for flag in ("--help", "--version", "--build-info"):
-                data = run.command(alias[:-4]+"-"+flag[2:], [path,flag], env=child_env, seconds=20, maximum=32768)
-                if flag == "--build-info":
-                    require(json.loads(data) == manifest["build"], "alias full build identity differs")
-                elif flag == "--version":
-                    require(data.decode().strip().startswith("flere-connect "+VERSION+" ") and manifest["build"]["build_id"] in data.decode(), "alias version differs")
+        baseline_record = None
+        for prefix, (phase_input, artifact, portable, manifest, payload) in phases:
+            version = base.input_version(phase_input)
+            manifests = work/(prefix+"manifests")
+            mirror = base.Mirror(portable, phase_input); mirrors.append((prefix, mirror, phase_input))
+            run.record(prefix+"private-manifests", local_manifests(artifact, manifests, mirror.server_port, phase_input))
+            run.command(prefix+"validate", [winget,"validate",manifests])
+            attempted = True
+            action = "upgrade" if upgrade and not prefix else "install"
+            run.command(prefix+action, [winget,action,"--manifest",manifests,"--scope","user","--architecture","x64"], seconds=180)
+            after_inventory = registry_inventory(); run.record(prefix+"installed-after", after_inventory)
+            verify_inventory(before_inventory, after_inventory, True, version=version); owned = own_record(after_inventory, version=version)
+            if upgrade:
+                if prefix:
+                    baseline_record = owned
                 else:
-                    require(b"--build-info" in data and b"ssh" in data, "alias help differs")
-            require(base.file_record(path.resolve()) == aliases[alias]["resolved"], "alias payload changed")
-        run.record("aliases", aliases); require(candidate.tree(fixture) == before_state, "stateless calls changed state")
-        if selected["owner_check"]:
-            owner_paths = base.path_hashes(); owner_statuses = {}
-            run.record("owner-synthetic-environment", verify_synthetic_override(child_env, installed_root/"flere.exe"))
+                    verify_upgrade_identity(baseline_record, owned)
+                    receipt["upgrade_identity_verified"] = True
+            installed_root = Path(owned["values"]["InstallLocation"])
+            require(installed_root.is_absolute() and installed_root.parent.resolve() == packages.resolve(), "portable path outside default user root")
+            base.file_record(packages); base.file_record(installed_root)
+            entries = list(installed_root.iterdir()); extras = [p for p in entries if p.name not in payload]
+            require(len(entries) == len(payload)+1 and len(extras) == 1 and extras[0].suffix == ".db", "portable payload/index inventory differs")
+            installed_files = [base.file_record(path) for path in entries]
+            for name, data in payload.items():
+                require(base.file_record(installed_root/name)["sha256"] == sha(data), "installed payload differs")
+            require(extras[0].stat().st_size <= 512*1024, "portable index exceeds bound")
+            (proof/"records"/(prefix+"portable-index.bin")).write_bytes(extras[0].read_bytes())
+            run.record(prefix+"installed-layout", {"registry": owned, "files": installed_files,
+                       "index_retained": prefix+"portable-index.bin", "identity_note": "Observed native file IDs/hashes; any owner-query results are recorded separately."})
+            listing = run.command(prefix+"installed-list-exact", [winget, *local_package_args(owned, version=version)], source_prompt=True)
+            require(PACKAGE.encode() in clean_console(listing) and version.encode() in listing, "normal installed manager identity missing")
+            after_links = link_inventory(links)
+            require({k:v for k,v in after_links.items() if k not in ("flere.exe","flere-connect.exe")} == before_links, "unrelated portable links changed")
+            child_env["PATH"] = normal_path()
+            aliases = {}
             for alias in ("flere.exe", "flere-connect.exe"):
-                executable = (installed_root/alias).resolve()
-                data = run.command(alias[:-4]+"-update-status", [links/alias,"update-status"],
-                                   env=child_env, seconds=60, maximum=32768)
-                value = json.loads(data)
-                owner_statuses[alias] = verify_installed_owner(value, manifest, executable)
-                run.record(alias[:-4]+"-update-status", value)
-            run.record("installed-ownership", owner_statuses)
-            owner_after_state = candidate.tree(fixture)
-            owner_after_paths = base.path_hashes()
-            run.record("owner-state-preservation", base.preservation_snapshot(before_state, owner_after_state, owner_paths, owner_after_paths))
-            require(owner_after_state == before_state and owner_after_paths == owner_paths,
-                    "owner queries changed the initialized profile or PATH")
-            owner_inventory = registry_inventory(); owner_links = link_inventory(links)
-            owner_files = [base.file_record(path) for path in entries]
-            run.record("owner-installed-after", {"registry":owner_inventory,"links":owner_links,"files":owner_files})
-            require(owner_inventory == after_inventory and owner_links == after_links
-                    and set(installed_root.iterdir()) == set(entries) and owner_files == installed_files,
-                    "owner queries changed installed records, links or payload/index identity")
-            receipt["installed_owner_aliases_checked"] = 2
-            receipt["installed_owner_guidance_verified"] = True
-        run.command("uninstall", [winget, *local_package_args(owned, remove=True)], seconds=180, source_prompt=True)
+                path = Path(shutil.which(alias, path=child_env["PATH"]) or "missing")
+                require(path == links/alias and path.is_symlink() and path.resolve() == (installed_root/alias).resolve(), "normal WinGet PATH symlink differs")
+                aliases[alias] = {"link": after_links[alias], "resolved": base.file_record(path.resolve())}
+                for flag in ("--help", "--version", "--build-info"):
+                    data = run.command(prefix+alias[:-4]+"-"+flag[2:], [path,flag], env=child_env, seconds=20, maximum=32768)
+                    if flag == "--build-info":
+                        require(json.loads(data) == manifest["build"], "alias full build identity differs")
+                    elif flag == "--version":
+                        require(data.decode().strip().startswith("flere-connect "+version+" ") and manifest["build"]["build_id"] in data.decode(), "alias version differs")
+                    else:
+                        require(b"--build-info" in data and b"ssh" in data, "alias help differs")
+                require(base.file_record(path.resolve()) == aliases[alias]["resolved"], "alias payload changed")
+            run.record(prefix+"aliases", aliases); require(candidate.tree(fixture) == before_state, "stateless calls changed state")
+            if not prefix and phase_input["owner_check"]:
+                owner_paths = base.path_hashes(); owner_statuses = {}
+                run.record(prefix+"owner-synthetic-environment", verify_synthetic_override(child_env, installed_root/"flere.exe"))
+                for alias in ("flere.exe", "flere-connect.exe"):
+                    executable = (installed_root/alias).resolve()
+                    data = run.command(prefix+alias[:-4]+"-update-status", [links/alias,"update-status"],
+                                       env=child_env, seconds=60, maximum=32768)
+                    value = json.loads(data)
+                    owner_statuses[alias] = verify_installed_owner(value, manifest, executable)
+                    run.record(prefix+alias[:-4]+"-update-status", value)
+                run.record(prefix+"installed-ownership", owner_statuses)
+                owner_after_state = candidate.tree(fixture)
+                owner_after_paths = base.path_hashes()
+                run.record(prefix+"owner-state-preservation", base.preservation_snapshot(before_state, owner_after_state, owner_paths, owner_after_paths))
+                require(owner_after_state == before_state and owner_after_paths == owner_paths,
+                        "owner queries changed the initialized profile or PATH")
+                owner_inventory = registry_inventory(); owner_links = link_inventory(links)
+                owner_files = [base.file_record(path) for path in entries]
+                run.record(prefix+"owner-installed-after", {"registry":owner_inventory,"links":owner_links,"files":owner_files})
+                require(owner_inventory == after_inventory and owner_links == after_links
+                        and set(installed_root.iterdir()) == set(entries) and owner_files == installed_files,
+                        "owner queries changed installed records, links or payload/index identity")
+                receipt["installed_owner_aliases_checked"] = 2
+                receipt["installed_owner_guidance_verified"] = True
+        run.command("uninstall", [winget, *local_package_args(owned, remove=True, version=target_version)], seconds=180, source_prompt=True)
         removed = True; removal("removal")
         run.command("installed-list-after", [winget,"list","--source","winget"], source_prompt=True)
         require(link_inventory(packages) == before_package_dirs, "unrelated portable package directories changed")
-        receipt.update(status="lifecycle_complete_pending_cleanup", aliases_checked=6,
+        receipt.update(status="lifecycle_complete_pending_cleanup", aliases_checked=(12 if upgrade else 6),
             installed_inventory_preserved=True, state_preserved=True, path_preserved=True, no_product_owner_claim=not selected["owner_check"])
     except BaseException as error:
         receipt.update(status="failed", error=str(error), traceback=traceback.format_exc())
@@ -649,14 +722,18 @@ def main(output, selected=LEGACY_INPUT):
             try:
                 current = registry_inventory()
                 if any(row["values"] for row in current):
-                    owned = own_record(current, complete=False)
+                    rows = [row for row in current if row["values"].get("WinGetPackageIdentifier") == PACKAGE]
+                    require(len(rows) == 1, "exact cleanup package record required")
+                    cleanup_version = rows[0]["values"].get("DisplayVersion")
+                    require(cleanup_version in ({"0.3.4", "0.3.5"} if upgrade else {target_version}), "unexpected cleanup package version")
+                    owned = own_record(current, complete=False, version=cleanup_version)
                     # RegisterARPEntry precedes directory creation; a partial
                     # owned record still receives ordinary manager cleanup.
                     if owned["values"].get("InstallLocation"):
                         path = Path(owned["values"]["InstallLocation"])
                         require(path.is_absolute() and path.parent.resolve() == packages.resolve(), "cleanup record path differs")
                         installed_root = path
-                    run.command("failure-uninstall", [winget, *local_package_args(owned, remove=True)], source_prompt=True)
+                    run.command("failure-uninstall", [winget, *local_package_args(owned, remove=True, version=cleanup_version)], source_prompt=True)
                 removal("failure-removal")
             except BaseException as error:
                 errors.append("normal uninstall: "+str(error))
@@ -676,22 +753,24 @@ def main(output, selected=LEGACY_INPUT):
                 receipt["settings_restored"] = True
             except BaseException as error:
                 errors.append("settings/source verification: "+str(error))
-        if mirror is not None:
+        for prefix, mirror, mirror_input in mirrors:
             try:
-                mirror.close_owned(); receipt["loopback_closed"] = True
-                base.verify_mirror(mirror.requests, mirror.attempts, mirror.rejections, mirror.rejections_dropped, mirror.internal_errors, selected)
-                receipt["loopback_verified"] = True
+                mirror.close_owned(); receipt[prefix+"loopback_closed"] = True
+                base.verify_mirror(mirror.requests, mirror.attempts, mirror.rejections, mirror.rejections_dropped, mirror.internal_errors, mirror_input)
+                receipt[prefix+"loopback_verified"] = True
             except BaseException as error:
-                errors.append("loopback: "+str(error))
-            receipt.update(loopback_requests=mirror.requests, loopback_response_attempts=mirror.attempts,
-                loopback_rejections=mirror.rejections, loopback_rejections_dropped=mirror.rejections_dropped, loopback_internal_errors=mirror.internal_errors)
+                errors.append(prefix+"loopback: "+str(error))
+            for key, value in {"loopback_requests":mirror.requests, "loopback_response_attempts":mirror.attempts,
+                "loopback_rejections":mirror.rejections, "loopback_rejections_dropped":mirror.rejections_dropped,
+                "loopback_internal_errors":mirror.internal_errors}.items():
+                receipt[prefix+key] = value
         receipt["cleanup_errors"] = errors
         if errors:
             receipt["status"] = "failed"
         elif receipt["status"] == "lifecycle_complete_pending_cleanup":
             receipt["status"] = "lifecycle_passed"
         files = [path for path in proof.rglob("*") if path.is_file() and path.name != "receipt.json"]
-        if len(files) > 96 or sum(path.stat().st_size for path in files) > 8*1024*1024:
+        if len(files) > (128 if upgrade else 96) or sum(path.stat().st_size for path in files) > 8*1024*1024:
             receipt.update(status="failed", error="curated proof bound exceeded")
         receipt["files"] = {path.relative_to(proof).as_posix(): {"bytes":path.stat().st_size,"sha256":sha(path.read_bytes())} for path in sorted(files)}
         run.save()
@@ -940,7 +1019,44 @@ def self_test():
                                (profile,"symlink"),("unexpected","c"*64)):
                 with self.assertRaises(ValueError): verify_powershell_initialization(before,dict(after,**{name:wrong}))
 
-    suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case) for case in (Guards, OwnerGuards, InputGuards))
+    class UpgradeGuards(unittest.TestCase):
+        def test_same_version_and_unverified_upgrade_are_rejected(self):
+            for chosen in (LEGACY_INPUT, CURRENT_INPUT, PROFILE_INPUT):
+                self.assertIsNone(upgrade_baseline(chosen, False))
+                with self.assertRaises(ValueError): upgrade_baseline(chosen, True)
+            chosen = dict(PROFILE_INPUT, version="0.3.5")
+            self.assertEqual(upgrade_baseline(chosen, True), PUBLIC034_INPUT)
+            with self.assertRaises(ValueError): upgrade_baseline(dict(chosen, owner_check=False), True)
+            with self.assertRaises(ValueError): upgrade_baseline(chosen, "true")
+
+        def test_exact_upgrade_record_changes_version_without_changing_identity(self):
+            old = Guards().owned()
+            old["subkey"] = ARP + "\\" + PRODUCT_CODE
+            old["values"]["InstallLocation"] = str(PureWindowsPath(r"C:\Users\fixture\AppData\Local\Microsoft\WinGet\Packages") / PRODUCT_CODE)
+            new = copy.deepcopy(old); new["values"]["DisplayVersion"] = "0.3.5"
+            verify_upgrade_identity(old, new)
+            unrelated = {"key":"other", "values":{}, "sha256":"b"*64}
+            verify_inventory([unrelated], [unrelated, new], True, version="0.3.5")
+            for field, wrong in (("DisplayVersion", "0.3.4"), ("InstallLocation", r"C:\Other"),
+                                 ("WinGetPackageIdentifier", "Other"), ("WinGetSourceIdentifier", "Other")):
+                changed = copy.deepcopy(new); changed["values"][field] = wrong
+                with self.assertRaises(ValueError): verify_upgrade_identity(old, changed)
+            with self.assertRaises(ValueError): verify_upgrade_identity(old, dict(new, key="other"))
+            with self.assertRaises(ValueError): verify_inventory([unrelated], [dict(unrelated, sha256="c"*64),new], True, version="0.3.5")
+
+        def test_versioned_manifest_substitution_preserves_all_non_url_bytes(self):
+            for version in ("0.3.4", "0.3.5"):
+                chosen = dict(PROFILE_INPUT, version=version)
+                name = PACKAGE + ".installer.yaml"
+                url = f"https://github.com/{base.REPO}/releases/download/v{version}/{base.zip_name(chosen)}".encode()
+                original = b"PackageVersion: " + version.encode() + b"\nInstallerUrl: " + url + b"\nInstallerSha256: " + chosen["zip_sha"].encode() + b"\n"
+                chosen["winget"] = {name:sha(original)}
+                changed = local_manifest(name, original, 50000, chosen)
+                local = f"http://127.0.0.1:50000/{base.zip_name(chosen)}".encode()
+                self.assertEqual(changed.replace(local, url), original)
+                with self.assertRaises(ValueError): local_manifest(name, original+b"x", 50000, chosen)
+
+    suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case) for case in (Guards, OwnerGuards, InputGuards, UpgradeGuards))
     result=unittest.TextTestRunner(verbosity=2).run(suite)
     require(result.wasSuccessful(),"WinGet lifecycle guard checks failed")
 
@@ -949,10 +1065,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", nargs="?", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--upgrade-from-public034", action="store_true")
     parser.add_argument("--input", choices=tuple(INPUTS), default=DEFAULT_INPUT)
     args = parser.parse_args()
     if args.self_test:
         self_test()
     else:
         require(args.output is not None, "output is required")
-        main(args.output, selection(args.input))
+        main(args.output, selection(args.input), upgrade=args.upgrade_from_public034)

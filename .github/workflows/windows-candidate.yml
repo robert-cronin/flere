@@ -12,7 +12,7 @@ on:
         description: 'Exact package version at that commit'
         required: true
         type: string
-        default: '0.3.5'
+        default: '0.3.4'
 
 permissions:
   contents: read
