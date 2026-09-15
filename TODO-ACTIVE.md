@@ -191,8 +191,9 @@
   ignore. Manager lifecycle results below use the earlier candidate `7e43fa1`;
   runtime code matches, but public release bytes have their own verified hashes.
   The physical handoff is updated to the actual public ZIP.
-- [ ] Submit the verified v0.3.6 WinGet manifest and verify its accepted catalogue
-  installation. Scoop publication is complete. Physical acceptance remains
+- [ ] Submit the current verified WinGet manifest and verify its accepted catalogue
+  installation. Submission is deferred at the owner’s request pending account
+  authorization. Scoop publication is complete. Physical acceptance remains
   independent; installing through a catalogue does not establish desktop
   compatibility. Chocolatey submission additionally needs its publisher account/access.
 - [x] Revalidate the public source on native Windows after incorporating the
@@ -533,11 +534,19 @@
   refresh does not reload them. Public v0.3.7 and existing receipts remain
   version-pinned; publish supporting binaries before advancing the default-follow
   installer.
-  Native Windows launcher behavior and real default-channel promotion/update
-  acceptance remain open. An optional Windows candidate check now exercises the
-  retained v0.3.7 launcher against a v0.3.8 worker and a supporting-launcher
-  receipt transition; seven local fixture guards and independent review passed,
-  but native execution is pending. No live protocol or RPC capability was changed.
+  Native Windows run `34967935538` at `48e1cf9` passed 96 Rust tests
+  (one physical clipboard check remains ignored), six alias probes, WinGet
+  manifest validation and Chocolatey packing. Its separate retained-launcher
+  fixture passed all 18 expected outcomes: the v0.3.7 launcher safely refused
+  default-channel intent without changing the installation; a supporting
+  v0.3.8 launcher changed only the receipt policy and attempt. Independent
+  artifact review verified source, logs, payload hashes and owned cleanup.
+  Real public default-channel promotion/update acceptance remains open.
+  Release v0.3.8 completed as `34969732255`: all nine required jobs passed.
+  Independent verification matched all eleven public assets, 403 source files,
+  the 134-file Cargo archive and the prepared recipes/channel. The promoted
+  channel selects v0.3.8 for Linux/Windows; installer activation is still pending.
+  No live protocol or RPC capability was changed.
 - [ ] Extend release automation to the remaining targets and package channels
   after their own acceptance checks. The Windows candidate producer now accepts
   an explicit commit/version pair while preserving its historical defaults,
