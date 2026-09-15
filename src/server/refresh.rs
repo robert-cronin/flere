@@ -2,7 +2,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::os::unix::process::CommandExt;
-const VERSION: u32 = 7;
+const VERSION: u32 = 8;
 #[derive(Serialize, Deserialize)]
 struct SavedClient {
     fd: i32,
@@ -452,6 +452,6 @@ mod hyperlink_refresh_tests {
         assert_eq!(range["current"], VERSION);
         assert_eq!(range["read_min"], 1);
         assert_eq!(range["read_max"], VERSION);
-        assert_eq!(build["compatibility"]["saved_state"]["current"], 7);
+        assert_eq!(build["compatibility"]["saved_state"]["current"], 8);
     }
 }

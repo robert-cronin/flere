@@ -180,47 +180,78 @@ fn private_cache(state: &Path, run: &str) -> io::Result<PathBuf> {
 }
 /// An extra guard after a trusted idle lifecycle event. No keys are synthesized.
 pub fn empty_composer(term: &crate::terminal::Terminal) -> bool {
-    if term.is_alternate()
-        || !term.cursor
-        || term.grid.x != 2
-        || term.grid.y < term.grid.rows.saturating_sub(7)
-    {
-        return false;
+    composer_block(term).is_none()
+}
+/// Return the failed predicate so a waiting message never claims that a
+/// completed answer is necessarily a draft or an unanswered approval.
+pub fn composer_block(term: &crate::terminal::Terminal) -> Option<&'static str> {
+    if term.is_alternate() {
+        return Some("Native alternate screen is open; waiting for the main composer.");
     }
     let y = term.grid.y;
-    let line = term.grid.line(y);
-    if !line.starts_with("› ") && !line.starts_with("❯ ") {
-        return false;
+    if !term.cursor
+        || term.grid.x != 2
+        || y < term.grid.rows.saturating_sub(7)
+        || y >= term.grid.rows.saturating_sub(2)
+    {
+        return Some("Native cursor is outside the recognized idle composer.");
     }
-    for row in term.grid.rows.saturating_sub(14)..term.grid.rows {
-        let line = term.grid.line(row).to_lowercase();
-        if [
-            "esc to interrupt",
-            "trust",
-            "approve",
-            "permission",
-            "allow",
-            "review hook",
-        ]
-        .iter()
-        .any(|s| line.contains(s))
-        {
-            return false;
-        }
-        if row != y && (line.trim_start().starts_with('›') || line.trim_start().starts_with('❯'))
-        {
-            return false;
-        }
+    let row_cells = &term.grid.cells[y * term.grid.cols..(y + 1) * term.grid.cols];
+    if !matches!(row_cells[0].text.as_str(), "›" | "❯") {
+        return Some("Native prompt shape is unrecognized; no input sent.");
     }
-    let cells = &term.grid.cells[y * term.grid.cols + 2..(y + 1) * term.grid.cols];
+    let cells = &row_cells[2..];
     let placeholder_end = cells
         .iter()
         .rposition(|c| !c.text.trim().is_empty() && c.style.dim);
-    // A multiline draft can have an empty first line with its cursor at column
-    // two. Its continuation still occupies the composer above the final footer.
-    if y >= term.grid.rows.saturating_sub(2) {
-        return false;
+    // A decorative particle can replace the separator or abut the placeholder.
+    // Never accept literal Braille in an otherwise unstyled/empty composer.
+    if !row_cells[1].text.trim().is_empty()
+        && !(placeholder_end.is_some() && single_braille_dot(&row_cells[1].text))
+    {
+        return Some("Native prompt separator is unrecognized; no input sent.");
     }
+    for row in term.grid.rows.saturating_sub(14)..term.grid.rows {
+        let line = term.grid.line(row).to_lowercase();
+        let line = line.trim();
+        if line == "esc to interrupt"
+            || (line.contains("esc to interrupt") && line.starts_with(['•', '◦']))
+        {
+            return Some("Native activity indicator is visible; waiting for idle.");
+        }
+        // Match dialog headings/controls, not words anywhere in finished prose.
+        // PermissionRequest lifecycle observations independently block delivery.
+        if line == "permission"
+            || [
+                "approve command?",
+                "native permission:",
+                "trust this repository",
+                "do you trust ",
+                "would you like to run ",
+                "would you like to make ",
+                "review hooks",
+                "review hook:",
+                "allow this ",
+            ]
+            .iter()
+            .any(|heading| line.starts_with(heading))
+        {
+            return Some("Native permission or trust dialog is visible; human attention required.");
+        }
+        if row != y && (line.starts_with('›') || line.starts_with('❯')) {
+            return Some(
+                "Another native prompt or selection is visible; waiting for the composer.",
+            );
+        }
+    }
+    if !cells.iter().enumerate().all(|(i, c)| {
+        c.text.trim().is_empty()
+            || c.style.dim
+            || (placeholder_end.is_some_and(|end| i > end) && single_braille_dot(&c.text))
+    }) {
+        return Some("Native composer contains a draft or unrecognized text; draft preserved.");
+    }
+    // A multiline draft can have an empty first line with the cursor at column two.
     for row in y + 1..term.grid.rows.saturating_sub(1) {
         if term.grid.cells[row * term.grid.cols..(row + 1) * term.grid.cols]
             .iter()
@@ -229,17 +260,10 @@ pub fn empty_composer(term: &crate::terminal::Terminal) -> bool {
                     && !(placeholder_end.is_some() && single_braille_dot(&c.text))
             })
         {
-            return false;
+            return Some("Native composer has a nonempty continuation; draft or dialog preserved.");
         }
     }
-    // Codex 0.154 animates single Braille dots after the dim placeholder. Accept
-    // these only beyond a present, entirely dim placeholder; a literal draft
-    // (including placeholder words or Braille) has no such styled prefix.
-    cells.iter().enumerate().all(|(i, c)| {
-        c.text.trim().is_empty()
-            || c.style.dim
-            || (placeholder_end.is_some_and(|end| i > end + 1) && single_braille_dot(&c.text))
-    })
+    None
 }
 fn single_braille_dot(text: &str) -> bool {
     let mut chars = text.chars();
@@ -289,6 +313,45 @@ mod tests {
         }
         t.feed(b"\x1b[?1049h");
         assert!(!empty_composer(&t));
+    }
+    #[test]
+    fn completed_prose_and_placeholder_edge_particles_do_not_hide_idle() {
+        let mut t = Terminal::new(80, 24);
+        t.feed("\x1b[21;1H› \x1b[2mAsk Codex to do anything\x1b[0m\x1b[21;3H".as_bytes());
+        for prose in [
+            "The operation requires permission.",
+            "This is a trusted source.",
+            "I reviewed the approval and allow rules.",
+            "The docs mention esc to interrupt.",
+        ] {
+            let mut completed = t.clone();
+            completed.feed(format!("\x1b[16;1H{prose}\x1b[21;3H").as_bytes());
+            assert!(
+                empty_composer(&completed),
+                "{prose}: {:?}",
+                composer_block(&completed)
+            );
+        }
+        for column in [2, 26, 30] {
+            let mut animated = t.clone();
+            animated.feed(format!("\x1b[21;{column}H⠁\x1b[21;3H").as_bytes());
+            assert!(empty_composer(&animated), "column {column}");
+        }
+        let mut inside = t.clone();
+        inside.feed("\x1b[21;8H⠁\x1b[21;3H".as_bytes());
+        assert!(!empty_composer(&inside));
+        let mut bare = t.clone();
+        bare.feed("\x1b[21;3H\x1b[K\x1b[21;2H⠁\x1b[21;3H".as_bytes());
+        assert!(!empty_composer(&bare));
+        for dialog in [
+            "Do you trust the contents of this directory?",
+            "Would you like to run the following command?",
+            "• Working (4s • esc to interrupt)",
+        ] {
+            let mut blocked = t.clone();
+            blocked.feed(format!("\x1b[19;1H{dialog}\x1b[21;3H").as_bytes());
+            assert!(!empty_composer(&blocked), "{dialog}");
+        }
     }
     #[test]
     fn queue_cache_checks_each_component_without_socket_path_limit() {

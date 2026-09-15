@@ -1,4 +1,6 @@
 //! Real supervisor, Unix sockets and kernel PTYs. No tmux or paid harnesses.
+#[path = "chat_messages/mod.rs"]
+mod chat_messages;
 #[path = "dock_flere/mod.rs"]
 mod dock_flere;
 #[path = "flere/mod.rs"]

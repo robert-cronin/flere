@@ -1,11 +1,11 @@
 # Harmless native stand-in, run through an executable copy named codex.
 # Real PTYs, process ownership, hooks, MCP/CLI, and native queue argv are exercised.
 import json, os, pathlib, subprocess, sys, time
-root = pathlib.Path.cwd()
+root = pathlib.Path(__file__).resolve().parent
 binary, uuid = sys.argv[1:3]
 state = os.environ['FLERE_STATE']
 transcript = root/'rollout-fixture.jsonl'
-transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':uuid,'cwd':str(root),'source':'cli'}})+'\n')
+transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':uuid,'cwd':str(pathlib.Path.cwd()),'source':'cli'}})+'\n')
 held = transcript.open()
 (root/'native-argv.json').write_text(json.dumps(sys.argv))
 
@@ -17,12 +17,13 @@ def call(op, args=None):
 def handle(text):
     import re
     ids=set(re.findall(r'\b[0-9a-f]{32}\b',text))
+    context=call('context')
     inbox=call('inbox')['messages']
     handled=[m['id'] for m in inbox if m['id'] in ids]
     if handled:
         call('inbox',{'ack_ids':handled})
         with (root/'handled.jsonl').open('a') as out:
-            out.write(json.dumps({'ids':handled,'session':os.environ['FLERE_SESSION'],'run':os.environ['FLERE_RUN']})+'\n')
+            out.write(json.dumps({'ids':handled,'session':os.environ['FLERE_SESSION'],'run':os.environ['FLERE_RUN'],'workspace':context['workspace']['id'],'messages':[m for m in inbox if m['id'] in handled]})+'\n')
 
 def hook(event, turn='main', process=True, **extra):
     value={'hook_event_name':event,'session_id':uuid,'turn_id':turn,'transcript_path':str(transcript),**extra}
@@ -40,18 +41,20 @@ def screen(mode):
     output='\x1b[2J\x1b[HMAILBOX_NATIVE_READY'
     if mode=='compact-active': output+=f'\x1b[{y-2};1H• Work (4s • esc to interrupt)'
     if mode=='active': output+=f'\x1b[{y-2};1H• Working (4s • esc to interrupt)'
+    if mode=='completed': output+=f'\x1b[{y-5};1HThe completed work needs permission. This is a trusted source.'
     if mode=='approval': output+=f'\x1b[{y-2};1HNative permission: approve command?'
     output+=f'\x1b[{y};1H› '
     if mode=='draft': output+='Ask Codex to do anything'
     else: output+='\x1b[2mAsk Codex to do anything\x1b[0m'
     if mode=='animated': output+=f'\x1b[{y};30H⠈  ⠂   ⠁  ⠄'
+    if mode=='completed': output+=f'\x1b[{y};2H⠁\x1b[{y};26H⠂'
     output+=f'\x1b[{y};3H'
     sys.stdout.write(output);sys.stdout.flush()
 
 current_screen='idle'
 size=os.get_terminal_size()
 screen(current_screen)
-last=0;seen=0;process_queue=True
+last=0;seen=0;process_queue=not (root/'hold-queue').exists()
 (root/'ready').write_text('ready')
 while True:
     if os.get_terminal_size()!=size:
@@ -74,6 +77,7 @@ while True:
         for line in lines[seen:]:
             try: queued=json.loads(line)
             except ValueError: break
-            assert queued['thread']==uuid
+            if queued['thread']!=uuid:
+                seen+=1;continue
             handle(queued['message']);seen+=1
     time.sleep(.025)
