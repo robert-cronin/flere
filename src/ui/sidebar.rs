@@ -104,10 +104,10 @@ impl Ui {
         self.save_preferences();
     }
     fn sidebar_surface(&self, w: &WorkspaceView) -> (Color, Color) {
+        // The card outline and surface identify the active workspace. Attention
+        // stays in its own badge so it cannot look like a second selection.
         if self.snapshot.active == w.id {
             (SELECTED, CYAN)
-        } else if w.meta.status == crate::workspace::Workflow::NeedsMe {
-            (tint(w.meta.status).1, GOLD)
         } else {
             (PANEL, BORDER)
         }
@@ -168,12 +168,17 @@ impl Ui {
         if top {
             // Workflow, observed work and selection are independent signals,
             // including in compact mode and in the Pinned/Project groups.
+            let attention = w.meta.status == crate::workspace::Workflow::NeedsMe;
             c.text(
                 s.detail - 3,
                 y,
                 1,
                 workflow_glyph(w.meta.status),
-                style(tint(w.meta.status).0, bg, true),
+                if attention {
+                    style(BG, GOLD, true)
+                } else {
+                    style(tint(w.meta.status).0, bg, true)
+                },
             );
             let (glyph, color, working) = self.sidebar_runtime(w);
             c.text(s.detail - 1, y, 1, glyph, style(color, bg, working));
@@ -307,7 +312,15 @@ impl Ui {
                     .sum::<usize>()
                     .min(s.text_width().saturating_sub(9).max(1));
                 let right = s.detail + 1 - runtime_width;
-                let workflow = if s.icons {
+                let width = right.saturating_sub(s.title + 1);
+                let attention = w.meta.status == crate::workspace::Workflow::NeedsMe;
+                let workflow = if attention {
+                    if width >= 10 {
+                        " Needs me ".into()
+                    } else {
+                        "Needs me".into()
+                    }
+                } else if s.icons {
                     format!(
                         "{} {}",
                         workflow_glyph(w.meta.status),
@@ -316,13 +329,16 @@ impl Ui {
                 } else {
                     w.meta.status.label().into()
                 };
-                let width = right.saturating_sub(s.title + 1);
                 c.text(
                     s.title,
                     y,
                     width,
                     &chrome::elide(&workflow, width),
-                    style(tint(w.meta.status).0, bg, false),
+                    if attention {
+                        style(BG, GOLD, true)
+                    } else {
+                        style(tint(w.meta.status).0, bg, false)
+                    },
                 );
                 c.text(
                     right,
