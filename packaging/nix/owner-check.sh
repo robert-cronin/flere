@@ -242,7 +242,7 @@ receipt = {'schema':'flere-nix-installed-owner-build-v1','status':'passed',
            'owner_receipt_sha256':hashlib.sha256((proof/'owner-receipt.json').read_bytes()).hexdigest(),
            'sandbox':True,'sandbox_fallback':False,'cargo_offline':True,'full_suites_repeated':False,
            'packaging_changes':['0.3.4: three declared /usr/bin/sha256sum replacements only',
-                                '0.3.3: existing pinned recipe/patch, doCheck=false for separate upgrade fixture'],
+                                '0.3.3: fixed historical source/locks/patch, doCheck=false for separate upgrade fixture'],
            'limits':owner['limits']}
 (proof/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
 PY_FINAL

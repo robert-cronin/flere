@@ -23,6 +23,12 @@ import urllib.parse
 import urllib.request
 
 MAX_PAYLOAD = 256 * 1024 * 1024
+MAX_CHANNEL_BYTES = 8192
+CHANNEL_URL = "https://raw.githubusercontent.com/robert-cronin/flere/main/packaging/channels/stable.json"
+CHANNEL_TARGETS = {"x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc",
+                   "aarch64-apple-darwin", "x86_64-apple-darwin"}
+LEGACY_NOTICE = ("The macOS arm64 default is the pinned unsigned v0.3.0 release. "
+                 "It does not include later Linux/Windows changes; normal macOS security checks still apply.")
 
 
 def https(url):
@@ -75,8 +81,79 @@ def platform_target():
     return target
 
 
-def default_manifest(target):
-    return f"https://github.com/robert-cronin/flere/releases/latest/download/flere-{target}.manifest.json"
+def version_tuple(value):
+    if not isinstance(value, str):
+        raise ValueError("channel version must be canonical X.Y.Z")
+    parts = value.split(".")
+    if len(parts) != 3 or any(not part or len(part) > 10 or
+                             any(c not in "0123456789" for c in part) or
+                             (len(part) > 1 and part[0] == "0") for part in parts):
+        raise ValueError("channel version must be canonical X.Y.Z")
+    result = tuple(int(part) for part in parts)
+    if any(part > 2147483647 for part in result):
+        raise ValueError("channel version component exceeds its bound")
+    return result
+
+
+def parse_channel(raw_bytes):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate channel field")
+            result[key] = value
+        return result
+
+    if not isinstance(raw_bytes, bytes) or len(raw_bytes) > MAX_CHANNEL_BYTES:
+        raise ValueError("channel document exceeds its byte bound or is not bytes")
+    try:
+        channel = json.loads(raw_bytes.decode("utf-8"), object_pairs_hook=unique)
+    except (UnicodeError, RecursionError, ValueError) as error:
+        raise ValueError("channel document must be bounded UTF-8 JSON without duplicate fields") from error
+    if (not isinstance(channel, dict) or set(channel) != {"schema_version", "targets"} or
+            type(channel["schema_version"]) is not int or channel["schema_version"] != 1 or
+            not isinstance(channel["targets"], dict) or set(channel["targets"]) - CHANNEL_TARGETS):
+        raise ValueError("invalid channel schema or target inventory")
+    for target, record in channel["targets"].items():
+        if not isinstance(record, dict):
+            raise ValueError("invalid channel target record")
+        if record == {"policy": "unavailable"}:
+            continue
+        if set(record) != {"policy", "version", "manifests"} or record["policy"] not in ("current", "legacy_unsigned"):
+            raise ValueError("invalid channel target fields or policy")
+        version_tuple(record["version"])
+        if record["policy"] == "legacy_unsigned" and (target != "aarch64-apple-darwin" or record["version"] != "0.3.0"):
+            raise ValueError("legacy unsigned policy is only valid for macOS arm64 v0.3.0")
+        components = {"flere-connect"} if target == "x86_64-pc-windows-msvc" else {"flere", "flere-connect"}
+        manifests = record["manifests"]
+        if not isinstance(manifests, dict) or set(manifests) != components:
+            raise ValueError("invalid channel component inventory")
+        for pin in manifests.values():
+            if (not isinstance(pin, dict) or set(pin) != {"bytes", "sha256"} or
+                    type(pin["bytes"]) is not int or not 0 < pin["bytes"] <= 65536 or
+                    not isinstance(pin["sha256"], str) or len(pin["sha256"]) != 64 or
+                    any(c not in "0123456789abcdef" for c in pin["sha256"])):
+                raise ValueError("invalid channel manifest size/SHA-256 pin")
+    return channel
+
+
+def default_selection(target):
+    try:
+        raw, _, _ = fetch(CHANNEL_URL, MAX_CHANNEL_BYTES)
+    except OSError as error:
+        raise ValueError("cannot fetch the default release channel; no fallback release was selected") from error
+    channel = parse_channel(raw)
+    selected = channel["targets"].get(target)
+    if selected is None or selected["policy"] == "unavailable":
+        raise ValueError("the default release channel has no available package for this target")
+    if selected["policy"] == "legacy_unsigned":
+        print(LEGACY_NOTICE, file=sys.stderr)
+    return selected, {"url": CHANNEL_URL, "sha256": hashlib.sha256(raw).hexdigest(),
+                      "target": target, "policy": selected["policy"], "version": selected["version"]}
+
+
+def release_manifest(version, target, component):
+    return f"https://github.com/robert-cronin/flere/releases/download/v{version}/{component}-{target}.manifest.json"
 
 
 def companion_manifest(core_url, target):
@@ -91,7 +168,7 @@ def companion_manifest(core_url, target):
     return core_url.rsplit("/", 1)[0] + f"/flere-connect-{target}.manifest.json"
 
 
-def prepare(url, component, target, directory):
+def prepare(url, component, target, directory, selection=None):
     https(url)
     if not url.endswith("manifest.json"):
         raise ValueError("choose a manifest.json URL")
@@ -99,10 +176,16 @@ def prepare(url, component, target, directory):
         raw, _, _ = fetch(url, 65536)
     except OSError as error:
         raise ValueError(f"cannot fetch {url}: {error}; the release may be unpublished or this machine offline") from error
+    if selection is not None:
+        pin = selection["manifests"][component]
+        if len(raw) != pin["bytes"] or hashlib.sha256(raw).hexdigest() != pin["sha256"]:
+            raise ValueError("release manifest differs from the channel size/SHA-256 pin")
     manifest = json.loads(raw)
     payload = manifest["payload"]
     if manifest["schema_version"] != 1 or manifest["build"]["component"] != component or manifest["build"]["target"] != target:
         raise ValueError("release manifest component/schema/platform differs")
+    if selection is not None and manifest["build"]["package_version"] != selection["version"]:
+        raise ValueError("release manifest version differs from the channel selection")
     if payload["file_name"] != component or type(payload["bytes"]) is not int or not 0 < payload["bytes"] <= MAX_PAYLOAD:
         raise ValueError("invalid fixed package payload or size")
     expected = payload["sha256"]
@@ -188,7 +271,7 @@ def write_report(path, report):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("manifest_url", nargs="?", type=https, help="core manifest; defaults to the Flere GitHub release channel")
+    parser.add_argument("manifest_url", nargs="?", type=https, help="core manifest; defaults to Flere's pinned per-target release channel")
     parser.add_argument("--companion-url", type=https, help="explicit paired companion manifest for a custom channel")
     parser.add_argument("--core-only", action="store_true", help="install only the server core")
     parser.add_argument("--adopt", action="store_true", help="explicitly retain and adopt existing manual user installations")
@@ -196,7 +279,12 @@ def main(argv=None):
     if args.core_only and args.companion_url:
         parser.error("--core-only cannot be combined with --companion-url")
     target = platform_target()
-    core_url = args.manifest_url or default_manifest(target)
+    selection = discovery = None
+    if args.manifest_url is None:
+        selection, discovery = default_selection(target)
+        core_url = release_manifest(selection["version"], target, "flere")
+    else:
+        core_url = args.manifest_url
     companion_url = None if args.core_only else args.companion_url or companion_manifest(core_url, target)
     cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
     if not cache.is_absolute():
@@ -207,27 +295,42 @@ def main(argv=None):
         raise ValueError("download cache must be private and user-owned")
     temporary = Path(tempfile.mkdtemp(prefix="bootstrap-", dir=directory))
     try:
-        packages = [prepare(core_url, "flere", target, temporary)]
+        packages = [prepare(core_url, "flere", target, temporary, selection)]
         if companion_url:
-            packages.append(prepare(companion_url, "flere-connect", target, temporary))
+            packages.append(prepare(companion_url, "flere-connect", target, temporary,
+                                    None if args.companion_url else selection))
+        for package in packages:
+            package["follow_default"] = (selection is not None and selection["policy"] == "current"
+                and (package["component"] == "flere" or args.companion_url is None))
         # Download, hash, inspect and cross-check BOTH before the first install.
         verify_pair(packages)
+        for package in packages:
+            if package["follow_default"]:
+                try:
+                    support = run_json([str(package["binary"]), "--build-info", "--default-channel-info"])
+                except (OSError, ValueError, subprocess.SubprocessError) as error:
+                    raise ValueError("selected candidate cannot prove default-channel support; choose a supporting release or an explicit manifest; nothing installed") from error
+                if support != {"schema_version": 1, "source_policy": "default_channel_v1"}:
+                    raise ValueError("selected candidate cannot retain default-channel intent; choose a supporting release or an explicit manifest; nothing installed")
         descriptor, report_name = tempfile.mkstemp(prefix="installation-result-", suffix=".json", dir=directory)
         os.close(descriptor)
         report_path = Path(report_name)
         report = {"schema_version": 1, "status": "verified", "installed": [], "attempted": None,
                   "sources": {package["component"]: package["url"] for package in packages},
                   "atomic_pair": False}
+        if discovery is not None:
+            report["discovery"] = discovery
         write_report(report_path, report)
         try:
             for package in packages:
                 report["attempted"] = package["component"]
                 write_report(report_path, report)
-                command = [str(package["binary"]), "install", str(package["directory"]), "--source-url", package["url"]]
+                command = [str(package["binary"]), "install", str(package["directory"])]
+                command.extend(["--default-channel"] if package["follow_default"] else ["--source-url", package["url"]])
                 if args.adopt:
                     command.append("--adopt")
                 receipt = run_json(command)
-                if receipt.get("component") != package["component"] or receipt.get("current", {}).get("manifest") != package["manifest"]:
+                if receipt.get("component") != package["component"] or receipt.get("current", {}).get("manifest") != package["manifest"] or (package["follow_default"] and receipt.get("source") != {"kind": "default_channel"}):
                     raise ValueError("installer returned an unexpected receipt; inspect component install-status")
                 report["installed"].append({"component": package["component"], "receipt": receipt})
                 write_report(report_path, report)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline regressions; accepts an untouched extracted v0.3.3 source directory."""
+"""Offline regressions; accepts an untouched extracted v0.3.5 source directory."""
 import importlib.util
 import hashlib
 import json
@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -73,10 +74,8 @@ class SupportTests(unittest.TestCase):
         self.assertEqual(marker.replace('\\n', ''), 'Returning to ' + shell)
         self.assertEqual(support.shell_return_marker('/bin/sh'), 'Returning to /bin/sh')
 
-    def test_declared_production_patch_applies_exactly_to_published_source(self):
+    def test_published_source_already_contains_the_retained_historical_fix(self):
         patch = HERE / 'patches/wrapped-path-delimiter.patch'
-        self.assertRegex((HERE / 'default.nix').read_text(),
-                         r'(?m)^\s*patches = \[ ./patches/wrapped-path-delimiter\.patch \];$')
         self.assertEqual(hashlib.sha256(patch.read_bytes()).hexdigest(),
                          '3e1bcd7b259d047974a85f2ff0cd8aae965e90207ceba1253e9637e8ef701275')
         name = 'src/ui/selection/paths.rs'
@@ -86,12 +85,33 @@ class SupportTests(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.write_bytes((SOURCE / name).read_bytes())
             self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(),
-                             '5369d60d5d10db75a541a5861ec545bc72ce9e7d1cddf398d9c557808a691a6b')
-            result = subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(patch)],
+                             '9d23e7f80cae847f2ef0fd93d85856613d80bbd98aa45a64d736866e1e6bf9c4')
+            result = subprocess.run(['patch', '--batch', '--fuzz=0', '--reverse', '-p1', '-i', str(patch)],
                                     cwd=root, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(),
-                             '9d23e7f80cae847f2ef0fd93d85856613d80bbd98aa45a64d736866e1e6bf9c4')
+                             '5369d60d5d10db75a541a5861ec545bc72ce9e7d1cddf398d9c557808a691a6b')
+
+    def test_current_locks_match_archive_and_historical_pair_stays_original(self):
+        for component, name, archive, expected in (
+            ('flere', 'core-Cargo.lock', 'Cargo.lock',
+             '7a6a0ec936b4cd0a7fd82b85b08c5b2dbd52356fb6e8b8b8f0b8b9eebaa7c789'),
+            ('flere-connect', 'companion-Cargo.lock', 'companion/Cargo.lock',
+             '659e826726ecaadc8ea1a5b19fa95770e1ac286f4e4a3353b58416004003a0cb'),
+        ):
+            current = (HERE / 'locks' / name).read_bytes()
+            previous = (HERE / 'locks' / ('previous-' + name)).read_bytes()
+            self.assertEqual(current, (SOURCE / archive).read_bytes())
+            self.assertEqual(hashlib.sha256(previous).hexdigest(), expected)
+            old = tomllib.loads(previous.decode())['package']
+            new = tomllib.loads(current.decode())['package']
+            for packages, version in ((old, '0.3.3'), (new, '0.3.5')):
+                own = [p for p in packages if p['name'] == component and 'source' not in p]
+                self.assertEqual(len(own), 1)
+                self.assertEqual(own[0]['version'], version)
+            dependencies = lambda packages: {(p['name'], p['version'], p.get('source'), p.get('checksum'))
+                                              for p in packages if 'source' in p}
+            self.assertEqual(dependencies(old), dependencies(new))
 
     def test_rejects_missing_or_unsafe_fixture_tool(self):
         with self.assertRaises(ValueError):

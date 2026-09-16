@@ -1,6 +1,6 @@
 [package]
 name = "flere"
-version = "0.3.5"
+version = "0.3.8"
 edition = "2024"
 rust-version = "1.98"
 description = "A terminal workbench for persistent shells, peer agents, editors, and Git"

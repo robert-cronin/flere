@@ -1,4 +1,7 @@
 use super::{COMPONENT, MAX_JSON, Names, Request, Source, invalid, transport};
+use crate::release_channel as channel;
+#[cfg(test)]
+mod tests;
 use crate::update::{self, Manifest};
 use std::{
     fs::{self, File, OpenOptions},
@@ -13,6 +16,7 @@ pub(super) struct Package {
     pub directory: PathBuf,
     pub manifest: Manifest,
     pub source_url: Option<String>,
+    pub follow_default: bool,
 }
 
 fn regular(path: &Path, maximum: u64) -> io::Result<File> {
@@ -188,27 +192,86 @@ fn create(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 pub(super) fn obtain(request: &Request, target: &str) -> io::Result<Package> {
+    obtain_with(request, target, fetch)
+}
+
+fn verify_channel_manifest(
+    request: &Request,
+    selection: &channel::Selection,
+    bytes: &[u8],
+) -> io::Result<()> {
+    if bytes.len() as u64 != selection.pin.bytes {
+        return Err(invalid(
+            "Default release manifest size differs from channel",
+        ));
+    }
+    // Hash only the bounded raw manifest in fresh, owned local staging. Do not
+    // parse it or fetch a payload until its channel pin has been checked.
+    let temporary = cache(&request.names)?.join(format!(".manifest-{}", update::nonce()?));
+    update::private_dir(&temporary)?;
+    let result = (|| {
+        let path = temporary.join("manifest.json");
+        create(&path, bytes)?;
+        selection.pin.verify(bytes, &digest(&path)?)
+    })();
+    let cleanup = fs::remove_dir_all(&temporary);
+    result.and(cleanup)
+}
+
+fn obtain_with(
+    request: &Request,
+    target: &str,
+    mut fetch: impl FnMut(&str, usize) -> io::Result<Vec<u8>>,
+) -> io::Result<Package> {
     request.cancellation.check()?;
     if let Source::LocalPackage(directory) = &request.source {
         return Ok(Package {
             directory: directory.clone(),
             manifest: load(directory, target)?,
             source_url: None,
+            follow_default: false,
         });
     }
-    let url = match &request.source {
-        Source::DefaultChannel => format!(
-            "https://github.com/robert-cronin/flere/releases/latest/download/flere-{target}.manifest.json"
-        ),
-        Source::HttpsManifest(url) => url.clone(),
+    let selection = match &request.source {
+        Source::DefaultChannel => {
+            let bytes = fetch(channel::URL, channel::MAX_BYTES).map_err(|error| invalid(&format!(
+                "Cannot resolve the default Flere release channel: {error}; no fallback package was selected",
+            )))?;
+            request.cancellation.check()?;
+            Some(channel::select(&bytes, target, COMPONENT)?)
+        }
+        Source::HttpsManifest(_) => None,
         Source::LocalPackage(_) => unreachable!(),
     };
+    let url = match (&selection, &request.source) {
+        (Some(selection), _) => selection.url.clone(),
+        (None, Source::HttpsManifest(url)) => url.clone(),
+        _ => unreachable!(),
+    };
     https(&url)?;
+    request.cancellation.check()?;
     let bytes = fetch(&url, MAX_JSON).map_err(|error| invalid(&format!(
         "Cannot download the Flere release manifest from {url}: {error}. The release may be unpublished or this machine offline; choose a published manifest or a local verified package",
     )))?;
+    if let Some(selection) = &selection {
+        request.cancellation.check()?;
+        verify_channel_manifest(request, selection, &bytes)?;
+        request.cancellation.check()?;
+    }
     let manifest: Manifest = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     validate(&manifest, target)?;
+    if let Some(selection) = &selection {
+        selection.verify_identity(
+            &manifest.build.package_version,
+            &manifest.build.target,
+            &manifest.build.component,
+        )?;
+        if selection.legacy_unsigned {
+            eprintln!(
+                "Using the explicitly pinned unsigned macOS 0.3.0 prebuilt. Current macOS prebuilt signing/notarization is pending; source Homebrew installation is available. Normal Gatekeeper checks still apply."
+            );
+        }
+    }
     request.cancellation.check()?;
     let cache = cache(&request.names)?;
     let directory = cache.join(manifest.id());
@@ -220,6 +283,7 @@ pub(super) fn obtain(request: &Request, target: &str) -> io::Result<Package> {
             directory,
             manifest,
             source_url: Some(url),
+            follow_default: selection.as_ref().is_some_and(|s| !s.legacy_unsigned),
         });
     }
     let temporary = cache.join(format!(".download-{}", update::nonce()?));
@@ -243,6 +307,7 @@ pub(super) fn obtain(request: &Request, target: &str) -> io::Result<Package> {
             directory,
             manifest,
             source_url: Some(url),
+            follow_default: selection.as_ref().is_some_and(|s| !s.legacy_unsigned),
         })
     })();
     if result.is_err() {

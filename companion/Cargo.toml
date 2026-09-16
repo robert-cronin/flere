@@ -1,6 +1,6 @@
 [package]
 name = "flere-connect"
-version = "0.3.5"
+version = "0.3.8"
 edition = "2024"
 rust-version = "1.98"
 description = "Optional local OpenSSH and clipboard companion for Flere"

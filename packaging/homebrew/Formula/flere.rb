@@ -1,9 +1,9 @@
 class Flere < Formula
   desc "Terminal workbench with persistent project sessions"
   homepage "https://github.com/robert-cronin/flere"
-  url "https://github.com/robert-cronin/flere/releases/download/v0.3.5/flere-0.3.5-source.tar.gz"
-  version "0.3.5"
-  sha256 "b47e0b741d3e15795a98ff9d107430e94f03d4713e9341d5e7b747f0396142c5"
+  url "https://github.com/robert-cronin/flere/releases/download/v0.3.8/flere-0.3.8-source.tar.gz"
+  version "0.3.8"
+  sha256 "d721ef01a17465c3955657a3c1b0eca72ed10c583744a0ddaa4e09905646e87b"
   license all_of: ["MIT", "OFL-1.1"]
 
   depends_on "rust" => :build

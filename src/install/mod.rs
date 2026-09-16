@@ -1,7 +1,11 @@
 //! Explicit, per-user package installation. Package files and running processes
 //! have separate identities; installation never starts a supervisor or a shell.
 mod activation;
+mod channel;
 mod cli;
+pub use channel::{
+    CAPABILITY as DEFAULT_CHANNEL_CAPABILITY, CAPABILITY_ARGS as DEFAULT_CHANNEL_ARGS,
+};
 mod manifest;
 mod ownership;
 mod package;

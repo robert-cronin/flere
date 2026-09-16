@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Offline orchestration fixtures; Apple tools and network calls are mocked."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import tempfile
+import textwrap
+from types import SimpleNamespace
 import unittest
+import urllib.request
 from unittest import mock
 
 
@@ -209,6 +214,126 @@ class Workflow(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.copy_checkpoint(self.fixture.state, destination, result["notary_receipt_sha256"])
             self.assertFalse(destination.exists())
+
+
+
+class ChannelWorkflow(unittest.TestCase):
+    """Execute the actual inline job adapter with bounded public-data fixtures."""
+    def setUp(self):
+        self.text = (Path(__file__).resolve().parents[1] / '.github/workflows/release.yml').read_text()
+        self.job = self.text.split('  prepare-channel:\n', 1)[1].split('\n  prepare-recipes:', 1)[0]
+        inline = self.job.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
+        self.code = compile(textwrap.dedent(inline), '<prepare-channel workflow>', 'exec')
+        parent = Path.home() / '.cache/flere/tmp'
+        parent.mkdir(parents=True, exist_ok=True)
+        temp = tempfile.TemporaryDirectory(prefix='channel-workflow-', dir=parent)
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        (self.root / 'candidate').mkdir()
+        self.release = fixtures.mac.release
+        self.head = 'd' * 40
+        self.api = 'https://api.github.com/repos/robert-cronin/flere/git/ref/heads/main'
+        self.url = f'https://raw.githubusercontent.com/robert-cronin/flere/{self.head}/packaging/channels/stable.json'
+        self.previous = b'{"schema_version":1,"targets":{}}\n'
+        self.responses = {self.api: json.dumps({'ref': 'refs/heads/main', 'object': {'type': 'commit', 'sha': self.head}}).encode(),
+                          self.url: self.previous}
+        self.calls = []
+        self.prepared = []
+        self.adapter = SimpleNamespace(release=self.release, prepare=mock.Mock(side_effect=self.prepare))
+        self.env = dict(HOME=str(self.root), GITHUB_RUN_ID='1234', GITHUB_RUN_ATTEMPT='2',
+                        RELEASE_VERSION='0.4.0', RELEASE_COMMIT='a' * 40, RELEASE_WORKFLOW_SHA='b' * 40,
+                        GITHUB_OUTPUT=str(self.root / 'outputs'), GITHUB_STEP_SUMMARY=str(self.root / 'summary'))
+
+    def prepare(self, directory, previous, previous_sha, output, version, commit, run, workflow_sha, descriptor_sha):
+        self.prepared.append((directory, previous.read_bytes(), previous_sha, version, commit, run, workflow_sha, descriptor_sha))
+        output.mkdir()
+        receipt = {'status': 'prepared_not_published', 'previous_sha256': previous_sha}
+        (output / 'stable.json').write_bytes(b'prepared channel')
+        (output / 'promotion.json').write_bytes(self.release.json_bytes(receipt))
+        return receipt
+
+    def execute(self, schema=3, *, wrong_pin=False):
+        raw = self.release.json_bytes({'schema_version': schema})
+        (self.root / 'candidate/release.json').write_bytes(raw)
+        env = dict(self.env, RELEASE_DESCRIPTOR_SHA='0' * 64 if wrong_pin else self.release.sha(raw))
+        def fetch(url, *, timeout):
+            self.calls.append((url, timeout))
+            return io.BytesIO(self.responses[url])
+        opener = mock.Mock(open=mock.Mock(side_effect=fetch))
+        def make_opener(handler):
+            self.assertIsInstance(handler, self.release.NoRedirect)
+            return opener
+        before = Path.cwd()
+        try:
+            os.chdir(self.root)
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch('importlib.util.spec_from_file_location', return_value=mock.Mock()), \
+                    mock.patch('importlib.util.module_from_spec', return_value=self.adapter), \
+                    mock.patch.object(urllib.request, 'build_opener', side_effect=make_opener):
+                exec(self.code, {})
+        finally:
+            os.chdir(before)
+
+    def test_current_main_is_data_only_and_exact_preimage_reaches_generator_and_artifact(self):
+        self.execute()
+        self.assertEqual(self.calls, [(self.api, 30), (self.url, 30)])
+        self.assertEqual(self.prepared, [(Path('candidate'), self.previous, self.release.sha(self.previous),
+            '0.4.0', 'a' * 40, '1234', 'b' * 40, self.release.sha(self.release.json_bytes({'schema_version': 3})))])
+        output = self.root / '.cache/flere/tmp/release-channel-1234-2/promotion'
+        self.assertEqual({p.name for p in output.iterdir()}, {'stable.json', 'promotion.json', 'main-preimage.json'})
+        self.assertEqual(json.loads((output / 'main-preimage.json').read_bytes()), {
+            'schema_version': 1, 'repository': 'robert-cronin/flere', 'ref': 'refs/heads/main',
+            'commit': self.head, 'path': 'packaging/channels/stable.json', 'url': self.url,
+            'bytes': len(self.previous), 'sha256': self.release.sha(self.previous)})
+        self.assertEqual((self.root / 'outputs').read_text(), f'directory={output}\n')
+
+    def test_historical_linux_profiles_skip_explicitly_without_channel_reads_or_artifact(self):
+        for schema in (1, 2):
+            with self.subTest(schema=schema): self.execute(schema)
+        self.assertEqual(self.calls, [])
+        self.adapter.prepare.assert_not_called()
+        self.assertIn('historical Linux-only', (self.root / 'summary').read_text())
+        self.assertFalse((self.root / 'outputs').exists())
+
+    def test_unknown_schema_and_descriptor_mismatch_fail_before_public_data_read(self):
+        for schema, wrong in ((5, False), (True, False), (3, True)):
+            with self.subTest(schema=schema, wrong_pin=wrong), self.assertRaises(ValueError):
+                self.execute(schema, wrong_pin=wrong)
+        self.assertEqual(self.calls, [])
+        self.adapter.prepare.assert_not_called()
+
+    def test_invalid_main_identity_or_oversized_responses_never_reach_generator(self):
+        valid = self.responses[self.api]
+        for raw in (b'x' * 16385,
+                    json.dumps({'ref': 'refs/heads/other', 'object': {'type': 'commit', 'sha': self.head}}).encode(),
+                    json.dumps({'ref': 'refs/heads/main', 'object': {'type': 'tag', 'sha': self.head}}).encode(),
+                    json.dumps({'ref': 'refs/heads/main', 'object': {'type': 'commit', 'sha': '../other'}}).encode()):
+            self.responses[self.api] = raw
+            with self.subTest(raw=raw[:100]), self.assertRaises(ValueError): self.execute()
+        self.responses[self.api] = valid
+        for raw in (b'', b'x' * 8193):
+            self.responses[self.url] = raw
+            with self.subTest(size=len(raw)), self.assertRaises(ValueError): self.execute()
+        self.adapter.prepare.assert_not_called()
+        self.assertFalse((self.root / 'outputs').exists())
+
+    def test_generator_refusal_cannot_advertise_a_publishable_artifact(self):
+        self.adapter.prepare.side_effect = ValueError('channel cannot downgrade')
+        with self.assertRaisesRegex(ValueError, 'cannot downgrade'): self.execute(4)
+        self.assertFalse((self.root / 'outputs').exists())
+        self.assertFalse((self.root / 'summary').exists())
+
+    def test_job_has_exact_read_only_dependencies_and_three_file_upload(self):
+        self.assertIn('needs: [select, aggregate, verify-public]', self.job)
+        self.assertIn('ref: ${{ github.workflow_sha }}', self.job)
+        self.assertIn('artifact-ids: ${{ needs.aggregate.outputs.artifact_id }}', self.job)
+        self.assertIn("if: steps.channel.outputs.directory != ''", self.job)
+        self.assertIn('persist-credentials: false', self.job)
+        for forbidden in ('contents: write', 'id-token:', 'environment: release', 'secrets.', 'GH_TOKEN', 'git push', 'git commit'):
+            self.assertNotIn(forbidden, self.job)
+        prefix = '${{ steps.channel.outputs.directory }}/'
+        self.assertEqual({line.strip().removeprefix(prefix) for line in self.job.splitlines() if line.strip().startswith(prefix)},
+                         {'stable.json', 'promotion.json', 'main-preimage.json'})
 
 
 if __name__ == "__main__":

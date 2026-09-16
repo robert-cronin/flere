@@ -50,6 +50,61 @@ impl Drop for Fixture {
     }
 }
 
+fn capable_package(f: &Fixture, name: &str) -> PathBuf {
+    let binary = f.build(&format!("{name}-binary"), name);
+    let script = fs::read_to_string(&binary).unwrap();
+    let probe = format!(
+        "if [ \"$#\" -eq 2 ] && [ \"$1\" = --build-info ] && [ \"$2\" = --default-channel-info ]; then printf '%s' '{}'; exit 0; fi\n",
+        std::str::from_utf8(install::DEFAULT_CHANNEL_CAPABILITY).unwrap()
+    );
+    fs::write(
+        &binary,
+        script.replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{probe}"), 1),
+    )
+    .unwrap();
+    let package = f.root.join(name);
+    install::package(&binary, &package, None).unwrap();
+    package
+}
+
+#[test]
+fn default_policy_requires_reader_support_and_rollback_keeps_the_new_receipt_readable() {
+    let f = Fixture::new();
+    let old = f.store.stage(&f.package("old")).unwrap();
+    assert!(
+        f.store
+            .install(&old, PackageSource::DefaultChannel {}, false)
+            .is_err()
+    );
+    assert!(f.store.status().unwrap().is_none());
+    assert!(!f.store.destination().exists());
+    let pinned = PackageSource::Public {
+        manifest_url: "https://example.invalid/manifest.json".into(),
+    };
+    f.store.install(&old, pinned.clone(), false).unwrap();
+    let next = f.store.stage(&capable_package(&f, "next")).unwrap();
+    let installed = f
+        .store
+        .install(&next, PackageSource::DefaultChannel {}, false)
+        .unwrap();
+    assert!(matches!(installed.source, PackageSource::DefaultChannel {}));
+    let before = fs::read(f.store.root.join("flere.json")).unwrap();
+    assert!(f.store.rollback(None).is_err());
+    assert_eq!(fs::read(f.store.root.join("flere.json")).unwrap(), before);
+    assert_eq!(
+        install::sha256(&f.store.destination()).unwrap(),
+        next.package.manifest.payload.sha256
+    );
+    // Explicitly changing policy on the SAME payload retains the real previous
+    // version and invalidates prepared baselines through a fresh attempt.
+    let changed = f.store.install(&next, pinned.clone(), false).unwrap();
+    assert_eq!(changed.current.id, installed.current.id);
+    assert_eq!(changed.previous, installed.previous);
+    assert_ne!(changed.attempt, installed.attempt);
+    assert_eq!(changed.source, pinned);
+    assert_eq!(f.store.rollback(None).unwrap().current.id, old.package.id);
+}
+
 #[test]
 fn first_install_retains_distinct_payloads_with_same_build_stamp_and_rolls_back() {
     let f = Fixture::new();

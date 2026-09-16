@@ -297,6 +297,11 @@ impl Store {
         if actual.as_deref() == Some(&pending.next.current.manifest.payload.sha256) {
             // A crash after rename does not justify downgrading a possibly active
             // process. Finish the file receipt; activation remains explicitly pending.
+            super::package::require_source_support(
+                &pending.next.current.manifest,
+                &pending.next.current.executable,
+                &pending.next.source,
+            )?;
             atomic_json(&self.receipt_path(), &pending.next)?;
         } else if actual != pending.previous_sha256 {
             return Err(invalid(
@@ -441,6 +446,11 @@ impl Store {
 
     fn replace(&self, next: &InstallReceipt, previous_sha256: Option<String>) -> io::Result<()> {
         self.validate_receipt(next)?;
+        super::package::require_source_support(
+            &next.current.manifest,
+            &next.current.executable,
+            &next.source,
+        )?;
         let temporary = self
             .bin_dir
             .join(format!(".{}-{}", self.component, os::nonce()?));
@@ -557,7 +567,19 @@ impl Store {
             ));
         }
         let previous = match current {
-            Some(receipt) if receipt.current.id == staged.package.id => return Ok(receipt),
+            Some(mut receipt) if receipt.current.id == staged.package.id => {
+                if receipt.source != source {
+                    super::package::require_source_support(
+                        &receipt.current.manifest,
+                        &receipt.current.executable,
+                        &source,
+                    )?;
+                    receipt.source = source;
+                    receipt.attempt = os::nonce()?;
+                    atomic_json(&self.receipt_path(), &receipt)?;
+                }
+                return Ok(receipt);
+            }
             Some(receipt) => Some(receipt.current),
             None if self.destination().try_exists()? => {
                 if !adopt_existing {
