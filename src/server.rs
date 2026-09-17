@@ -1690,7 +1690,9 @@ impl Server {
     }
     fn drain_scoped(&mut self) -> bool {
         self.cache_cleaner.tick();
-        let mut changed = self.observe_native() | self.finish_worktrees();
+        // Reply to terminal probes before process and filesystem observation,
+        // which can exceed a native program's startup response deadline.
+        let mut changed = false;
         for w in &mut self.workspaces {
             for s in &mut w.tabs {
                 if !s.ended {
@@ -1760,6 +1762,7 @@ impl Server {
                 }
             }
         }
+        changed |= self.observe_native() | self.finish_worktrees();
         self.close_tick();
         changed |= self.tasks_tick();
         for w in &mut self.workspaces {
