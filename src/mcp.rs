@@ -7,6 +7,12 @@ use std::{
 fn schema(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
+fn terminal_target_schema() -> Value {
+    schema(
+        json!({"expected_epoch":{"type":"string"},"workspace":{"type":"integer"},"session":{"type":"integer"},"run":{"type":"string"}}),
+        &["expected_epoch", "workspace", "session", "run"],
+    )
+}
 fn catalog() -> Vec<Value> {
     [
 ("get_context","Read your Flere workspace, assignment and pending coordination.",schema(json!({}),&[])),
@@ -31,6 +37,8 @@ fn catalog() -> Vec<Value> {
 ("request_decision","Prepare a concrete human question, recommendation and evidence. Never grants permission.",schema(json!({"question":{"type":"string"},"recommendation":{"type":"string"},"evidence":{"type":"string"}}),&["question","recommendation"])),
 ("submit_result","Request human review. Does not accept or publish work.",schema(json!({"body":{"type":"string"}}),&["body"])),
 ("set_status","Set workflow status independently of process state; done never implies acceptance.",schema(json!({"status":{"type":"string","enum":["todo","in-progress","needs-me","waiting"]}}),&["status"])),
+("inspect_terminal","Inspect a specific shell, editor or native terminal using fresh list_workspaces identities. Returns emulator text, input modes and a single-use ticket valid for 120 seconds. This does not change focus or enter input.",schema(json!({"target":terminal_target_schema(),"lines":{"type":"integer","minimum":1,"maximum":200}}),&["target"])),
+("send_terminal_input","Send an ordered sequence of text, literal paste, named keys or hex bytes to the inspected terminal. Use only for authorized terminal interaction; never bypass native trust/approval or replay a refused operation. Copy the exact target and your inspect_terminal ticket. One use only; on a lost reply inspect effects instead of replaying. Queued bytes do not establish execution or completion.",schema(json!({"target":terminal_target_schema(),"ticket":{"type":"string"},"actions":{"type":"array","minItems":1,"maxItems":256,"items":{"oneOf":(["text","paste","key","hex"].map(|field| schema(json!({field:{"type":"string","maxLength":131072}}),&[field])))}}}),&["target","ticket","actions"])),
 ("read_terminal","Read bounded recent output of this exact native terminal.",schema(json!({"lines":{"type":"integer","minimum":1,"maximum":200}}),&[])),
 ("show_workspace","Show a workspace only in response to an explicit user request. Types no input.",schema(json!({"workspace":{"type":"integer"},"user_requested":{"type":"boolean"},"reason":{"type":"string"}}),&["workspace","user_requested","reason"]))
 ].into_iter().map(|(name,description,input)|json!({"name":name,"description":description,"inputSchema":input})).collect()

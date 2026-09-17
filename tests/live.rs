@@ -15,6 +15,8 @@ mod screensaver;
 mod search;
 #[path = "tasks/mod.rs"]
 mod tasks;
+#[path = "terminal_input/mod.rs"]
+mod terminal_input;
 #[path = "updating/mod.rs"]
 mod updating;
 #[path = "viewport/mod.rs"]

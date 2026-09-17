@@ -701,6 +701,35 @@ complete `meta`) for readback. The same operation is available to a human throug
 own `agent-call` identity. `coordinate` is not a fallback for a rejected native
 request. Supervisors before 0.2.13 reject the new fields explicitly.
 
+## Agent terminal interaction
+
+All agents can inspect and operate an explicitly selected shell, editor or native terminal. Read `list_workspaces` first, then call `inspect_terminal` with its exact supervisor epoch, workspace, session and run:
+
+```json
+{"target":{"expected_epoch":"EPOCH_FROM_LIST","workspace":2,"session":3,"run":"RUN_FROM_LIST"},"lines":80}
+```
+
+The response contains emulator text, terminal input modes, pending input size and a single-use `ticket` valid for 120 seconds. Inspection changes no selection and enters no input. A stopped terminal is readable but has no input ticket. A later inspection by the same agent of the same target replaces that agent's old ticket.
+
+Pass that target and ticket to `send_terminal_input`. Each action has exactly one of `text`, `paste`, `key` or `hex`; the entire sequence is validated before anything is queued:
+
+```json
+{"target":{"expected_epoch":"EPOCH_FROM_LIST","workspace":2,"session":3,"run":"RUN_FROM_LIST"},"ticket":"TICKET_FROM_INSPECTION","actions":[{"text":"printf hello"},{"key":"Enter"}]}
+```
+
+- `text` sends UTF-8 bytes unchanged, including explicitly supplied controls.
+- `paste` adds bracketed-paste delimiters when the target enables that mode and never adds Enter. Multiline paste requires that mode; embedded control sequences are rejected to preserve literal-paste behavior.
+- `key` supports Enter, Tab, Shift+Tab, Escape, Space, Backspace, arrows, Home/End, Insert/Delete, PageUp/PageDown, F1–F12, Ctrl+letter and Alt+key. Arrows and Home/End use the target's application-cursor mode. Named keys use conventional VT encodings; they do not claim universal keyboard compatibility.
+- `hex` sends arbitrary bytes, for example `"1b5b313b3544"` for CSI 1;5D. Use it for terminal-specific modifiers, extended keyboard protocols or non-UTF-8 input.
+
+One request accepts at most 256 actions and 64 KiB of decoded input; JSON and wire-encoding overhead also count toward the existing transport limits. Modes are sampled when the request is processed. Inspect again between interactions that depend on a program or mode change.
+
+Input uses the same ordered PTY queue as frontend keys, without switching focus, starting a tab or inventing an idle/composer requirement. Explicit input can edit a draft, interrupt a program or submit a command, so choose it only within the user-authorized task after inspecting the target. Routine agent conversation continues to use `send_chat_message`. Terminal input does not impersonate user consent, grant a new permission or provide a fallback for a native refusal.
+
+Tickets bind the requesting native session/run and exact target. A different agent or target cannot use them. Tickets are consumed before any possible input, are not saved, and disappear on supervisor refresh/restart. The response reports only queued byte count, not program execution, message handling or success. After a lost response, inspect effects and reconcile before deciding on new input; never automatically obtain another ticket to repeat an uncertain action. The audit records actor, target and byte count without copying typed content. Normal private terminal history can still contain echoed text or program output.
+
+Both operations are also available through the scoped `flere --state "$FLERE_STATE" agent-call OPERATION JSON` interface. An existing agent can use that route after the updated supervisor is installed and activated; discovering the new MCP tool names uses the harness's supported catalog reload. Neither route requires a privileged coordinator role.
+
 ## Activate agent-message delivery (0.2.8)
 
 First use **Ctrl+Space → Space → Shift+R** to activate the installed Flere

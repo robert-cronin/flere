@@ -56,6 +56,7 @@ mod projects;
 mod refresh;
 mod restore;
 mod tasks;
+mod terminal_input;
 mod transfers;
 
 struct Session {
@@ -158,6 +159,7 @@ struct Server {
     delivery_jobs: Vec<delivery::Job>,
     worktree_jobs: Vec<WorktreeJob>,
     attachment_tickets: Vec<attachments::Ticket>,
+    terminal_tickets: Vec<terminal_input::Ticket>,
     close_pending: Vec<close::Pending>,
     file_transfers: transfers::Transfers,
     command_depth: u32,
@@ -230,6 +232,7 @@ impl Server {
             delivery_jobs: Vec::new(),
             worktree_jobs: Vec::new(),
             attachment_tickets: Vec::new(),
+            terminal_tickets: Vec::new(),
             close_pending: Vec::new(),
             tasks: Default::default(),
             cache_reservations: Default::default(),
@@ -1489,7 +1492,9 @@ impl Server {
                 let op = arg(3)?;
                 let args: serde_json::Value =
                     serde_json::from_str(&wire::text(arg(4)?)?).map_err(io::Error::other)?;
-                let mut value = if op == "read_terminal" {
+                let mut value = if matches!(op, "inspect_terminal" | "send_terminal_input") {
+                    self.terminal_operation((id, run), op, &args)?
+                } else if op == "read_terminal" {
                     let lines = args["lines"].as_u64().unwrap_or(80).clamp(1, 200);
                     serde_json::from_slice(
                         &self.command(&format!("capture\t{id}\t{run}\t{lines}"))?,
