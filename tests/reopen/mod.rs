@@ -140,6 +140,125 @@ fn ui_restores_three_exact_chats_order_selection_and_never_duplicates_on_reattac
 }
 
 #[test]
+fn saved_cards_restore_only_when_opened_by_keyboard_or_mouse() {
+    let mut f = Fixture::new();
+    standins(&f);
+    let mut cards = Vec::new();
+    for (i, name) in ["Saved one", "Saved two", "Saved three"].iter().enumerate() {
+        f.req(&[
+            "new-stopped",
+            &wire::hex(name.as_bytes()),
+            &wire::hex(f.root.to_str().unwrap().as_bytes()),
+        ]);
+        let wid = f.snapshot().active;
+        let uuid = format!("12345678-1234-1234-1234-{i:012}");
+        f.req(&["native", &wid.to_string(), "codex", &uuid]);
+        f.wait_text(f.snapshot().session().unwrap(), "RESTORED_NATIVE");
+        cards.push((wid, uuid));
+    }
+    f.req(&["focus", &cards[0].0.to_string(), "0"]);
+    restart(&mut f);
+    // Observation and even another supervisor restart preserve unopened cards.
+    f.req(&["list"]);
+    restart(&mut f);
+    assert!(
+        stored(&f)["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|w| { w["tabs"].as_array().unwrap().len() == 1 })
+    );
+    let (mut master, mut child, mut screen) = attach(&f, 1);
+    let first = f.snapshot().session().unwrap().clone();
+    assert_eq!(spec(&f, &first)["conversation"], cards[0].1);
+    let epoch = f.snapshot().epoch;
+    // Older UI polling also stops at the active card, not all pending cards.
+    for _ in 0..3 {
+        let result: Value = serde_json::from_slice(&f.req(&["restore-next", &epoch])).unwrap();
+        assert_eq!(result["remaining"], 0);
+    }
+    assert!(
+        wire::request(
+            &f.state,
+            &["restore-workspace-next", &epoch, &cards[1].0.to_string()]
+        )
+        .is_err()
+    );
+    assert!(
+        wire::request(
+            &f.state,
+            &[
+                "restore-workspace-next",
+                "stale-epoch",
+                &cards[0].0.to_string()
+            ]
+        )
+        .is_err()
+    );
+    assert!(
+        f.snapshot().workspaces[1..]
+            .iter()
+            .all(|w| w.tabs.is_empty())
+    );
+
+    // Keyboard preview changes the visible card without starting it. Enter opens it.
+    master.write_all(b"\0hj").unwrap();
+    wait_current_ui(&mut master, &mut screen, |_| {
+        f.snapshot().active == cards[1].0
+    });
+    pump_ui_bytes(&mut master, &mut screen, 150);
+    assert!(f.snapshot().workspace().unwrap().tabs.is_empty());
+    master.write_all(b"\r").unwrap();
+    wait_current_ui(&mut master, &mut screen, |_| {
+        f.snapshot()
+            .workspace()
+            .is_some_and(|w| w.id == cards[1].0 && w.tabs.len() == 1)
+    });
+    let second = f.snapshot().session().unwrap().clone();
+    assert_eq!(spec(&f, &second)["conversation"], cards[1].1);
+    assert_eq!(f.snapshot().workspaces[0].tabs[0].run, first.run);
+    assert!(f.snapshot().workspaces[2].tabs.is_empty());
+
+    // The pointer route opens only its target; no restore keystroke reaches Codex.
+    wait_current_ui(&mut master, &mut screen, |s| {
+        s.capture(100).contains("Saved three")
+    });
+    let row = screen
+        .capture(100)
+        .lines()
+        .position(|line| line.contains("Saved three"))
+        .unwrap();
+    master
+        .write_all(format!("\x1b[<0;12;{}M\x1b[<0;12;{}m", row + 1, row + 1).as_bytes())
+        .unwrap();
+    wait_current_ui(&mut master, &mut screen, |_| {
+        f.snapshot()
+            .workspace()
+            .is_some_and(|w| w.id == cards[2].0 && w.tabs.len() == 1)
+    });
+    let third = f.snapshot().session().unwrap().clone();
+    assert_eq!(spec(&f, &third)["conversation"], cards[2].1);
+    let runs: Vec<_> = f
+        .snapshot()
+        .workspaces
+        .iter()
+        .map(|w| w.tabs[0].run.clone())
+        .collect();
+    assert_eq!(runs, [first.run, second.run, third.run]);
+    finish_ui(&mut master, &mut screen, &mut child);
+    let (mut master, mut child, mut screen) = attach(&f, 3);
+    assert_eq!(
+        f.snapshot()
+            .workspaces
+            .iter()
+            .map(|w| w.tabs[0].run.clone())
+            .collect::<Vec<_>>(),
+        runs
+    );
+    finish_ui(&mut master, &mut screen, &mut child);
+}
+
+#[test]
 fn shells_reopen_in_their_last_directories_and_editor_reopens_without_replaying_drafts() {
     let mut f = Fixture::new();
     let a = f.new_workspace("Shells and editor");

@@ -1,4 +1,4 @@
-//! Durable tab layout. Only a UI request reopens programs, one tab per request.
+//! Durable tab layout. Only the opened card restores programs, one tab per UI request.
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -335,20 +335,25 @@ impl Server {
         }
         Ok(id)
     }
-    pub(super) fn restore_next(&mut self, epoch: &str) -> io::Result<Vec<u8>> {
+    pub(super) fn restore_next(&mut self, epoch: &str, wid: u64) -> io::Result<Vec<u8>> {
         if epoch != self.epoch {
             return Err(invalid("workspace epoch changed; reopen Flere"));
         }
-        let next = self.restoration.pending.iter().position(|p| {
-            !self
-                .restoration
-                .attempted
-                .contains(&(p.workspace, p.tab.order))
+        if self.active != wid {
+            return Err(invalid("active workspace changed; open the card again"));
+        }
+        let eligible = |p: &Pending| {
+            p.workspace == wid
+                && !self
+                    .restoration
+                    .attempted
+                    .contains(&(p.workspace, p.tab.order))
                 && self
                     .workspaces
                     .iter()
-                    .any(|w| w.id == p.workspace && !w.meta.archived)
-        });
+                    .any(|w| w.id == wid && !w.meta.archived)
+        };
+        let next = self.restoration.pending.iter().position(eligible);
         let mut error = String::new();
         if let Some(index) = next {
             let p = self.restoration.pending[index].clone();
@@ -428,14 +433,15 @@ impl Server {
             .pending
             .iter()
             .filter(|p| {
-                !self
-                    .restoration
-                    .attempted
-                    .contains(&(p.workspace, p.tab.order))
+                p.workspace == wid
+                    && !self
+                        .restoration
+                        .attempted
+                        .contains(&(p.workspace, p.tab.order))
                     && self
                         .workspaces
                         .iter()
-                        .any(|w| w.id == p.workspace && !w.meta.archived)
+                        .any(|w| w.id == wid && !w.meta.archived)
             })
             .count();
         serde_json::to_vec(&serde_json::json!({"remaining":remaining,"error":error}))

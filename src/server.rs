@@ -661,6 +661,7 @@ impl Server {
                     | "refresh-status"
                     | "build-info"
                     | "restore-next"
+                    | "restore-workspace-next"
                     | "close-check"
                     | "close-poll"
                     | "close-cancel"
@@ -791,7 +792,10 @@ impl Server {
                 Ok(format!("{{\"session\":{tab}}}").into_bytes())
             }
             "save-tabs" => Ok(b"saved".to_vec()),
-            "restore-next" => self.restore_next(arg(1)?),
+            // Older frontends also restore only the visible card. New frontends
+            // use the scoped command so a stale request cannot open another card.
+            "restore-next" => self.restore_next(arg(1)?, self.active),
+            "restore-workspace-next" => self.restore_next(arg(1)?, num(2)?),
             "restore-retry" => {
                 if arg(1)? != self.epoch {
                     return Err(invalid("workspace epoch changed"));

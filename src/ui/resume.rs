@@ -8,19 +8,33 @@ impl Ui {
         self.save_preferences();
     }
     pub(super) fn reopen_workspace(&mut self) {
-        self.restore_pending = true;
+        self.restore_pending = Some(self.snapshot.active);
         self.tick_restore();
     }
     pub(super) fn tick_restore(&mut self) -> bool {
-        if !self.restore_pending {
+        let Some(wid) = self.restore_pending else {
+            return false;
+        };
+        // Browsing another card cancels the pending restoration; merely previewing
+        // that card must not transfer the permission to start its saved programs.
+        if self.snapshot.active != wid {
+            self.restore_pending = None;
             return false;
         }
-        let result = wire::request(&self.state, &["restore-next", &self.snapshot.epoch]);
+        let result = wire::request(
+            &self.state,
+            &[
+                "restore-workspace-next",
+                &self.snapshot.epoch,
+                &wid.to_string(),
+            ],
+        );
         match result.and_then(|bytes| {
             serde_json::from_slice::<serde_json::Value>(&bytes).map_err(io::Error::other)
         }) {
             Ok(value) => {
-                self.restore_pending = value["remaining"].as_u64().unwrap_or(0) > 0;
+                self.restore_pending =
+                    (value["remaining"].as_u64().unwrap_or(0) > 0).then_some(wid);
                 if let Ok(snapshot) = self.read_snapshot() {
                     self.snapshot(snapshot);
                 }
@@ -29,7 +43,7 @@ impl Ui {
                 }
             }
             Err(e) => {
-                self.restore_pending = false;
+                self.restore_pending = None;
                 self.notice = if e.to_string() == "unknown command" {
                     "Saved tabs need a Flere refresh: Ctrl+Space, then R".into()
                 } else {
@@ -37,7 +51,7 @@ impl Ui {
                 };
             }
         }
-        if !self.restore_pending {
+        if self.restore_pending.is_none() {
             self.remember_workspace();
         }
         true
@@ -55,7 +69,7 @@ impl Ui {
             &["restore-retry", &self.snapshot.epoch, &id.to_string()],
         ) {
             Ok(_) => {
-                self.restore_pending = true;
+                self.restore_pending = Some(self.snapshot.active);
                 self.tick_restore();
             }
             Err(e) => {
@@ -68,7 +82,7 @@ impl Ui {
             .snapshot
             .workspace()
             .is_some_and(|w| w.id == id && w.tabs.is_empty())
-            && !self.restore_pending
+            && self.restore_pending.is_none()
         {
             match wire::request(
                 &self.state,
@@ -113,7 +127,7 @@ impl Ui {
             b"\r" => {
                 self.resume_saved_chat();
                 if self.snapshot.session().is_none()
-                    && !self.restore_pending
+                    && self.restore_pending.is_none()
                     && self.notice.is_empty()
                 {
                     self.open_form("Start agent");

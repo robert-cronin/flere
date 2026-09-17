@@ -37,6 +37,11 @@ are unchanged. User aliases are preserved; aliases or commands that name an
 absolute Codex executable can bypass this integration. Nested shells inherit
 the launcher unless their startup configuration replaces PATH.
 
+After a supervisor restart, opening Flere restores only the visible card’s saved
+tabs. Click another card or press **Enter** on it to resume its saved chats.
+Keyboard previews, inbox checks and background observation never resume other
+cards. Chats already running continue when you switch cards or detach.
+
 When every tab on an existing card has been closed, **Enter** or explicit card
 activation reopens its last recorded native conversation. A legacy card with one
 saved conversation resumes that exact ID; ambiguous older history opens the
@@ -116,7 +121,10 @@ home-state caches.
 
 Hook definitions follow [official Codex hooks](https://developers.openai.com/codex/hooks/).
 Codex merges hook sources and requires human review of each non-managed hook's
-exact definition. These hooks never answer permissions. Once delivery state is
+exact definition. Unchanged definitions reuse Codex’s saved trust on subsequent
+launches. A chat already waiting at hook review can retain an earlier trust
+snapshot; trusting the same hooks in another chat does not dismiss that open
+prompt. Real definition changes still require review. These hooks never answer permissions. Once delivery state is
 saved, older binaries reject a downgrade before replacing the supervisor, so
 receipts and focus state cannot be silently lost. Physical/native acceptance is
 tracked in the [acceptance checklist](../acceptance.md).

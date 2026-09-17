@@ -294,7 +294,7 @@ struct Ui {
     notice: String,
     history: Vec<(u64, u64, String)>,
     history_index: usize,
-    restore_pending: bool,
+    restore_pending: Option<u64>,
     quit: bool,
     refresh: bool,
     refresh_to: Option<PathBuf>,
@@ -379,6 +379,9 @@ impl Ui {
         let started = Instant::now();
         if s.epoch == self.snapshot.epoch && s.generation < self.snapshot.generation {
             return;
+        }
+        if s.epoch != self.snapshot.epoch || s.active != self.snapshot.active {
+            self.restore_pending = None;
         }
         if s.notice != self.snapshot.notice && !s.notice.is_empty() {
             self.notice = s.notice.clone();
@@ -1954,7 +1957,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                 .unwrap_or_default(),
         )],
         history_index: 0,
-        restore_pending: false,
+        restore_pending: None,
         quit: false,
         refresh: false,
         refresh_to: None,

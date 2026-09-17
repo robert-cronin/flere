@@ -26,7 +26,7 @@ history. Git, editors, shells, and coding agents are external programs.
 | UI detach / reattach | Preserved | Preserved | Preserved |
 | Successful explicit refresh | Same PIDs and run identities | Preserved | Preserved |
 | Refresh preflight rejected | Old supervisor continues | Preserved | Preserved |
-| Supervisor crash / machine reboot | UI opening restores saved agent, shell and editor tabs | Live drafts and scrollback lost; saved chat history belongs to its harness | Retained |
+| Supervisor crash / machine reboot | Opening a card restores its saved agent, shell and editor tabs | Live drafts and scrollback lost; saved chat history belongs to its harness | Retained |
 
 Refresh uses a validated private handoff and same-process exec. It carries owned
 file descriptors, child start identities, terminal state, and live socket state.
@@ -56,11 +56,13 @@ Native repository, tool, and hook trust decisions stay with the user.
 | Remote image attachments | Flere cache under `attachments` |
 
 Use `--state DIR` to select an instance. Metadata persistence and process
-persistence have different lifetimes. Supervisor-only startup stays idle; opening
-the UI restores every saved open tab in order, with the selected workspace and
-tab retained. Each agent uses its recorded harness and conversation; a missing
-ID opens the harness picker. Shells reopen in their saved directories. Live tabs
-are reused. Failed tabs remain available for an explicit retry.
+persistence have different lifetimes. Supervisor-only startup stays idle. Opening
+the UI restores the visible card’s saved open tabs in order, with its selection
+retained. Other cards remain stopped until opened by clicking the card or pressing
+Enter; keyboard previews do not launch their programs. Each agent uses its recorded
+harness and conversation; a missing ID opens the harness picker. Shells reopen in
+their saved directories. Live tabs keep running across card switches and UI detach
+and are reused on return. Failed tabs remain available for an explicit retry.
 
 The workspace store is version 6, accepting versions 2–6; refresh handoffs are
 version 4, accepting versions 1–4. Older binaries reject the newer formats. Back

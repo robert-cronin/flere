@@ -155,7 +155,7 @@ impl Ui {
             && self.confirm.is_none()
             && self.context_menu.is_none()
             && self.pending_close.is_none()
-            && !self.restore_pending
+            && self.restore_pending.is_none()
             && self.screenshot_job.is_none()
             && !self.card_popup_pinned()
             && self.pet.controls.is_none()
