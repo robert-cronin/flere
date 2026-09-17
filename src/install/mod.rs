@@ -3,6 +3,7 @@
 mod activation;
 mod channel;
 mod cli;
+pub mod discovery;
 pub use channel::{
     CAPABILITY as DEFAULT_CHANNEL_CAPABILITY, CAPABILITY_ARGS as DEFAULT_CHANNEL_ARGS,
 };
@@ -20,6 +21,7 @@ pub use package::{
     BuildMetadata, Compatibility, MAX_PAYLOAD, Manifest, PackageSource, ProtocolCompatibility,
     SourceReceipt, VersionRange, download, inspect_binary, package, sha256, source_digest,
 };
+pub(crate) use package::{available_release, background_release};
 pub use store::{InstallReceipt, InstalledPackage, StagedPackage, Store};
 
 use crate::wire::invalid;

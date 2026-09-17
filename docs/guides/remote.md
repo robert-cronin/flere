@@ -41,9 +41,10 @@ accepts the Flere **v2–v6 wire shapes**, with features limited to that server'
 Screenshot export needs v5 or newer; coordinated updates and file/port tools need v6.
 
 With the current pair, **Ctrl+Space, Shift+K** opens the companion's local update
-form. Enter prepares both packages; review their identities before applying or
-cancelling. This requires the guarded Flere update endpoint; an unrecognized peer
-is left unchanged. Old Railhand peers require a fresh Flere installation.
+screen and finds and verifies the latest compatible release for both components.
+Review the versions, then **Enter** applies or **Esc** cancels. After reconnecting,
+the result stays visible until dismissed. **A** opens custom package sources.
+This requires the guarded Flere update endpoint; an unrecognized peer is left unchanged. Old Railhand peers require a fresh Flere installation.
 See [setup and updates](../getting-started.md#update-from-flere).
 
 ## Disconnects under load

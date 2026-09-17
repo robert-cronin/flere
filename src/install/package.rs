@@ -262,6 +262,34 @@ fn fetch(url: &str, limit: usize) -> io::Result<Vec<u8>> {
     )
 }
 
+pub(crate) fn available_release() -> io::Result<Option<String>> {
+    super::channel::available(
+        &fetch(super::channel::URL, super::channel::MAX_BYTES)?,
+        crate::build_info::TARGET,
+        "flere",
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+pub(crate) fn background_release() -> io::Result<Option<String>> {
+    if std::env::var_os("FLERE_NO_UPDATE_CHECK").is_some() {
+        return Ok(None);
+    }
+    let receipt = super::Store::for_user("flere")?.status()?;
+    let published = receipt.is_some_and(|r| match r.source {
+        PackageSource::DefaultChannel {} => true,
+        PackageSource::Public { manifest_url } => {
+            super::channel::official_source(&manifest_url, crate::build_info::TARGET, "flere")
+        }
+        PackageSource::Local | PackageSource::Adopted => false,
+    });
+    if published {
+        available_release()
+    } else {
+        Ok(None)
+    }
+}
+
 pub(super) fn download_default(
     output: &Path,
     component: &str,

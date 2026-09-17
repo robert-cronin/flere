@@ -194,22 +194,30 @@ This action owns Flere's per-user managed installation. If you installed through
 Homebrew, Cargo or a system package manager, upgrade through that manager instead;
 see [installation ownership](distribution.md#upgrade-through-the-installation-owner).
 
-**Ctrl+Space, Shift+K** opens **Update Flere**. Locally, select a package directory
-or HTTPS manifest and press Enter to apply. In a supporting installation whose
-receipt records `default_channel`, an empty source resolves the fixed release
-index again. Other local installations keep the explicitly registered checkout
-behavior. `scripts/dev update` registers its checkout. You can also
-register one with `flere dev-source /absolute/path/to/flere`; the updater never
-infers executable code from the active workspace directory.
+**Ctrl+Space, Shift+K** opens **Update Flere** and finds the latest compatible
+published release. It downloads and verifies the packages, then shows the versions
+for review. Press **Enter** to apply or **Esc** to cancel; installation only starts
+after that confirmation. **R** checks again after a failed check or an up-to-date
+result. Downloads and checks run in the background while terminals keep draining.
 
-Over SSH, the updated companion opens its own local source form for the remote core
-and local companion. Enter prepares and verifies both; review their identities,
-then Enter applies or Esc cancels. Exact sessions and drafts stay on the supervisor.
-A blank remote field can use a registered development checkout or the saved package
-source. To select one published release explicitly, enter its Linux core manifest
-and matching Windows companion manifest in the two fields; an explicit URL stays pinned.
-The result distinguishes installed files, the supervisor, the initiating frontend
-and companion; other attachments are reported separately. See [remote setup](guides/remote.md).
+Over SSH, the companion prepares the remote core and local companion together.
+Applying restarts the companion, reconnects, and refreshes the remote core and this
+window. Exact sessions and drafts stay on the supervisor. The completion screen
+stays open until **Enter** or **Esc**; other attachments are reported separately.
+See [remote setup](guides/remote.md).
+
+Managed official-release installs check for availability shortly after opening a
+window, then every four hours. These passive checks fetch only the small release
+index; they never download packages or install anything. Set
+`FLERE_NO_UPDATE_CHECK=1` to disable passive checks. Custom sources, local builds
+and package-manager installs do not opt into passive checks.
+
+**A** opens Advanced sources for a package directory or HTTPS manifest. Over SSH,
+Enter prepares the two selected sources before a second Enter applies them. In a
+local window, Enter applies the advanced source directly. A blank advanced field
+uses its saved source or registered development checkout. `scripts/dev update`
+registers its checkout; `flere dev-source /absolute/path/to/flere` can register one
+explicitly. Automatic published updates never run a development script.
 
 Old Railhand supervisors cannot be refreshed with a Flere binary. Start a new
 Flere instance instead. **Ctrl+Space, Shift+R** remains an explicit refresh action,
@@ -230,10 +238,11 @@ Version 0.3.8 supports retained default-channel intent without migrating old
 installs. The Unix default installer and first SSH bootstrap save
 `default_channel`; later explicit Update prepares the newly selected
 immutable package. Apply uses that already verified package and never resolves the
-index again. An explicit URL stays pinned, a local package stays local, and old
-Public receipts—including v0.3.7 installs—stay pinned. There is no background
-update, latest fallback, or automatic downgrade. The unsigned macOS v0.3.0 route
-remains an explicit legacy pin.
+index again. Explicit CLI and Advanced source operations retain their saved
+source semantics: an explicit URL stays pinned and a local package stays local.
+The normal Update screen checks the release index afresh, including for old Public
+receipts. It never downgrades or installs in the background. The unsigned macOS
+v0.3.0 route remains an explicit legacy pin outside automatic updates.
 
 New receipts require supporting readers. Candidate and retained Windows-launcher
 support are checked before this policy is saved, including when rolling back.

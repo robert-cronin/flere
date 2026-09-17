@@ -296,6 +296,7 @@ mod tests {
             .as_bytes(),
         );
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(binary.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
         let store = Store::new(f.0.join("managed"), f.0.join(".local/bin"), "flere").unwrap();
         let build = serde_json::from_str(crate::build_info::json()).unwrap();
         assert_eq!(

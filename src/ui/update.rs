@@ -5,11 +5,25 @@ use std::{process::Command, sync::mpsc};
 
 pub(super) struct Update {
     source: Vec<u8>,
+    automatic: Option<Automatic>,
     follow_default: bool,
     status: String,
     job: Option<mpsc::Receiver<io::Result<InstallReceipt>>>,
     owner: Owner,
 }
+#[derive(Clone)]
+struct Candidate {
+    token: String,
+    current: String,
+    version: String,
+}
+#[derive(Default)]
+struct Automatic {
+    started: bool,
+    job: Option<mpsc::Receiver<io::Result<Option<Candidate>>>>,
+    candidate: Option<Candidate>,
+}
+
 enum Owner {
     Checking(mpsc::Receiver<(Option<ManagerUpgrade>, String, bool)>),
     PackageManager(ManagerUpgrade),
@@ -33,6 +47,40 @@ impl Update {
         // The source field and Apply action become available only after this
         // modal's own probe completes. Package-manager commands are display-only.
         if !matches!(self.owner, Owner::Local) {
+            return UpdateInput::None;
+        }
+        if self.automatic.is_some() {
+            match key {
+                Key::Bytes(b) if b == b"a" => {
+                    self.automatic = None;
+                    self.status =
+                        "Advanced package sources · Enter applies your chosen source".into();
+                }
+                Key::Bytes(b)
+                    if b == b"r" && self.automatic.as_ref().is_some_and(|a| a.job.is_none()) =>
+                {
+                    self.automatic = Some(Automatic::default());
+                }
+                Key::Bytes(b)
+                    if (b == b"\r" || b == b"\n")
+                        && self
+                            .automatic
+                            .as_ref()
+                            .is_some_and(|a| a.candidate.is_some()) =>
+                {
+                    return UpdateInput::Apply;
+                }
+                Key::Bytes(b)
+                    if (b == b"\r" || b == b"\n")
+                        && self
+                            .automatic
+                            .as_ref()
+                            .is_some_and(|a| a.started && a.job.is_none()) =>
+                {
+                    return UpdateInput::Close;
+                }
+                _ => {}
+            }
             return UpdateInput::None;
         }
         match key {
@@ -244,6 +292,7 @@ impl Ui {
         });
         self.update = Some(Update {
             source: Vec::new(),
+            automatic: None,
             follow_default: false,
             status: "Applying updated remote frontend…".into(),
             job: Some(receiver),
@@ -276,14 +325,34 @@ impl Ui {
                         .write(&mut io::stdout().lock());
                 }
                 self.update_ack = None;
-                self.notice = "Updated Flere; sessions preserved and this frontend applied".into();
+                self.notice = format!(
+                    "Updated Flere to {}; sessions preserved and this frontend applied",
+                    env!("CARGO_PKG_VERSION")
+                );
+                self.show_update_result();
                 true
             }
             Err(e) => {
                 self.notice = format!("Update remains partial: {}", wire::passive(&e.to_string()));
                 self.update_ack = None;
+                self.show_update_result();
                 true
             }
+        }
+    }
+    fn show_update_result(&mut self) {
+        if self.remote.is_none() {
+            self.update = Some(Update {
+                source: Vec::new(),
+                automatic: Some(Automatic {
+                    started: true,
+                    ..Automatic::default()
+                }),
+                follow_default: false,
+                status: self.notice.clone(),
+                job: None,
+                owner: Owner::Local,
+            });
         }
     }
     pub(super) fn open_update(&mut self) {
@@ -302,7 +371,7 @@ impl Ui {
             .write(&mut io::stdout().lock());
             self.menu = false;
             self.notice = result
-                .map(|_| "Update sources are selected in your local companion".into())
+                .map(|_| "Checking for updates in your local companion".into())
                 .unwrap_or_else(|e| wire::passive(&e.to_string()));
             return;
         }
@@ -328,6 +397,7 @@ impl Ui {
         });
         self.update = Some(Update {
             source: Vec::new(),
+            automatic: Some(Automatic::default()),
             follow_default: false,
             status: "Checking this executable's installation owner…".into(),
             job: None,
@@ -345,11 +415,17 @@ impl Ui {
                 let state = self.state.clone();
                 let source = String::from_utf8_lossy(&update.source).trim().to_owned();
                 let follow_default = update.follow_default;
+                let candidate = update.automatic.as_ref().and_then(|a| a.candidate.clone());
                 let (sender, receiver) = mpsc::channel();
                 update.job = Some(receiver);
                 update.status = "Updating… terminal sessions remain alive".into();
                 std::thread::spawn(move || {
-                    let _ = sender.send(perform(&state, &source, follow_default));
+                    let result = if let Some(candidate) = candidate {
+                        apply_candidate(&state, &candidate.token)
+                    } else {
+                        perform(&state, &source, follow_default)
+                    };
+                    let _ = sender.send(result);
                 });
             }
             UpdateInput::None => {}
@@ -358,14 +434,65 @@ impl Ui {
         true
     }
     pub(super) fn tick_update(&mut self) -> bool {
+        let mut changed = false;
+        if self.update.is_none() {
+            match self
+                .update_discovery
+                .tick(crate::install::background_release)
+            {
+                Some(Ok(Some(version))) => {
+                    self.notice =
+                        format!("Flere {version} is available · Ctrl+Space, Shift+K to update");
+                    changed = true;
+                }
+                Some(Err(error)) => crate::diagnostics::error("update-check", &error),
+                _ => {}
+            }
+        }
         let Some(update) = &mut self.update else {
-            return false;
+            return changed;
         };
-        if update.poll_owner() {
-            return true;
+        changed |= update.poll_owner();
+        if matches!(update.owner, Owner::Local)
+            && update.job.is_none()
+            && let Some(automatic) = &mut update.automatic
+        {
+            if !automatic.started {
+                automatic.started = true;
+                let (tx, rx) = mpsc::channel();
+                automatic.job = Some(rx);
+                let state = self.state.clone();
+                update.status = "Finding and verifying the latest release…".into();
+                std::thread::spawn(move || {
+                    let _ = tx.send(prepare_automatic(&state));
+                });
+                return true;
+            }
+            if let Some(job) = &automatic.job {
+                let result = match job.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(mpsc::TryRecvError::Empty) => None,
+                    Err(mpsc::TryRecvError::Disconnected) => Some(Err(io::Error::other(
+                        "Update check stopped; press R to retry",
+                    ))),
+                };
+                if let Some(result) = result {
+                    automatic.job = None;
+                    match result {
+                        Ok(Some(candidate)) => {
+                            update.status =
+                                "Package verified · Enter updates and preserves sessions".into();
+                            automatic.candidate = Some(candidate);
+                        }
+                        Ok(None) => update.status = "You're up to date".into(),
+                        Err(error) => update.status = wire::passive(&error.to_string()),
+                    }
+                    changed = true;
+                }
+            }
         }
         let Some(job) = &update.job else {
-            return false;
+            return changed;
         };
         let result = match job.try_recv() {
             Ok(result) => result,
@@ -444,6 +571,38 @@ impl Ui {
             );
             return;
         }
+        if let Some(automatic) = &update.automatic {
+            let identity = automatic.candidate.as_ref().map_or_else(
+                || {
+                    format!(
+                        "Installed {} · published releases",
+                        env!("CARGO_PKG_VERSION")
+                    )
+                },
+                |candidate| format!("Flere {} → {}", candidate.current, candidate.version),
+            );
+            c.text(x + 2, y + 2, w - 4, &identity, style(TEXT, PANEL, true));
+            for (row, line) in chrome::wrap(&update.status, w - 4, h.saturating_sub(6))
+                .iter()
+                .enumerate()
+            {
+                c.text(x + 2, y + 4 + row, w - 4, line, style(GOLD, PANEL, false));
+            }
+            c.text(
+                x + 2,
+                y + h - 2,
+                w - 4,
+                if update.job.is_some() {
+                    "Applying update…"
+                } else if automatic.candidate.is_some() {
+                    "Enter update · A advanced sources · Esc cancel"
+                } else {
+                    "R check again · A advanced sources · Esc close"
+                },
+                style(MUTED, PANEL, false),
+            );
+            return;
+        }
         c.text(
             x + 2,
             y + 2,
@@ -491,6 +650,48 @@ impl Ui {
         );
     }
 }
+fn manager_guard() -> io::Result<()> {
+    if let Some(manager) = crate::install::update_manager_guard() {
+        return Err(wire::invalid(&manager.command.map_or_else(
+            || manager.detail.to_owned(),
+            |c| format!("Installed with {}. Run: {c}", manager.manager),
+        )));
+    }
+    Ok(())
+}
+fn prepare_automatic(state: &Path) -> io::Result<Option<Candidate>> {
+    manager_guard()?;
+    let runtime = crate::install::runtime_identity(state)?;
+    if crate::install::available_release()?.is_none()
+        && runtime.build.package_version == env!("CARGO_PKG_VERSION")
+    {
+        return Ok(None);
+    }
+    let bytes = crate::install::command(
+        Some(state),
+        &["update-prepare".into(), "--default-channel".into()],
+    )?;
+    let plan: serde_json::Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+    let token = plan["token"]
+        .as_str()
+        .filter(|s| crate::remote_update::token(s))
+        .ok_or_else(|| wire::invalid("Invalid prepared update token"))?
+        .to_owned();
+    let manifest: crate::install::Manifest =
+        serde_json::from_value(plan["candidate"]["manifest"].clone()).map_err(io::Error::other)?;
+    manifest.validate()?;
+    Ok(Some(Candidate {
+        token,
+        current: runtime.build.package_version,
+        version: manifest.build.package_version,
+    }))
+}
+fn apply_candidate(state: &Path, token: &str) -> io::Result<InstallReceipt> {
+    manager_guard()?;
+    let bytes = crate::install::command(Some(state), &["update-apply".into(), token.into()])?;
+    serde_json::from_slice(&bytes).map_err(io::Error::other)
+}
+
 fn owner_heading(owner: &Owner) -> String {
     match owner {
         Owner::PackageManager(manager) if manager.verified => {
@@ -562,6 +763,7 @@ mod tests {
         (
             Update {
                 source: Vec::new(),
+                automatic: None,
                 follow_default: false,
                 status: "Checking".into(),
                 job: None,
@@ -577,6 +779,31 @@ mod tests {
             command: Some("brew upgrade robert-cronin/flere/flere".into()),
             detail: "Run this in a shell",
         }
+    }
+
+    #[test]
+    fn automatic_update_requires_a_prepared_candidate_and_never_accepts_pasted_apply() {
+        let (mut update, sender) = checking();
+        update.automatic = Some(Automatic::default());
+        sender.send((None, String::new(), false)).unwrap();
+        assert!(update.poll_owner());
+        assert_eq!(update.input(&Key::Bytes(b"\r".to_vec())), UpdateInput::None);
+        update.automatic.as_mut().unwrap().candidate = Some(Candidate {
+            token: "a".repeat(32),
+            current: "0.3.8".into(),
+            version: "0.3.9".into(),
+        });
+        assert_eq!(update.input(&Key::Paste(b"\r".to_vec())), UpdateInput::None);
+        assert_eq!(
+            update.input(&Key::Bytes(b"\r".to_vec())),
+            UpdateInput::Apply
+        );
+        assert_eq!(update.input(&Key::Bytes(b"a".to_vec())), UpdateInput::None);
+        assert!(update.automatic.is_none());
+        assert_eq!(
+            update.input(&Key::Bytes(b"\x1b".to_vec())),
+            UpdateInput::Close
+        );
     }
 
     #[test]

@@ -86,7 +86,7 @@ pub(crate) struct Pin {
     pub sha256: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Selection {
     pub version: String,
     pub url: String,
@@ -94,6 +94,42 @@ pub(crate) struct Selection {
     pub legacy_unsigned: bool,
     component: String,
     target: String,
+}
+
+/// Compare releases numerically; a newer development version is never an upgrade target.
+pub(crate) fn newer(candidate: &str, current: &str) -> io::Result<bool> {
+    if !version(candidate) || !version(current) {
+        return Err(invalid("Cannot compare non-release Flere versions"));
+    }
+    let parts = |value: &str| {
+        value
+            .split('.')
+            .map(|v| v.parse::<u32>().unwrap())
+            .collect::<Vec<_>>()
+    };
+    Ok(parts(candidate) > parts(current))
+}
+
+pub(crate) fn available(
+    bytes: &[u8],
+    target: &str,
+    component: &str,
+    current: &str,
+) -> io::Result<Option<String>> {
+    let selected = select(bytes, target, component)?;
+    Ok(
+        (!selected.legacy_unsigned && newer(&selected.version, current)?)
+            .then_some(selected.version),
+    )
+}
+
+pub(crate) fn official_source(url: &str, target: &str, component: &str) -> bool {
+    let prefix = "https://github.com/robert-cronin/flere/releases/download/v";
+    url.strip_prefix(prefix)
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(release, _)| {
+            manifest_url(release, target, component).is_ok_and(|expected| expected == url)
+        })
 }
 
 fn version(value: &str) -> bool {
@@ -263,6 +299,45 @@ mod tests {
             ARM_MAC:{"policy":"legacy_unsigned","version":"0.3.0","manifests":{"flere":pin,"flere-connect":pin}},
             INTEL_MAC:{"policy":"unavailable"}
         }})
+    }
+
+    #[test]
+    fn discovery_reports_only_newer_supported_releases() {
+        assert!(newer("0.3.10", "0.3.9").unwrap());
+        assert!(!newer("0.3.9", "0.3.10").unwrap());
+        assert!(!newer("0.3.9", "0.3.9").unwrap());
+        assert!(newer("0.3.9", "development").is_err());
+        let bytes = serde_json::to_vec(&document()).unwrap();
+        assert_eq!(
+            available(&bytes, LINUX, "flere", "0.3.5")
+                .unwrap()
+                .as_deref(),
+            Some("0.3.6")
+        );
+        assert!(
+            available(&bytes, LINUX, "flere", "0.3.6")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            available(&bytes, LINUX, "flere", "0.3.10")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            available(&bytes, ARM_MAC, "flere", "0.2.0")
+                .unwrap()
+                .is_none()
+        );
+        assert!(available(&bytes, INTEL_MAC, "flere", "0.2.0").is_err());
+        let official = manifest_url("0.3.8", LINUX, "flere").unwrap();
+        assert!(official_source(&official, LINUX, "flere"));
+        assert!(!official_source(&official, WINDOWS, "flere-connect"));
+        assert!(!official_source(
+            &(official + "?redirect=elsewhere"),
+            LINUX,
+            "flere"
+        ));
     }
 
     #[test]

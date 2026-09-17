@@ -40,10 +40,12 @@ toolchain or source checkout.
 
 Default v0.3.8 installs retain `default_channel` in their managed receipt. A later
 explicit Update resolves the index during preparation; Apply uses the already
-verified package. Explicit manifest URLs and old Public receipts stay pinned,
-local packages stay local, and package-manager installs stay with their manager.
-There is no background update or automatic migration of older receipts. The
-unsigned macOS v0.3.0 route remains a legacy pin. See the
+verified package. Explicit CLI and Advanced sources retain their saved pins;
+the normal Update screen checks for the latest compatible release even with an
+old Public receipt. Managed official-release windows check metadata periodically
+and show availability, but never install in the background. Local packages keep
+their source until an explicit update, and package-manager installs stay with
+their manager. The unsigned macOS v0.3.0 route remains a legacy pin. See the
 [receipt and reader limits](getting-started.md#install-a-published-package).
 
 ## Package-manager channels

@@ -32,11 +32,13 @@ fn ui_update_applies_the_verified_package_and_acknowledges_the_new_frontend() {
     drain_pty(&mut master, &mut screen, "FLERE");
     master.write_all(b"\0K").unwrap();
     drain_pty(&mut master, &mut screen, "Update Flere");
-    // The title appears while the asynchronous ownership probe still disables
-    // input. Wait for the source field to become available before typing.
+    // Wait for ownership before selecting the explicit local package route.
     wait_current_ui_for(&mut master, &mut screen, Duration::from_secs(10), |s| {
-        s.capture(100)
-            .contains("Enter applies immediately and preserves sessions")
+        s.capture(100).contains("A advanced sources")
+    });
+    master.write_all(b"a").unwrap();
+    wait_current_ui(&mut master, &mut screen, |s| {
+        s.capture(100).contains("Advanced package sources")
     });
     master
         .write_all(directory.to_str().unwrap().as_bytes())
@@ -71,6 +73,11 @@ fn ui_update_applies_the_verified_package_and_acknowledges_the_new_frontend() {
     splits::unchanged(&f, &tabs);
     assert_eq!(splits::input(&f, &tabs[0]), b"KEEP_LEFT");
     assert_eq!(splits::input(&f, &tabs[1]), b"KEEP_RIGHT");
+    master.write_all(b"IGNORED_ON_RESULT").unwrap();
+    pump_ui_bytes(&mut master, &mut screen, 150);
+    assert_eq!(splits::input(&f, &tabs[1]), b"KEEP_RIGHT");
+    master.write_all(b"\r").unwrap();
+    pump_ui_bytes(&mut master, &mut screen, 150);
     master.write_all(b"AFTER_UPDATE").unwrap();
     pump_ui_bytes(&mut master, &mut screen, 150);
     assert_eq!(splits::input(&f, &tabs[1]), b"KEEP_RIGHTAFTER_UPDATE");

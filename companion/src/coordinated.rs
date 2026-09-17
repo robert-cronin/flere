@@ -1,5 +1,6 @@
 //! Local choices own a two-component update. Core RPC uses the current bridge;
-//! no second SSH login, remotely selected local executable, or native input.
+//! legacy version inspection may use a second read-only SSH login. No remotely
+//! selected local executable or native input.
 use crate::{connections::Connection, protocol::Packet, remote_update as protocol, update};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -103,12 +104,15 @@ struct Reply {
     bytes: Vec<u8>,
 }
 enum Outcome {
+    Current(String),
     Prepared(Box<Plan>),
     Restart(Box<Plan>),
     Activate(Box<Plan>),
 }
 #[derive(PartialEq, Eq)]
 enum Phase {
+    Current,
+    Complete,
     Form,
     Preparing,
     Review,
@@ -119,6 +123,7 @@ enum Phase {
 struct Flow {
     request: u64,
     fields: [Vec<u8>; 2],
+    advanced: bool,
     field: usize,
     phase: Phase,
     status: String,
@@ -141,6 +146,7 @@ pub struct Coordinator {
     released: Option<Instant>,
     owner_capable: bool,
     connected: bool,
+    discovery: crate::release_discovery::Discovery,
 }
 impl Default for Coordinator {
     fn default() -> Self {
@@ -156,6 +162,7 @@ impl Default for Coordinator {
             released: None,
             owner_capable: false,
             connected: false,
+            discovery: Default::default(),
         }
     }
 }
@@ -170,6 +177,15 @@ fn prepare(connection: &Connection, sources: [String; 2], rpc: &Rpc) -> io::Resu
     owners.require_update()?;
     let companion = update::prepare_guarded(&sources[1], &companion_owner)?;
     let remote = rpc.call(&["update-prepare-v1", &sources[0]])?;
+    finish_prepare(connection, companion, remote, owners, companion_owner)
+}
+fn finish_prepare(
+    connection: &Connection,
+    companion: update::Prepared,
+    remote: Value,
+    owners: protocol::CoreOwners,
+    companion_owner: protocol::InstallationOwner,
+) -> io::Result<Outcome> {
     if remote["owners"] != serde_json::to_value(&owners).map_err(io::Error::other)? {
         return Err(invalid("remote ownership changed during preparation"));
     }
@@ -241,6 +257,80 @@ fn prepare(connection: &Connection, sources: [String; 2], rpc: &Rpc) -> io::Resu
     save(&plan)?;
     Ok(Outcome::Prepared(Box::new(plan)))
 }
+fn prepare_latest(connection: &Connection, rpc: &Rpc) -> io::Result<Outcome> {
+    let companion_owner = update::installation_owner()?;
+    companion_owner.require_update()?;
+    let owners: protocol::CoreOwners =
+        serde_json::from_value(rpc.call(&["update-ownership-v1"])?).map_err(io::Error::other)?;
+    owners.require_update()?;
+    let (current, modern): (update::BuildMetadata, bool) = match rpc.call(&["update-discovery-v1"])
+    {
+        Ok(value) => (
+            serde_json::from_value(value).map_err(io::Error::other)?,
+            true,
+        ),
+        Err(error)
+            if matches!(
+                error.to_string().as_str(),
+                "unsupported ownership-checked update command"
+                    | "installer subprocess failed: flere: unsupported ownership-checked update command\u{fffd}"
+            ) =>
+        {
+            // Older cores have no read-only version RPC. Their existing selected
+            // build-status probe is used once; preparation below must match it.
+            (update::remote_build(connection)?, false)
+        }
+        Err(error) => return Err(error),
+    };
+    current.validate()?;
+    if current.component != "flere" {
+        return Err(invalid("Remote target is not a Flere core"));
+    }
+    let bytes = update::release_index()?;
+    let core = crate::release_channel::select(&bytes, &current.target, "flere")?;
+    let local = crate::release_channel::select(&bytes, crate::build_info::TARGET, "flere-connect")?;
+    if core.legacy_unsigned || local.legacy_unsigned {
+        return Err(invalid(
+            "Automatic updates are unavailable for this platform; use Advanced sources or your package manager",
+        ));
+    }
+    let core_new = crate::release_channel::newer(&core.version, &current.package_version)?;
+    let local_new = crate::release_channel::newer(&local.version, env!("CARGO_PKG_VERSION"))?;
+    if !core_new && !local_new {
+        return Ok(Outcome::Current(format!(
+            "You're up to date · core {} · companion {}",
+            current.package_version,
+            env!("CARGO_PKG_VERSION")
+        )));
+    }
+    if core.version != local.version
+        || crate::release_channel::newer(&current.package_version, &core.version)?
+        || crate::release_channel::newer(env!("CARGO_PKG_VERSION"), &local.version)?
+    {
+        return Err(invalid(
+            "No matching published update for both components; installed versions retained",
+        ));
+    }
+    let expected = update::release_manifest(&core)?;
+    rpc.ensure_current()?;
+    let companion = update::prepare_release(&local, &companion_owner)?;
+    let source = if modern {
+        "--default-channel"
+    } else {
+        &core.url
+    };
+    let remote = rpc.call(&["update-prepare-v1", source])?;
+    if remote["candidate"]["manifest"]
+        != serde_json::to_value(&expected).map_err(io::Error::other)?
+        || remote["runtime"]["build"] != serde_json::to_value(&current).map_err(io::Error::other)?
+    {
+        return Err(invalid(
+            "Release or remote version changed while checking; retry to prepare a fresh update",
+        ));
+    }
+    finish_prepare(connection, companion, remote, owners, companion_owner)
+}
+
 fn apply(mut plan: Plan, rpc: &Rpc) -> io::Result<Outcome> {
     plan.owners.require_update()?;
     plan.companion_owner.require_update()?;
@@ -367,6 +457,7 @@ impl Coordinator {
         self.flow = Some(Flow {
             request: 0,
             fields: [Vec::new(), Vec::new()],
+            advanced: true,
             field: 0,
             phase: Phase::Applying,
             status: "Companion updated; completing remote Flere update…".into(),
@@ -421,17 +512,14 @@ impl Coordinator {
             return Ok(());
         }
         self.last_frame.clear();
-        let source = match update::source_default().ok().flatten() {
-            Some(update::PackageSource::Public { manifest_url }) => manifest_url,
-            _ => String::new(),
-        };
         let now = Instant::now();
         self.flow = Some(Flow {
             request: packet.id,
-            fields: [Vec::new(), source.into_bytes()],
+            fields: [Vec::new(), Vec::new()],
+            advanced: false,
             field: 0,
-            phase: Phase::Form,
-            status: format!("{} · Enter prepares both packages", connection.host),
+            phase: Phase::Current,
+            status: "Checking for updates…".into(),
             plan: None,
             job: None,
             input: Vec::new(),
@@ -440,7 +528,23 @@ impl Coordinator {
             display_pending: true,
             waiting: now,
         });
+        self.start_latest(connection);
         Ok(())
+    }
+    fn start_latest(&mut self, connection: &Connection) {
+        let (tx, rx) = mpsc::channel();
+        let rpc = self.rpc.clone();
+        let connection = connection.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(prepare_latest(&connection, &rpc));
+        });
+        let flow = self.flow.as_mut().unwrap();
+        flow.advanced = false;
+        flow.plan = None;
+        flow.job = Some(rx);
+        flow.phase = Phase::Preparing;
+        flow.status = "Finding and verifying the latest release…".into();
+        flow.display_pending = true;
     }
     fn start_apply(&mut self, plan: Plan) {
         let (tx, rx) = mpsc::channel();
@@ -457,7 +561,7 @@ impl Coordinator {
         self.invalidate();
         if let Some(flow) = self.flow.take() {
             self.released = Some(Instant::now());
-            queue.push_back(Packet::new(protocol::RESULT, flow.request, serde_json::to_vec(&json!({"message": if flow.phase == Phase::Failed {flow.status} else {"Update cancelled; installed components retained".into()}})).unwrap()));
+            queue.push_back(Packet::new(protocol::RESULT, flow.request, serde_json::to_vec(&json!({"message": if matches!(flow.phase, Phase::Failed | Phase::Current | Phase::Complete) {flow.status} else {"Update cancelled; installed components retained".into()}})).unwrap()));
             queue.push_back(Packet::new(
                 crate::protocol::RESIZE,
                 0,
@@ -476,12 +580,43 @@ impl Coordinator {
         let Some(flow) = &mut self.flow else {
             return Ok(());
         };
+        if !flow.display_pending
+            && received > flow.displayed
+            && !flow.paste
+            && flow.input.is_empty()
+            && !matches!(
+                flow.phase,
+                Phase::Applying | Phase::Waiting | Phase::Complete
+            )
+            && !flow.advanced
+            && bytes == b"a"
+        {
+            self.invalidate();
+            let flow = self.flow.as_mut().unwrap();
+            flow.job = None;
+            flow.plan = None;
+            flow.advanced = true;
+            flow.phase = Phase::Form;
+            flow.status = "Custom package sources".into();
+            flow.input.clear();
+            flow.display_pending = true;
+            return Ok(());
+        }
+        let flow = self.flow.as_mut().unwrap();
+        if !flow.display_pending
+            && received > flow.displayed
+            && !flow.paste
+            && flow.input.is_empty()
+            && matches!(flow.phase, Phase::Current | Phase::Failed)
+            && bytes == b"r"
+        {
+            self.invalidate();
+            self.start_latest(connection);
+            return Ok(());
+        }
         if flow.display_pending
             || received <= flow.displayed
-            || matches!(
-                flow.phase,
-                Phase::Preparing | Phase::Applying | Phase::Waiting
-            )
+            || matches!(flow.phase, Phase::Applying | Phase::Waiting)
         {
             return Ok(());
         }
@@ -562,7 +697,9 @@ impl Coordinator {
                 _ => {}
             }
         }
-        if action == 1 || action == 2 && flow.phase == Phase::Failed {
+        if action == 1
+            || action == 2 && matches!(flow.phase, Phase::Failed | Phase::Current | Phase::Complete)
+        {
             self.cancel(queue, size);
             return Ok(());
         }
@@ -596,7 +733,15 @@ impl Coordinator {
         if self.flow.as_ref().is_some_and(|f| {
             !f.paste
                 && f.input == b"\x1b"
-                && matches!(f.phase, Phase::Form | Phase::Review | Phase::Failed)
+                && matches!(
+                    f.phase,
+                    Phase::Form
+                        | Phase::Review
+                        | Phase::Failed
+                        | Phase::Current
+                        | Phase::Complete
+                        | Phase::Preparing
+                )
         }) {
             self.cancel(queue, size);
         }
@@ -604,8 +749,8 @@ impl Coordinator {
     pub fn packet(
         &mut self,
         packet: &Packet,
-        queue: &mut VecDeque<Packet>,
-        size: (u16, u16),
+        _queue: &mut VecDeque<Packet>,
+        _size: (u16, u16),
     ) -> io::Result<bool> {
         if packet.tag == crate::protocol::CAPABILITIES
             && packet.id == 0
@@ -648,14 +793,12 @@ impl Coordinator {
             plan.phase = "applied".into();
             plan.detail = "Core supervisor, this frontend and companion applied; exact remote sessions preserved; other windows reported separately".into();
             save(plan)?;
-            queue.push_back(Packet::new(protocol::RESULT, flow.request, serde_json::to_vec(&json!({"message":"Updated Flere and this companion; terminal sessions preserved"})).unwrap()));
-            queue.push_back(Packet::new(
-                crate::protocol::RESIZE,
-                0,
-                crate::protocol::size_bytes(size.0, size.1),
-            ));
-            self.flow = None;
-            self.released = Some(Instant::now());
+            flow.phase = Phase::Complete;
+            flow.status = "Updated Flere and this companion; terminal sessions preserved".into();
+            // Keep the verified result visible until a new local key dismisses it.
+            // Buffered input from applying or reconnecting cannot close this screen.
+            flow.input.clear();
+            flow.display_pending = true;
             return Ok(true);
         }
         if !matches!(packet.tag, protocol::BEGIN | protocol::DATA | protocol::END) {
@@ -711,6 +854,14 @@ impl Coordinator {
         connection: &Connection,
         queue: &mut VecDeque<Packet>,
     ) -> io::Result<bool> {
+        if !self.active()
+            && let Some(Ok(Some(version))) = self.discovery.tick(update::background_release)
+        {
+            crate::notice(
+                queue,
+                &format!("Flere {version} is available · Ctrl+Space, Shift+K to update"),
+            );
+        }
         if self.connected
             && !self.owner_capable
             && self.flow.as_ref().is_some_and(|f| {
@@ -767,9 +918,14 @@ impl Coordinator {
             }
         };
         flow.job = None;
+        flow.input.clear();
         flow.displayed = Instant::now();
         flow.display_pending = true;
         match result {
+            Ok(Outcome::Current(message)) => {
+                flow.phase = Phase::Current;
+                flow.status = message;
+            }
             Ok(Outcome::Prepared(plan)) => {
                 flow.phase = Phase::Review;
                 flow.status = "Packages verified. Enter updates both; sessions kept.".into();
@@ -797,7 +953,7 @@ impl Coordinator {
                 flow.plan = Some(*plan);
             }
             Err(e) => {
-                flow.phase = if flow.phase == Phase::Preparing {
+                flow.phase = if flow.phase == Phase::Preparing && flow.advanced {
                     Phase::Form
                 } else {
                     Phase::Failed
@@ -864,13 +1020,13 @@ impl Coordinator {
                 plan.companion.package.manifest.build.build_id
             ));
             lines.push("SHA-256 verified · previous packages retained".into());
-            if plan.owners.manual() {
+            if flow.phase == Phase::Review && plan.owners.manual() {
                 lines.push("Enter also adopts the manual remote core.".into());
             }
-            if plan.companion_owner.manual() {
+            if flow.phase == Phase::Review && plan.companion_owner.manual() {
                 lines.push("Enter also adopts the manual local companion.".into());
             }
-        } else {
+        } else if flow.advanced {
             lines.push(format!(
                 "{} Remote core: {}",
                 if flow.field == 0 { ">" } else { " " },
@@ -883,6 +1039,9 @@ impl Coordinator {
             ));
             lines.push("Package path / HTTPS manifest; blank = saved source".into());
             lines.push("Use --rollback for retained compatible packages".into());
+        } else {
+            lines.push("Published releases · versions detected automatically".into());
+            lines.push("Sessions and drafts stay open during the update.".into());
         }
         let height = usize::from(size.1);
         lines.truncate(height.saturating_sub(4));
@@ -915,7 +1074,13 @@ impl Coordinator {
                     "Enter ADOPTS manual files + updates · Esc cancel"
                 }
                 Phase::Review => "Enter Update now · Esc cancel",
-                Phase::Failed => "Enter / Esc close · receipt retained for recovery",
+                Phase::Complete => "Enter / Esc return to Flere",
+                Phase::Current | Phase::Failed => {
+                    "R check again · A advanced sources · Enter / Esc close"
+                }
+                Phase::Preparing if !flow.advanced => {
+                    "Esc cancel · A advanced sources · checking and downloading"
+                }
                 _ => "Update in progress; all input stays in this local view",
             }
             .into(),
@@ -958,6 +1123,7 @@ mod tests {
             flow: Some(Flow {
                 request: 1,
                 fields: [Vec::new(), Vec::new()],
+                advanced: true,
                 field: 0,
                 phase: Phase::Form,
                 status: "Select packages".into(),
@@ -1109,6 +1275,68 @@ mod tests {
         assert!(!coordinator.discard_input(Instant::now()));
         assert!(queue.iter().all(|p| p.tag != crate::protocol::KEYS));
     }
+    #[test]
+    fn preparation_cancel_discards_late_results_and_completion_requires_fresh_input() {
+        let mut coordinator = form();
+        let (tx, rx) = mpsc::channel();
+        let flow = coordinator.flow.as_mut().unwrap();
+        flow.phase = Phase::Preparing;
+        flow.job = Some(rx);
+        let stale = coordinator.rpc.clone();
+        let mut queue = VecDeque::new();
+        coordinator.draw((100, 24), &mut Vec::new()).unwrap();
+        coordinator
+            .input(
+                b"\x03",
+                Instant::now(),
+                &connection(),
+                &mut queue,
+                (100, 24),
+            )
+            .unwrap();
+        assert!(!coordinator.active());
+        assert!(stale.ensure_current().is_err());
+        assert!(tx.send(Ok(Outcome::Current("late".into()))).is_err());
+
+        for phase in [Phase::Current, Phase::Complete, Phase::Failed] {
+            let mut coordinator = form();
+            let flow = coordinator.flow.as_mut().unwrap();
+            flow.phase = phase;
+            flow.status = "Exact outcome".into();
+            let queued = Instant::now();
+            coordinator.draw((100, 24), &mut Vec::new()).unwrap();
+            let mut queue = VecDeque::new();
+            coordinator
+                .input(b"\r", queued, &connection(), &mut queue, (100, 24))
+                .unwrap();
+            coordinator
+                .input(
+                    b"\x1b[200~\r\x1b[201~",
+                    Instant::now(),
+                    &connection(),
+                    &mut queue,
+                    (100, 24),
+                )
+                .unwrap();
+            assert!(coordinator.active());
+            coordinator
+                .input(
+                    b"\rIGNORED",
+                    Instant::now(),
+                    &connection(),
+                    &mut queue,
+                    (100, 24),
+                )
+                .unwrap();
+            assert!(!coordinator.active());
+            assert_eq!(
+                serde_json::from_slice::<Value>(&queue[0].data).unwrap()["message"],
+                "Exact outcome"
+            );
+            assert!(queue.iter().all(|p| p.tag != crate::protocol::KEYS));
+        }
+    }
+
     #[test]
     fn update_rpc_accepts_only_owned_complete_bounded_responses() {
         let mut coordinator = Coordinator::default();

@@ -401,6 +401,94 @@ fn run_fetch(url: &str, bound: usize, curl: &str) -> io::Result<Vec<u8>> {
     )
 }
 
+pub(crate) fn release_index() -> io::Result<Vec<u8>> {
+    fetch(
+        crate::release_channel::URL,
+        crate::release_channel::MAX_BYTES,
+    )
+}
+pub(crate) fn background_release() -> io::Result<Option<String>> {
+    if std::env::var_os("FLERE_NO_UPDATE_CHECK").is_some() {
+        return Ok(None);
+    }
+    let published = source_default()?.is_some_and(|s| match s {
+        PackageSource::DefaultChannel {} => true,
+        PackageSource::Public { manifest_url } => crate::release_channel::official_source(
+            &manifest_url,
+            crate::build_info::TARGET,
+            COMPONENT,
+        ),
+        PackageSource::Local | PackageSource::Adopted => false,
+    });
+    if !published {
+        return Ok(None);
+    }
+    crate::release_channel::available(
+        &release_index()?,
+        crate::build_info::TARGET,
+        COMPONENT,
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+/// Verify remote manifest bytes against the locally selected channel pin before
+/// comparing the remote prepared package. This also protects older core helpers.
+pub(crate) fn release_manifest(
+    selection: &crate::release_channel::Selection,
+) -> io::Result<Manifest> {
+    let root = Store::standard()?.root;
+    private_dir(&root)?;
+    let directory = root.join(format!(".manifest-{}", nonce()?));
+    private_dir(&directory)?;
+    let result = (|| {
+        let raw = fetch(&selection.url, MAX_JSON as usize)?;
+        let path = directory.join("manifest.json");
+        options()
+            .write(true)
+            .create_new(true)
+            .open(&path)?
+            .write_all(&raw)?;
+        selection.pin.verify(&raw, &sha256(&path)?)?;
+        let manifest: Manifest = serde_json::from_slice(&raw).map_err(io::Error::other)?;
+        manifest.validate()?;
+        selection.verify_identity(
+            &manifest.build.package_version,
+            &manifest.build.target,
+            &manifest.build.component,
+        )?;
+        Ok(manifest)
+    })();
+    let _ = fs::remove_dir_all(directory);
+    result
+}
+pub(crate) fn prepare_release(
+    selection: &crate::release_channel::Selection,
+    owner: &crate::remote_update::InstallationOwner,
+) -> io::Result<Prepared> {
+    let store = Store::standard()?;
+    let _lock = store.lock()?;
+    ownership::check(owner)?;
+    store.recover()?;
+    let baseline = store.baseline()?;
+    let directory = store.root.join(format!(".download-{}", nonce()?));
+    let result = download_selected(&selection.url, &directory, Some(selection))
+        .and_then(|_| store.stage(&directory));
+    let _ = fs::remove_dir_all(directory);
+    let package = result?;
+    // The UI re-resolves the release channel on every Update action. Retain the
+    // resolved public URL in the receipt so older immutable Windows launchers
+    // can still read it and restart the worker without replacing a running exe.
+    let source = PackageSource::Public {
+        manifest_url: selection.url.clone(),
+    };
+    store.require_source_support(&package, &source)?;
+    candidate_ownership(&package)?;
+    Ok(Prepared {
+        package,
+        source,
+        baseline,
+    })
+}
+
 fn download_default(directory: &Path, current: Option<&str>) -> io::Result<Manifest> {
     let selection = crate::release_channel::select_update(
         &fetch(
@@ -508,7 +596,9 @@ fn probe_source_reader(path: &Path, expected: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn remote_build(connection: &crate::connections::Connection) -> io::Result<BuildMetadata> {
+pub(crate) fn remote_build(
+    connection: &crate::connections::Connection,
+) -> io::Result<BuildMetadata> {
     let mut remote = format!("exec {}", crate::quote(&connection.remote)?);
     if let Some(state) = &connection.state {
         remote.push_str(&format!(" --state {}", crate::quote(state)?));

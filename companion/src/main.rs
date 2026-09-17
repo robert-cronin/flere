@@ -40,6 +40,8 @@ mod preview;
 mod protocol;
 #[path = "../../src/install/channel.rs"]
 mod release_channel;
+#[path = "../../src/install/discovery.rs"]
+mod release_discovery;
 #[path = "../../src/remote_files.rs"]
 mod remote_files;
 #[allow(

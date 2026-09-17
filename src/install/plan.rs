@@ -61,6 +61,29 @@ fn source_package(
         )?;
         return Ok((staged, receipt.source));
     }
+    if source == "--default-channel" {
+        private_dir(&store.root)?;
+        let path = store
+            .root
+            .join(format!(".download-{}", crate::os::nonce()?));
+        let runtime = runtime_identity(state)?;
+        let mut current = runtime.build.package_version;
+        let installed = store
+            .status()?
+            .map(|r| r.current.manifest.build.package_version);
+        for version in [Some(env!("CARGO_PKG_VERSION")), installed.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            if super::channel::newer(version, &current)? {
+                current = version.into();
+            }
+        }
+        let result = super::package::download_default(&path, "flere", Some(&current))
+            .and_then(|_| store.stage(&path));
+        let _ = fs::remove_dir_all(&path);
+        return Ok((result?, PackageSource::DefaultChannel {}));
+    }
     let source = if source.is_empty() {
         if let Some(receipt) = store.status()?
             && matches!(receipt.source, PackageSource::DefaultChannel {})
@@ -140,6 +163,11 @@ pub(super) fn coordinated_command(
     args: &[String],
     frontend: u32,
 ) -> io::Result<Vec<u8>> {
+    if args == ["update-discovery-v1"] {
+        let owners = super::ownership::selected(state, frontend)?;
+        owners.require_update()?;
+        return serde_json::to_vec(&runtime_identity(state)?.build).map_err(io::Error::other);
+    }
     if args == ["update-ownership-v1"] {
         let owners = super::ownership::selected(state, frontend)?;
         let bytes = serde_json::to_vec(&owners).map_err(io::Error::other)?;
