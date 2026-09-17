@@ -54,7 +54,7 @@ def screen(mode):
 current_screen='idle'
 size=os.get_terminal_size()
 screen(current_screen)
-last=0;seen=0;process_queue=not (root/'hold-queue').exists()
+last=0;seen=0;process_queue=not (root/'hold-queue').exists();handle_queue=True
 (root/'ready').write_text('ready')
 while True:
     if os.get_terminal_size()!=size:
@@ -65,6 +65,7 @@ while True:
     if value.get('seq',0)>last:
         last=value['seq']
         process_queue=value.get('process_queue',process_queue)
+        handle_queue=value.get('handle_queue',handle_queue)
         if value.get('tool'):
             subprocess.run(['/usr/bin/true'],check=True) # a normal completed tool boundary
         if 'screen' in value:
@@ -79,5 +80,8 @@ while True:
             except ValueError: break
             if queued['thread']!=uuid:
                 seen+=1;continue
-            handle(queued['message']);seen+=1
+            hook('UserPromptSubmit', process=False, prompt=queued['message'])
+            if handle_queue: handle(queued['message'])
+            hook('Stop', process=handle_queue)
+            seen+=1
     time.sleep(.025)

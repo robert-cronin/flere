@@ -61,6 +61,178 @@ fn restart(f: &Fixture, previous: &MailboxNative, uuid: &str) -> MailboxNative {
 }
 
 #[test]
+fn chat_message_queue_submission_unblocks_without_model_tools_and_survives_helper_timeout() {
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "11111111-bbbb-bbbb-bbbb-111111111111");
+    let b = mailbox_native(&f, "recipient", "22222222-bbbb-bbbb-bbbb-222222222222");
+    fs::write(b.root.join("queue-mode"), "hang").unwrap();
+    mailbox_event(
+        &b,
+        1,
+        json!({"event":"SessionStart","turn":"","process_queue":false,"handle_queue":false}),
+    );
+    let sent = dispatch_call(
+        &f,
+        &a.tab,
+        "send_chat_message",
+        args(&b, "receipt-without-tools"),
+    )
+    .unwrap();
+    let id = sent["message"]["id"].as_str().unwrap();
+    wait_file(&b.root.join("queue.jsonl"), 4);
+    mailbox_event(&b, 2, json!({"process_queue":true}));
+    let submitted = until(&f, &a, id, |m| {
+        m["delivery"]["outcome"] == "queue-submitted"
+    });
+    assert!(submitted["surfaced"].is_null());
+    assert!(submitted["native_surfaced"].is_null());
+    assert!(submitted["acknowledged"].is_null());
+    assert!(!b.root.join("handled.jsonl").exists());
+    fs::remove_file(b.root.join("queue-mode")).unwrap();
+    let later = dispatch_call(
+        &f,
+        &a.tab,
+        "send_chat_message",
+        args(&b, "next-without-tools"),
+    )
+    .unwrap();
+    let later_id = later["message"]["id"].as_str().unwrap();
+    let next = until(&f, &a, later_id, |m| {
+        m["delivery"]["outcome"] == "queue-submitted"
+    });
+    assert!(next["native_surfaced"].is_null());
+    assert!(next["acknowledged"].is_null());
+    // The first helper is still running when its native input is observed. Its
+    // eventual timeout must not downgrade that receipt or permit a replay.
+    std::thread::sleep(Duration::from_secs(5));
+    assert_eq!(
+        mailbox_status(&f, &a, id)["delivery"],
+        submitted["delivery"]
+    );
+    let duplicate = dispatch_call(
+        &f,
+        &a.tab,
+        "send_chat_message",
+        args(&b, "receipt-without-tools"),
+    )
+    .unwrap();
+    assert_eq!(duplicate["message"]["id"], id);
+    assert_eq!(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    assert!(!b.root.join("handled.jsonl").exists());
+}
+
+#[test]
+fn chat_message_queue_submission_requires_exact_prompt_and_conversation_and_durable_save() {
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "33333333-bbbb-bbbb-bbbb-333333333333");
+    let b = mailbox_native(&f, "recipient", "44444444-bbbb-bbbb-bbbb-444444444444");
+    let other = mailbox_native(&f, "other", "55555555-bbbb-bbbb-bbbb-555555555555");
+    mailbox_event(
+        &b,
+        1,
+        json!({"event":"SessionStart","turn":"","process_queue":false}),
+    );
+    let sent = dispatch_call(&f, &a.tab, "send_chat_message", args(&b, "exact-prompt")).unwrap();
+    let id = sent["message"]["id"].as_str().unwrap();
+    until(&f, &a, id, |m| m["delivery"]["outcome"] == "queued");
+    let queued: Value = serde_json::from_str(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let text = queued["message"].as_str().unwrap();
+    for (i, extra) in [
+        json!({}),
+        json!({"prompt":"ordinary private fixture prompt"}),
+        json!({"prompt":format!("{text} ")}),
+        json!({"prompt":text.replace(id, "00000000000000000000000000000000")}),
+        json!({"prompt":text,"agent_id":"child-agent"}),
+        json!({"queue_notice":{"workspace":b.wid,"session":b.tab.id,"run":b.tab.run,"id":id}}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(
+            mailbox_event(
+                &b,
+                i as u64 + 2,
+                json!({"event":"UserPromptSubmit","extra":extra})
+            )["code"],
+            0
+        );
+        assert_eq!(mailbox_status(&f, &a, id)["delivery"]["outcome"], "queued");
+    }
+    mailbox_event(
+        &other,
+        1,
+        json!({"event":"UserPromptSubmit","extra":{"prompt":text}}),
+    );
+    mailbox_event(
+        &b,
+        8,
+        json!({"event":"Stop","handle":false,"extra":{"prompt":text}}),
+    );
+    assert_eq!(mailbox_status(&f, &a, id)["delivery"]["outcome"], "queued");
+    let store = f.state.join("workspaces.v2.json");
+    let backup = f.state.join("retained-store.json");
+    fs::rename(&store, &backup).unwrap();
+    fs::create_dir(&store).unwrap();
+    let failed = mailbox_event(
+        &b,
+        9,
+        json!({"event":"UserPromptSubmit","extra":{"prompt":text}}),
+    );
+    assert_ne!(failed["code"], 0);
+    fs::remove_dir(&store).unwrap();
+    fs::rename(&backup, &store).unwrap();
+    assert_eq!(mailbox_status(&f, &a, id)["delivery"]["outcome"], "queued");
+    assert_eq!(
+        mailbox_event(
+            &b,
+            10,
+            json!({"event":"UserPromptSubmit","extra":{"prompt":text}})
+        )["code"],
+        0
+    );
+    let submitted = until(&f, &a, id, |m| {
+        m["delivery"]["outcome"] == "queue-submitted"
+    });
+    assert!(submitted["surfaced"].is_null());
+    assert!(submitted["native_surfaced"].is_null());
+    assert!(submitted["acknowledged"].is_null());
+    mailbox_event(
+        &b,
+        11,
+        json!({"event":"UserPromptSubmit","extra":{"prompt":text}}),
+    );
+    assert_eq!(
+        mailbox_status(&f, &a, id)["delivery"],
+        submitted["delivery"]
+    );
+    assert!(
+        !fs::read_to_string(store)
+            .unwrap()
+            .contains("ordinary private fixture prompt")
+    );
+    assert_eq!(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn chat_message_idle_nudge_preserves_provenance_and_deduplicates() {
     let f = Fixture::new();
     let a = mailbox_native(&f, "sender", "11111111-aaaa-aaaa-aaaa-111111111111");
@@ -127,7 +299,7 @@ fn chat_message_idle_nudge_preserves_provenance_and_deduplicates() {
         saved["coordination"]["messages"].as_array().unwrap().len(),
         1
     );
-    assert_eq!(saved["version"], 9);
+    assert_eq!(saved["version"], 10);
     assert!(
         !fs::read_to_string(f.state.join("actions.log"))
             .unwrap()
@@ -415,8 +587,44 @@ fn chat_message_unknown_handoff_never_requeues_after_resume_or_retry() {
             .count(),
         1
     );
+    // The original exact notice can arrive after resuming this same native
+    // conversation. The receipt retains its original run, without replaying it.
+    let queued: Value = serde_json::from_str(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    mailbox_event(
+        &resumed,
+        11,
+        json!({"event":"UserPromptSubmit","extra":{"prompt":queued["message"]}}),
+    );
+    let submitted = until(&f, &a, id, |m| {
+        m["delivery"]["outcome"] == "queue-submitted"
+    });
+    assert_eq!(submitted["delivery"]["run"], b.tab.run);
+    assert!(submitted["native_surfaced"].is_null());
+    assert!(submitted["acknowledged"].is_null());
+    mailbox_event(&resumed, 12, json!({"event":"Stop","handle":false}));
+    until(&f, &a, later, |m| m["delivery"]["outcome"] == "unknown");
+    assert_eq!(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
     let inbox = dispatch_call(&f, &resumed.tab, "inbox", json!({})).unwrap();
-    assert_eq!(inbox["messages"][0]["id"], id);
+    assert!(
+        inbox["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == id)
+    );
     dispatch_call(&f, &resumed.tab, "inbox", json!({"ack_ids":[id]})).unwrap();
 }
 
@@ -499,7 +707,9 @@ fn chat_message_cold_start_validates_provenance_and_preserves_stopped_mail() {
         .output()
         .unwrap();
     assert!(!rejected.status.success());
-    fs::write(&store, saved).unwrap();
+    let mut previous: Value = serde_json::from_slice(&saved).unwrap();
+    previous["version"] = 9.into();
+    fs::write(&store, serde_json::to_vec(&previous).unwrap()).unwrap();
     let log = fs::File::create(f.root.join("cold-start.log")).unwrap();
     f.child = Command::new(env!("CARGO_BIN_EXE_flere"))
         .arg("--state")

@@ -97,11 +97,19 @@ request the same guarded check with a fresh session/run identity. It cannot
 restart a chat, bypass DND or repeat an uncertain native handoff.
 
 A saved message is durable; **queued** means the native queue helper accepted it;
+**queue-submitted** means an exact native prompt hook observed that notice as input;
 **surfaced to agent** means a notice/context was returned to that agent's tool or
 emitted hook; **acknowledged** means the recipient explicitly recorded handling.
 A human preview has its own distinction and cannot suppress agent delivery.
-Neither queued nor surfaced proves the model understood or acted on a message.
-Unknown queue outcomes require inspection and are never automatically replayed.
+Prompt submission does not prove model consumption: another native hook may block
+it, or subsequent inbox tools may fail. Submission does not set surfacing or
+acknowledgment; later notices still use the normal idle and focus guards.
+Neither queued, queue-submitted nor surfaced proves the model understood or acted
+on a message. Unknown queue outcomes require inspection and are never automatically
+replayed. Manually submitting the complete exact notice counts as the same input
+observation; it does not remove an already queued native item or prove queue
+consumption. Flere never resubmits that attempt. Old hooks without prompt data
+retain the conservative receipt behavior.
 The UI message picker shows these states. Native queue helpers are bounded and
 run outside the PTY loop, using the recipient's native configuration and private
 home-state caches.
@@ -152,8 +160,9 @@ Busy recipients receive notices at a trusted boundary; idle recipients use the
 native queue. Only a fixed inbox notice and IDs go into that queue. The body and
 agent/source provenance are read through Flere's inbox, so slash commands and
 quoted permissions are conversation data. Drafts, DND and native permission
-requests remain protected. `message_status` distinguishes saved, queued, surfaced
-and acknowledged and reports the specific idle predicate that blocks delivery.
+requests remain protected. `message_status` distinguishes saved, queued,
+queue-submitted, surfaced and acknowledged, and reports the specific idle
+predicate that blocks delivery.
 Completed prose mentioning permission/trust and decorative dots around a dim
 empty placeholder no longer falsely imply a draft or approval dialog.
 

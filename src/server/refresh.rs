@@ -2,7 +2,8 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::os::unix::process::CommandExt;
-const VERSION: u32 = 9;
+// Version 10 prevents older supervisors from replaying queue-submitted receipts.
+const VERSION: u32 = 10;
 #[derive(Serialize, Deserialize)]
 struct SavedClient {
     fd: i32,
@@ -462,6 +463,6 @@ mod hyperlink_refresh_tests {
         assert_eq!(range["current"], VERSION);
         assert_eq!(range["read_min"], 1);
         assert_eq!(range["read_max"], VERSION);
-        assert_eq!(build["compatibility"]["saved_state"]["current"], 9);
+        assert_eq!(build["compatibility"]["saved_state"]["current"], 10);
     }
 }

@@ -108,7 +108,7 @@ fn reopening_restores_group_order_selections_and_shell_directories_without_repla
     let before = panes(&f);
     let expected_groups = group_directories(&before);
     let saved = stored(&f);
-    assert_eq!(saved["version"], 9);
+    assert_eq!(saved["version"], 10);
     assert_eq!(saved["workspaces"][0]["split"]["ratio"], 300);
     f.stop();
     start_supervisor(&mut f);
@@ -171,6 +171,6 @@ fn reopening_restores_group_order_selections_and_shell_directories_without_repla
             .collect::<Vec<_>>(),
         expected_order
     );
-    assert_eq!(stored(&f)["version"], 9);
+    assert_eq!(stored(&f)["version"], 10);
     finish_ui(&mut master, &mut screen, &mut child);
 }

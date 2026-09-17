@@ -262,7 +262,7 @@ impl Server {
                 return Err(invalid("workspace metadata exceeds 8 MiB"));
             }
             let saved: Saved = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-            if !matches!(saved.version, 2..=9) {
+            if !matches!(saved.version, 2..=10) {
                 return Err(invalid("unsupported workspace store version"));
             }
             s.coordination = match saved.coordination {
@@ -367,7 +367,7 @@ impl Server {
     }
     fn persist(&self) -> io::Result<()> {
         let saved = Saved {
-            version: 9,
+            version: 10,
             active: self.active,
             coordination: Some(self.coordination.clone()),
             workspaces: self

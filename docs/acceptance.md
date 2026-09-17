@@ -84,8 +84,10 @@ existing process; any required exit/resume is an explicit user action.
 1. Inspect messaging activation and exact native session/run ownership. Resolve
    missing configuration or ambiguous recipients before sending anything.
 2. Send one harmless, user-approved message to that recipient. Check saved,
-   queued/surfaced and explicitly acknowledged states separately; inspect the
-   recipient's actual response before recording handling as passed.
+   queued, queue-submitted, surfaced and explicitly acknowledged states separately;
+   inspect the recipient's actual response before recording handling as passed.
+   With inbox tools unavailable, an exact prompt hook may record queue-submitted
+   and permit a later notice, but must leave surfacing and acknowledgment unset.
 3. Check delivery at an ordinary tool boundary and during a verified idle period.
    A draft, DND or native approval dialog must defer automatic attention without
    losing the saved message or typing a fallback into the composer.
