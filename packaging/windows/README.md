@@ -42,9 +42,9 @@ checksum, then extract:
 ```powershell
 $Download = Join-Path $env:LOCALAPPDATA ('Flere\downloads\' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Download | Out-Null
-$Zip = Join-Path $Download 'flere-connect-0.3.8-x86_64-pc-windows-msvc.zip'
-Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.8/flere-connect-0.3.8-x86_64-pc-windows-msvc.zip' -OutFile $Zip
-if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne 'f31799c767784c60cf2a2d4bdf14af6dcc887b7e30f483fdcb5edcc846cb3210') { throw 'ZIP checksum differs.' }
+$Zip = Join-Path $Download 'flere-connect-0.3.9-x86_64-pc-windows-msvc.zip'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.9/flere-connect-0.3.9-x86_64-pc-windows-msvc.zip' -OutFile $Zip
+if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne '3b70edf812d4bea07d74093dba84a061b2945b2fb044ba085145d1aa5292f051') { throw 'ZIP checksum differs.' }
 $Portable = Join-Path $Download 'app'
 Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
 $env:Path = "$Portable;$env:Path"  # This PowerShell session only.
@@ -53,9 +53,9 @@ flere ssh dev
 ```
 
 Replace `dev` with your SSH hostname or configured alias. `flere-connect ssh dev`
-is equivalent. The ZIP is 1,918,481 bytes and contains only `flere.exe`,
+is equivalent. The ZIP is 1,918,460 bytes and contains only `flere.exe`,
 `flere-connect.exe`, `manifest.json` and `LICENSE`. Both executable aliases have
-SHA-256 `761c2420a847f80be125f097964da54db4a7de81f0d7d484eb8d3b3dec60493a`.
+SHA-256 `f95ebfa40836e89a763b7182707befe50ddca7d161a56a3e296afca7ce310caa`.
 No Rust build, WSL or package-manager catalogue is required. Add the extracted
 folder to your user PATH separately if desired; these commands change only the
 current terminal's PATH. Keep the folder outside an existing managed installation
@@ -85,7 +85,13 @@ above provides both command names.
 
 ## Release and candidate evidence
 
-The public v0.3.8 ZIP was built from exact source `48e1cf9` in
+The public v0.3.9 ZIP was built from exact source `9fbd2db` in
+[run 35223044320](https://github.com/robert-cronin/flere/actions/runs/35223044320).
+Native MSVC checks, release packaging and all six portable alias checks passed.
+All 11 public release downloads were independently verified; physical desktop
+acceptance remains separate. See the [release notes](../../docs/releases/0.3.9.md).
+
+The earlier public v0.3.8 ZIP was built from exact source `48e1cf9` in
 [run 34969732255](https://github.com/robert-cronin/flere/actions/runs/34969732255).
 Native MSVC formatting, strict Clippy, 96 tests, release packaging, six portable
 alias checks, WinGet validation and Chocolatey packing passed. One physical
