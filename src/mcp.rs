@@ -76,7 +76,7 @@ pub fn serve(state: &Path) -> io::Result<()> {
         let method = request["method"].as_str().unwrap_or_default();
         let result = match method {
             "initialize" => Ok(
-                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"flere","version":env!("CARGO_PKG_VERSION")},"instructions":"Get context first; read inbox at checkpoints; explicitly acknowledge handled IDs. Any agent: use prepare_worker/start_worker/worker_status for authorized implementation assignments; a card or shell alone is not a working agent. Report native approval refusals, never route around them. Native hooks and exact idle queue delivery require native activation; inspect messaging_activation. DND defers attention. Native trust and publication remain human-controlled."}),
+                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"flere","version":env!("CARGO_PKG_VERSION")},"instructions":"Get context first; read inbox at checkpoints; explicitly acknowledge handled IDs. Any agent: use prepare_worker/start_worker/worker_status for authorized implementation assignments; a card or shell alone is not a working agent. Report native approval refusals, never route around them. Hook observation begins with the first turn; verified idle native queue delivery can start it. Inspect messaging_activation. DND defers attention. Native trust and publication remain human-controlled."}),
             ),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({"tools":catalog()})),

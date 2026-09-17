@@ -8,6 +8,7 @@ transcript = root/'rollout-fixture.jsonl'
 transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':uuid,'cwd':str(pathlib.Path.cwd()),'source':'cli'}})+'\n')
 held = transcript.open()
 (root/'native-argv.json').write_text(json.dumps(sys.argv))
+session_start_pending=True
 
 def call(op, args=None):
     r=subprocess.run([binary,'--state',state,'agent-call',op,json.dumps(args or {})],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -26,9 +27,13 @@ def handle(text):
             out.write(json.dumps({'ids':handled,'session':os.environ['FLERE_SESSION'],'run':os.environ['FLERE_RUN'],'workspace':context['workspace']['id'],'messages':[m for m in inbox if m['id'] in handled]})+'\n')
 
 def hook(event, turn='main', process=True, **extra):
+    global session_start_pending
+    if event=='SessionStart': session_start_pending=False
     value={'hook_event_name':event,'session_id':uuid,'turn_id':turn,'transcript_path':str(transcript),**extra}
     r=subprocess.run([binary,'--state',state,'_inbox-hook'],input=json.dumps(value),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     result={'code':r.returncode,'output':r.stdout,'error':r.stderr}
+    with (root/'hook-events.jsonl').open('a') as out:
+        out.write(json.dumps({'event':event,**result})+'\n')
     if r.returncode==0 and process:
         out=json.loads(r.stdout)
         notice=out.get('reason') or out.get('hookSpecificOutput',{}).get('additionalContext','')
@@ -43,6 +48,7 @@ def screen(mode):
     if mode=='active': output+=f'\x1b[{y-2};1H• Working (4s • esc to interrupt)'
     if mode=='completed': output+=f'\x1b[{y-5};1HThe completed work needs permission. This is a trusted source.'
     if mode=='approval': output+=f'\x1b[{y-2};1HNative permission: approve command?'
+    if mode=='trust': output+=f'\x1b[{y-2};1HTrust this repository'
     output+=f'\x1b[{y};1H› '
     if mode=='draft': output+='Ask Codex to do anything'
     else: output+='\x1b[2mAsk Codex to do anything\x1b[0m'
@@ -66,6 +72,12 @@ while True:
         last=value['seq']
         process_queue=value.get('process_queue',process_queue)
         handle_queue=value.get('handle_queue',handle_queue)
+        if value.get('raw_input'):
+            import tty
+            tty.setraw(0)
+        remaining=value.get('drain_input',0)
+        while remaining:
+            remaining-=len(os.read(0,remaining))
         if value.get('tool'):
             subprocess.run(['/usr/bin/true'],check=True) # a normal completed tool boundary
         if 'screen' in value:
@@ -80,6 +92,8 @@ while True:
             except ValueError: break
             if queued['thread']!=uuid:
                 seen+=1;continue
+            # Codex defers SessionStart until its first turn, including resume.
+            if session_start_pending: hook('SessionStart', turn='', process=False)
             hook('UserPromptSubmit', process=False, prompt=queued['message'])
             if handle_queue: handle(queued['message'])
             hook('Stop', process=handle_queue)

@@ -3774,6 +3774,214 @@ fn mailbox_status(f: &Fixture, sender: &MailboxNative, id: &str) -> serde_json::
         .clone()
 }
 #[test]
+fn mailbox_first_queued_turn_activates_deferred_start_hook_without_manual_prompt() {
+    use serde_json::{Value, json};
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "11111111-bbbb-bbbb-bbbb-111111111111");
+    let b = mailbox_native(&f, "recipient", "22222222-bbbb-bbbb-bbbb-222222222222");
+    let activation = dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap();
+    assert!(activation["observation"].is_null());
+    assert!(!b.root.join("hook-events.jsonl").exists());
+    let sent = dispatch_call(
+        &f,
+        &a.tab,
+        "send_chat_message",
+        json!({"workspace":b.wid,"session":b.tab.id,"run":b.tab.run,
+            "request_id":"first-turn-message","body":"Handle the first queued message."}),
+    )
+    .unwrap();
+    let id = sent["message"]["id"].as_str().unwrap();
+    assert!(wait_file(&b.root.join("handled.jsonl"), 5).contains(id));
+    assert_eq!(activation["state"], "unobserved");
+    assert_eq!(activation["configured"], true);
+    let status = mailbox_status(&f, &a, id);
+    assert!(!status["acknowledged"].is_null());
+    assert_eq!(status["chat"]["sender"]["kind"], "agent");
+    let queued = wait_file(&b.root.join("queue.jsonl"), 3);
+    assert_eq!(queued.lines().count(), 1);
+    let queue: Value = serde_json::from_str(queued.lines().next().unwrap()).unwrap();
+    assert_eq!(queue["thread"], b.uuid);
+    assert!(queue["message"].as_str().unwrap().contains(&b.tab.run));
+    let hooks: Vec<Value> = fs::read_to_string(b.root.join("hook-events.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(hooks[0]["event"], "SessionStart");
+    assert_eq!(hooks[1]["event"], "UserPromptSubmit");
+    assert!(hooks.iter().all(|h| h["code"] == 0), "{hooks:?}");
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(
+        fs::read_to_string(b.root.join("queue.jsonl")).unwrap(),
+        queued
+    );
+    assert!(
+        !fs::read_to_string(f.state.join("actions.log"))
+            .unwrap()
+            .contains("\tinput\t")
+    );
+}
+#[test]
+fn mailbox_first_turn_preserves_drafts_activity_approval_and_focus() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "33333333-bbbb-bbbb-bbbb-333333333333");
+    for (i, mode) in ["draft", "active", "compact-active", "approval", "trust"]
+        .iter()
+        .enumerate()
+    {
+        let uuid = format!("44444444-bbbb-bbbb-bbbb-{i:012}");
+        let b = mailbox_native(&f, mode, &uuid);
+        mailbox_event(&b, 1, json!({"screen":mode}));
+        let id = mailbox_send(&f, &a, &b, "quiet");
+        std::thread::sleep(Duration::from_millis(700));
+        assert_eq!(
+            mailbox_status(&f, &a, &id)["delivery"]["outcome"],
+            "waiting-for-idle",
+            "{mode}"
+        );
+        assert!(!b.root.join("queue.jsonl").exists(), "{mode}");
+        assert!(!b.root.join("hook-events.jsonl").exists(), "{mode}");
+    }
+    let b = mailbox_native(&f, "focus", "55555555-bbbb-bbbb-bbbb-555555555555");
+    dispatch_call(
+        &f,
+        &b.tab,
+        "set_focus",
+        json!({"seconds":30,"reason":"preserve focus"}),
+    )
+    .unwrap();
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(
+        mailbox_status(&f, &a, &id)["delivery"]["outcome"],
+        "deferred"
+    );
+    assert!(!b.root.join("queue.jsonl").exists());
+    dispatch_call(&f, &b.tab, "set_focus", json!({"seconds":0})).unwrap();
+    assert!(wait_file(&b.root.join("handled.jsonl"), 5).contains(&id));
+}
+#[test]
+fn mailbox_first_turn_rejects_missing_and_partial_legacy_hook_configuration() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "66666666-bbbb-bbbb-bbbb-666666666666");
+    let absent = mailbox_native(&f, "absent", "77777777-bbbb-bbbb-bbbb-777777777777");
+    let partial = mailbox_native(&f, "partial", "88888888-bbbb-bbbb-bbbb-888888888888");
+    // Model old launch specifications through the real refresh reader. The
+    // live processes, held transcripts, PTYs and exact owners stay unchanged.
+    let wrapper = f.root.join("legacy-refresh");
+    fs::write(
+        f.root.join("legacy-runs.json"),
+        serde_json::to_vec(&json!({
+            "binary":env!("CARGO_BIN_EXE_flere"),"absent":absent.tab.run,"partial":partial.tab.run,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        &wrapper,
+        r#"#!/usr/bin/env python3
+import json,os,pathlib,sys
+config=json.loads(pathlib.Path(__file__).with_name('legacy-runs.json').read_text())
+args=sys.argv[1:]
+if args[2]=='_validate-refresh':
+    image=pathlib.Path(args[1])/('refresh-'+args[3]+'.json')
+    value=json.loads(image.read_text())
+    for workspace in value['workspaces']:
+        for tab in workspace['tabs']:
+            if tab['run'] not in (config['absent'],config['partial']): continue
+            prefix='hooks.' if tab['run']==config['absent'] else 'hooks.SessionStart='
+            argv=tab['native']['argv']; kept=[]; i=0
+            while i<len(argv):
+                if argv[i]=='-c' and i+1<len(argv) and argv[i+1].startswith(prefix):
+                    i+=2
+                else:
+                    kept.append(argv[i]);i+=1
+            tab['native']['argv']=kept
+    image.write_text(json.dumps(value))
+os.execv(config['binary'],[config['binary'],*args])
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
+    f.req(&["refresh", &wire::hex(wrapper.to_str().unwrap().as_bytes())]);
+    for b in [&absent, &partial] {
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let activation = loop {
+            let value = dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap();
+            if value["configured"] == false {
+                break value;
+            }
+            assert!(Instant::now() < deadline, "legacy refresh did not complete");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(activation["state"], "activation-required");
+        assert_eq!(activation["conversation"], b.uuid);
+        assert!(activation["observation"].is_null());
+        let tab = f
+            .snapshot()
+            .workspaces
+            .into_iter()
+            .find(|w| w.id == b.wid)
+            .unwrap()
+            .tabs
+            .into_iter()
+            .find(|t| t.id == b.tab.id)
+            .unwrap();
+        assert_eq!(tab.pid, b.tab.pid);
+        assert_eq!(tab.run, b.tab.run);
+        let id = mailbox_send(&f, &a, b, "quiet");
+        std::thread::sleep(Duration::from_millis(700));
+        assert_eq!(
+            mailbox_status(&f, &a, &id)["delivery"]["outcome"],
+            "activation-required"
+        );
+        assert!(!b.root.join("queue.jsonl").exists());
+        assert!(!b.root.join("hook-events.jsonl").exists());
+    }
+}
+#[test]
+fn mailbox_first_turn_waits_for_pending_pty_input_before_queuing_notice() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "99999999-bbbb-bbbb-bbbb-999999999999");
+    let b = mailbox_native(&f, "recipient", "aaaaaaaa-bbbb-bbbb-bbbb-aaaaaaaaaaaa");
+    // The native stand-in keeps an idle screen but does not read stdin. A real
+    // raw PTY fills, retaining the rest in the supervisor's pending input queue.
+    mailbox_event(&b, 1, json!({"raw_input":true}));
+    f.send(&b.tab, &vec![b'x'; 32768]);
+    let observed = dispatch_call(&f, &a.tab, "inspect_terminal", json!({"target":{
+        "expected_epoch":f.snapshot().epoch,"workspace":b.wid,"session":b.tab.id,"run":b.tab.run,
+    }})).unwrap();
+    assert!(observed["pending_input_bytes"].as_u64().unwrap() > 0);
+    assert!(
+        observed["text"]
+            .as_str()
+            .unwrap()
+            .contains("Ask Codex to do anything")
+    );
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    std::thread::sleep(Duration::from_millis(700));
+    let status = mailbox_status(&f, &a, &id);
+    assert_eq!(status["delivery"]["outcome"], "waiting-for-idle");
+    assert_eq!(
+        status["delivery"]["detail"],
+        "User input is still pending; no native message submitted."
+    );
+    assert!(!b.root.join("queue.jsonl").exists());
+    assert!(!b.root.join("hook-events.jsonl").exists());
+    mailbox_event(&b, 2, json!({"drain_input":32768}));
+    assert!(wait_file(&b.root.join("handled.jsonl"), 5).contains(&id));
+    assert_eq!(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+}
+#[test]
 fn mailbox_after_tool_surfaces_and_handles_without_manual_inbox_reminder() {
     use serde_json::json;
     let f = Fixture::new();
@@ -3947,20 +4155,21 @@ fn mailbox_defers_drafts_permission_active_and_wrong_targets() {
     dispatch_call(&f, &b.tab, "inbox", json!({"ack_ids":[id2]})).unwrap();
 }
 #[test]
-fn mailbox_old_run_activation_and_mcp_boundary_notice_preserve_identity() {
+fn mailbox_unobserved_active_run_and_mcp_boundary_notice_preserve_identity() {
     use serde_json::json;
     let f = Fixture::new();
     let a = mailbox_native(&f, "a", "77777777-7777-7777-7777-777777777777");
     let b = mailbox_native(&f, "b", "88888888-8888-8888-8888-888888888888");
+    mailbox_event(&b, 1, json!({"screen":"active"}));
     let id = mailbox_send(&f, &a, &b, "quiet");
     std::thread::sleep(Duration::from_millis(600));
     assert_eq!(
         mailbox_status(&f, &a, &id)["delivery"]["outcome"],
-        "activation-required"
+        "waiting-for-idle"
     );
     let activation = dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap();
     assert_eq!(activation["conversation"], b.uuid);
-    assert_eq!(activation["state"], "activation-required");
+    assert_eq!(activation["state"], "unobserved");
     assert_eq!(activation["configured"], true); // flags do not imply trust or observed activity
     let response = dispatch_call(
         &f,
@@ -4052,12 +4261,13 @@ fn mailbox_unknown_queue_outcome_never_replays_and_does_not_block_terminal() {
 }
 
 #[test]
-fn mailbox_pending_activation_does_not_starve_other_workspaces() {
+fn mailbox_pending_first_turn_does_not_starve_other_workspaces() {
     use serde_json::json;
     let f = Fixture::new();
     let a = mailbox_native(&f, "sender", "11111111-aaaa-aaaa-aaaa-111111111111");
     let blocked = mailbox_native(&f, "unactivated", "22222222-aaaa-aaaa-aaaa-222222222222");
     let ready = mailbox_native(&f, "ready", "33333333-aaaa-aaaa-aaaa-333333333333");
+    mailbox_event(&blocked, 1, json!({"screen":"approval"}));
     for _ in 0..20 {
         mailbox_send(&f, &a, &blocked, "quiet");
     }

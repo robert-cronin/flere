@@ -166,28 +166,30 @@ impl Server {
             .iter()
             .find(|h| h.epoch == self.epoch && h.session == session && h.run == run)
     }
+    fn hooks_configured(&self, session: u64, run: &str) -> bool {
+        self.native_scope(session, run)
+            .ok()
+            .and_then(|(_, s, _)| s.native.as_ref())
+            .is_some_and(|s| {
+                crate::inbox_hook::EVENTS.iter().all(|event| {
+                    s.argv
+                        .iter()
+                        .any(|a| a.starts_with(&format!("hooks.{event}=")))
+                })
+            })
+    }
     pub(super) fn activation_at(&self, wid: u64, recipient: Option<(u64, String)>) -> Value {
         let Some((session, run)) = recipient else {
             return json!({"state":"target-unavailable","detail":"Select exactly one live native recipient. Stopped work is never launched by delivery."});
         };
         let proof = self.proof(session, &run).ok();
-        let spec = self
-            .native_scope(session, &run)
-            .ok()
-            .and_then(|(_, s, _)| s.native.as_ref());
-        let configured = spec.is_some_and(|s| {
-            crate::inbox_hook::EVENTS.iter().all(|event| {
-                s.argv
-                    .iter()
-                    .any(|a| a.starts_with(&format!("hooks.{event}=")))
-            })
-        });
+        let configured = self.hooks_configured(session, &run);
         let observed = self.observation(session, &run);
-        json!({"state":if observed.is_some(){"observed"}else{"activation-required"},
+        json!({"state":if observed.is_some(){"observed"}else if configured{"unobserved"}else{"activation-required"},
             "workspace":wid,"session":session,"run":run,"configured":configured,
             "conversation":proof.as_ref().map(|p|&p.uuid),"observation":observed,"focus":self.focus(session,&run),
             "chat_messages":{"operation":"send_chat_message","address":"workspace and verified native conversation","retry":"reuse request_id","cli_fallback":"flere --state \"$FLERE_STATE\" agent-call send_chat_message '<JSON arguments>'"},
-            "instructions":"Refresh Flere first. Existing chats retain their launch configuration: review /hooks yourself if configured; otherwise explicitly /exit and use Start/resume with this exact saved UUID, then review native repository/MCP/hook trust. Never approve prompts automatically. New launches include optional hooks. Flere tool replies can surface pending notices without a restart; arbitrary after-tool and idle delivery require observed native hooks. Stopped chats are never restarted by messaging."})
+            "instructions":"Configured hooks may not run until the first turn. A verified empty idle composer can receive its first notice through the native queue before any hook is observed. Later delivery respects observed activity and permission events. If hooks are absent, explicitly resume this exact UUID with the current launcher. Review native trust prompts yourself; configuration does not prove trust. Flere tool replies can surface pending notices. Messaging never restarts stopped chats."})
     }
     pub(super) fn delivery_operation(
         &mut self,
@@ -588,28 +590,38 @@ impl Server {
                 "Recipient has an active do-not-disturb interval.",
             );
         }
-        let Some(hook) = self.observation(session, &run) else {
-            return self.waiting(id,"activation-required","No native activity hook observed. Read messaging_activation; existing launch/trust needs human review.");
-        };
-        if hook.event == "PermissionRequest" {
+        let hook = self.observation(session, &run);
+        if let Some(hook) = hook {
+            if hook.event == "PermissionRequest" {
+                return self.waiting(
+                    id,
+                    "waiting-for-human",
+                    "Native permission prompt remains human-controlled.",
+                );
+            }
+            if !matches!(hook.event.as_str(), "Stop" | "Interrupt" | "SessionStart") {
+                return self.waiting(
+                    id,
+                    "waiting-for-hook",
+                    "Recipient is active or activity is unknown; wait for a native hook boundary.",
+                );
+            }
+            if now().saturating_sub(hook.observed) < 1000 {
+                return self.waiting(id, "waiting-for-idle", "Idle boundary is settling.");
+            }
+        } else if !self.hooks_configured(session, &run) {
             return self.waiting(
                 id,
-                "waiting-for-human",
-                "Native permission prompt remains human-controlled.",
+                "activation-required",
+                "Native activity hooks are not configured for this run. Read messaging_activation.",
             );
         }
-        if !matches!(hook.event.as_str(), "Stop" | "Interrupt" | "SessionStart") {
-            return self.waiting(
-                id,
-                "waiting-for-hook",
-                "Recipient is active or activity is unknown; wait for a native hook boundary.",
-            );
-        }
-        if now().saturating_sub(hook.observed) < 1000 {
-            return self.waiting(id, "waiting-for-idle", "Idle boundary is settling.");
-        }
+        // Codex defers SessionStart until its first turn. Requiring that hook
+        // before queuing the first notice deadlocks a freshly resumed idle chat.
+        // The same exact-owner, composer, DND and receipt guards still apply;
+        // no observation or native trust is inferred from configured flags.
         let target = match self.proof(session, &run) {
-            Ok(t) if t == hook.target && m.for_conversation(Some(&t.uuid)) => t,
+            Ok(t) if hook.is_none_or(|h| t == h.target) && m.for_conversation(Some(&t.uuid)) => t,
             _ => {
                 return self.waiting(
                     id,

@@ -318,6 +318,7 @@ fn chat_message_is_private_to_the_conversation_across_all_boundaries() {
         b.root.join("other"),
         "55555555-aaaa-aaaa-aaaa-555555555555",
     );
+    mailbox_event(&b, 1, json!({"screen":"active"}));
     let sent = dispatch_call(&f, &a.tab, "send_chat_message", args(&b, "scoped")).unwrap();
     let id = sent["message"]["id"].as_str().unwrap();
     for op in ["context", "inbox"] {
@@ -369,7 +370,7 @@ fn chat_message_is_private_to_the_conversation_across_all_boundaries() {
     );
     fs::write(&transcript, original).unwrap();
     until(&f, &a, id, |m| {
-        m["delivery"]["outcome"] == "activation-required"
+        m["delivery"]["outcome"] == "waiting-for-idle"
     });
     // Even the correct UUID cannot be selected while two native instances own it.
     // Model two harnesses arriving at the same UUID internally; explicit resume

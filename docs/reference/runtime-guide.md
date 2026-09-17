@@ -745,7 +745,7 @@ native hooks. Inspect activation from inside the existing native session:
 flere --state "$FLERE_STATE" agent-call messaging_activation
 ```
 
-If hooks are configured, review them yourself in Codex's `/hooks`. If the chat
+When Codex reports new or changed hooks, review them yourself in `/hooks`. If the chat
 was launched before this feature, explicitly `/exit`, then use Flere's
 native harness resume picker to reopen the conversation, and review the
 native repository/MCP/hook prompts. New launches include the optional hooks.
@@ -757,9 +757,13 @@ message may also ask a Stop hook to continue once; it never cancels work. Quiet
 messages wait for a normal tool boundary or verified idle state. The supervisor
 can deliver to an idle Codex without another tool call, using its native
 `codex queue --thread UUID --message NOTICE` path. It requires exactly one live
-native recipient, matching process/rollout identity, observed idle hooks and an
-empty composer. Drafts, active work, native approval dialogs, ambiguous targets
-and DND defer it. No keystroke fallback is automatic.
+native recipient, matching process/rollout identity and an empty idle composer.
+Before the first hook is observed, a run with configured hooks can receive its
+first notice: Codex defers its startup hook until that turn begins. This reports
+`unobserved`, which does not imply missing trust. After hook observation,
+the latest native activity and permission event also governs delivery. Drafts,
+active work, native approval dialogs, ambiguous targets and DND defer it.
+No keystroke fallback is automatic; configured hooks do not grant native trust.
 
 `set_focus` defers automatic attention for the calling run for up to 1800 seconds,
 with a reason; zero clears it. Messages remain saved. `message_status` reports

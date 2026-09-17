@@ -178,7 +178,7 @@ fn private_cache(state: &Path, run: &str) -> io::Result<PathBuf> {
     }
     Ok(path)
 }
-/// An extra guard after a trusted idle lifecycle event. No keys are synthesized.
+/// An extra idle guard, including before the first hook. No keys are synthesized.
 pub fn empty_composer(term: &crate::terminal::Terminal) -> bool {
     composer_block(term).is_none()
 }
