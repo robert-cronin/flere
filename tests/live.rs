@@ -4037,7 +4037,11 @@ fn mailbox_automatic_main_turn_without_prompt_hook_still_delivers() {
     let f = Fixture::new();
     let a = mailbox_native(&f, "sender", "11111111-aaaa-bbbb-cccc-111111111111");
     let b = mailbox_native(&f, "recipient", "22222222-aaaa-bbbb-cccc-222222222222");
-    mailbox_event(&b, 1, json!({"event":"UserPromptSubmit","screen":"active"}));
+    mailbox_event(
+        &b,
+        1,
+        json!({"recorded_turn":"main","event":"UserPromptSubmit","screen":"active"}),
+    );
     mailbox_event(&b, 2, json!({"event":"Stop"}));
     // Codex goal continuations and native agent messages skip UserPromptSubmit.
     let started = mailbox_event(
@@ -4104,6 +4108,55 @@ fn mailbox_automatic_main_turn_without_prompt_hook_still_delivers() {
         );
         assert_eq!(result["code"], 0, "{result}");
     }
+}
+
+#[test]
+fn mailbox_lagging_transcript_cannot_rewind_a_newer_permission_observation() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "11111111-aaaa-bbbb-dddd-111111111111");
+    let b = mailbox_native(&f, "recipient", "22222222-aaaa-bbbb-dddd-222222222222");
+    // Native persistence errors are logged but do not prevent hooks from running.
+    mailbox_event(
+        &b,
+        1,
+        json!({"recorded_turn":"disk-old","event":"UserPromptSubmit",
+        "turn":"observed-new","screen":"active"}),
+    );
+    mailbox_event(
+        &b,
+        2,
+        json!({"event":"PermissionRequest",
+        "turn":"observed-new","screen":"approval"}),
+    );
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    let before = dispatch_call(
+        &f,
+        &a.tab,
+        "deliver_message",
+        json!({"id":id,"session":b.tab.id,"run":b.tab.run}),
+    )
+    .unwrap();
+    assert_eq!(
+        before["message"]["delivery"]["outcome"],
+        "waiting-for-human"
+    );
+    let delayed = mailbox_event(&b, 3, json!({"event":"PostToolUse","turn":"disk-old"}));
+    assert_ne!(delayed["code"], 0, "{delayed}");
+    let status = dispatch_call(
+        &f,
+        &a.tab,
+        "deliver_message",
+        json!({"id":id,"session":b.tab.id,"run":b.tab.run}),
+    )
+    .unwrap();
+    assert_eq!(
+        status["message"]["delivery"]["outcome"],
+        "waiting-for-human"
+    );
+    assert!(status["message"]["native_surfaced"].is_null());
+    assert!(!b.root.join("handled.jsonl").exists());
+    assert!(!b.root.join("queue.jsonl").exists());
 }
 
 #[test]

@@ -333,7 +333,11 @@ impl Server {
             name,
             "PreToolUse" | "PostToolUse" | "PermissionRequest" | "Stop" | "Interrupt"
         ) && previous.is_none_or(|h| h.turn != event.turn_id)
-            && !crate::native::delivery::recorded_turn_matches(&target, &event.turn_id)?
+            && !crate::native::delivery::recorded_turn_matches(
+                &target,
+                &event.turn_id,
+                previous.map(|hook| hook.turn.as_str()),
+            )?
         {
             return Err(invalid("hook is outside the recorded native main turn"));
         }

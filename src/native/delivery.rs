@@ -114,7 +114,11 @@ fn transcript_id(file: impl Read, cwd: &Path) -> io::Result<Option<String>> {
 /// Goal continuations and native agent messages can begin a main turn without
 /// UserPromptSubmit. Prove a changed turn from this process's open transcript;
 /// neither hook input nor a latest-session filename is sufficient evidence.
-pub fn recorded_turn_matches(target: &Target, turn: &str) -> io::Result<bool> {
+pub fn recorded_turn_matches(
+    target: &Target,
+    turn: &str,
+    previous: Option<&str>,
+) -> io::Result<bool> {
     if process_start(target.pid)? != target.start {
         return Err(crate::wire::invalid("native process changed"));
     }
@@ -128,7 +132,7 @@ pub fn recorded_turn_matches(target: &Target, turn: &str) -> io::Result<bool> {
     {
         return Err(crate::wire::invalid("native transcript identity changed"));
     }
-    let recorded = recorded_turn(file)?;
+    let recorded = recorded_turn(file, previous.filter(|turn| !turn.is_empty()))?;
     if process_start(target.pid)? != target.start {
         return Err(crate::wire::invalid("native process changed"));
     }
@@ -136,7 +140,10 @@ pub fn recorded_turn_matches(target: &Target, turn: &str) -> io::Result<bool> {
 }
 
 const TURN_SCAN_LIMIT: u64 = 1024 * 1024;
-fn recorded_turn(mut file: impl Read + io::Seek) -> io::Result<Option<String>> {
+fn recorded_turn(
+    mut file: impl Read + io::Seek,
+    previous: Option<&str>,
+) -> io::Result<Option<String>> {
     use io::SeekFrom;
     let end = file.seek(SeekFrom::End(0))?;
     let start = end.saturating_sub(TURN_SCAN_LIMIT);
@@ -172,18 +179,36 @@ fn recorded_turn(mut file: impl Read + io::Seek) -> io::Result<Option<String>> {
         #[serde(default, borrow)]
         turn_id: Option<&'a str>,
     }
+    let mut newest = None;
     for line in bytes.split(|b| *b == b'\n').rev().filter(|s| !s.is_empty()) {
         let Ok(record) = serde_json::from_slice::<Record<'_>>(line) else {
             return Ok(None);
         };
-        if record.kind == "turn_context"
-            || (record.kind == "event_msg" && record.payload.kind == Some("task_started"))
-        {
-            return Ok(record
-                .payload
-                .turn_id
-                .filter(|turn| !turn.is_empty() && turn.len() <= 1024)
-                .map(str::to_owned));
+        let starts_turn = record.kind == "turn_context"
+            || (record.kind == "event_msg" && record.payload.kind == Some("task_started"));
+        let ends_turn = record.kind == "event_msg"
+            && matches!(record.payload.kind, Some("task_complete" | "turn_aborted"));
+        if !starts_turn && !ends_turn {
+            continue;
+        }
+        let Some(turn) = record
+            .payload
+            .turn_id
+            .filter(|turn| !turn.is_empty() && turn.len() <= 1024)
+        else {
+            return Ok(None);
+        };
+        if newest.is_none() && starts_turn {
+            if previous.is_none_or(|previous| previous == turn) {
+                return Ok(Some(turn.to_owned()));
+            }
+            newest = Some(turn.to_owned());
+        } else if newest.is_some() && previous == Some(turn) {
+            // Persistence can fail while native hooks keep running. A latest
+            // disk turn alone must never rewind a newer observed permission.
+            // Require a record of the previous turn before the new boundary.
+            // Its completion suffices even when a long turn's start aged out.
+            return Ok(newest);
         }
     }
     Ok(None)
@@ -364,7 +389,7 @@ mod tests {
     use crate::terminal::Terminal;
     #[test]
     fn recorded_turn_uses_only_latest_native_boundary() {
-        let read = |text: &str| recorded_turn(io::Cursor::new(text.as_bytes())).unwrap();
+        let read = |text: &str| recorded_turn(io::Cursor::new(text.as_bytes()), None).unwrap();
         let first = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"first\"}}\n";
         let next = "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"next\"}}\n";
         assert_eq!(read(first).as_deref(), Some("first"));
@@ -398,6 +423,31 @@ mod tests {
         // Missing evidence is not guessed, and a truncated leading record is skipped.
         assert_eq!(read(&format!("{first}{big}\n")), None);
         assert_eq!(read(&format!("{big}\n{next}")).as_deref(), Some("next"));
+    }
+
+    #[test]
+    fn recorded_turn_requires_evidence_after_the_previous_observation() {
+        let read = |text: &str, previous: &str| {
+            recorded_turn(io::Cursor::new(text.as_bytes()), Some(previous)).unwrap()
+        };
+        let first = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"first\"}}\n";
+        let next = "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"next\"}}\n";
+        assert_eq!(read(first, "next"), None); // native prompt got ahead of failed disk writes
+        assert_eq!(read(next, "first"), None); // no proof of ordering
+        assert_eq!(
+            read(&format!("{first}{next}"), "first").as_deref(),
+            Some("next")
+        );
+        let large = serde_json::json!({"type":"response_item","payload":{"output":"x".repeat(TURN_SCAN_LIMIT as usize)}});
+        for event in ["task_complete", "turn_aborted"] {
+            let end =
+                serde_json::json!({"type":"event_msg","payload":{"type":event,"turn_id":"first"}});
+            assert_eq!(
+                read(&format!("{first}{large}\n{end}\n{next}"), "first").as_deref(),
+                Some("next")
+            );
+            assert_eq!(read(&format!("{next}{end}\n"), "first"), None); // completion after boundary is not earlier-turn proof
+        }
     }
 
     #[test]
