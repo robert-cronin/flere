@@ -4,7 +4,7 @@ The native Windows package is the OpenSSH/clipboard **companion**. It connects
 to a Linux or macOS workbench. Both `flere.exe` and `flere-connect.exe` launch
 that companion; this does not claim a native Windows core.
 
-The [v0.3.8 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.8/flere-connect-0.3.8-x86_64-pc-windows-msvc.zip)
+The [v0.3.10 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.10/flere-connect-0.3.10-x86_64-pc-windows-msvc.zip)
 is published. [Flere's Scoop bucket](https://github.com/robert-cronin/scoop-flere)
 currently supplies v0.3.8. WinGet submission is deferred; Chocolatey catalogue
 publication remains pending.
@@ -42,9 +42,9 @@ checksum, then extract:
 ```powershell
 $Download = Join-Path $env:LOCALAPPDATA ('Flere\downloads\' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Download | Out-Null
-$Zip = Join-Path $Download 'flere-connect-0.3.9-x86_64-pc-windows-msvc.zip'
-Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.9/flere-connect-0.3.9-x86_64-pc-windows-msvc.zip' -OutFile $Zip
-if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne '3b70edf812d4bea07d74093dba84a061b2945b2fb044ba085145d1aa5292f051') { throw 'ZIP checksum differs.' }
+$Zip = Join-Path $Download 'flere-connect-0.3.10-x86_64-pc-windows-msvc.zip'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.10/flere-connect-0.3.10-x86_64-pc-windows-msvc.zip' -OutFile $Zip
+if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne '589f754471074fc3af3de4bccf7eb2e5fbc9a388ffbd3b2888c8103017b02a5d') { throw 'ZIP checksum differs.' }
 $Portable = Join-Path $Download 'app'
 Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
 $env:Path = "$Portable;$env:Path"  # This PowerShell session only.
@@ -53,9 +53,9 @@ flere ssh dev
 ```
 
 Replace `dev` with your SSH hostname or configured alias. `flere-connect ssh dev`
-is equivalent. The ZIP is 1,918,460 bytes and contains only `flere.exe`,
+is equivalent. The ZIP is 1,954,971 bytes and contains only `flere.exe`,
 `flere-connect.exe`, `manifest.json` and `LICENSE`. Both executable aliases have
-SHA-256 `f95ebfa40836e89a763b7182707befe50ddca7d161a56a3e296afca7ce310caa`.
+SHA-256 `d8b34c8bb8966808429f504afd172fbf9eb4c3ffba9e844afd7d2e7e25c5a76e`.
 No Rust build, WSL or package-manager catalogue is required. Add the extracted
 folder to your user PATH separately if desired; these commands change only the
 current terminal's PATH. Keep the folder outside an existing managed installation
@@ -85,11 +85,11 @@ above provides both command names.
 
 ## Release and candidate evidence
 
-The public v0.3.9 ZIP was built from exact source `9fbd2db` in
-[run 35223044320](https://github.com/robert-cronin/flere/actions/runs/35223044320).
+The public v0.3.10 ZIP was built from exact source `b36a23a` in
+[run 35290909905](https://github.com/robert-cronin/flere/actions/runs/35290909905).
 Native MSVC checks, release packaging and all six portable alias checks passed.
 All 11 public release downloads were independently verified; physical desktop
-acceptance remains separate. See the [release notes](../../docs/releases/0.3.9.md).
+acceptance remains separate. See the [release notes](../../docs/releases/0.3.10.md).
 
 The earlier public v0.3.8 ZIP was built from exact source `48e1cf9` in
 [run 34969732255](https://github.com/robert-cronin/flere/actions/runs/34969732255).
