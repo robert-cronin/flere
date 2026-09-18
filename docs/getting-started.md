@@ -37,7 +37,7 @@ The [shell bootstrap](../scripts/install.sh) downloads the Python installer from
 [commit `48e1cf9`](https://github.com/robert-cronin/flere/commit/48e1cf96e2bea721f7f305dae81f4c28b2daa385)
 over HTTPS and checks its pinned size and SHA-256 before running it. The
 [release index](../packaging/channels/stable.json) selects Linux
-v0.3.11 or the unsigned macOS arm64 v0.3.0 prebuilt. Each selected manifest is
+v0.3.12 or the unsigned macOS arm64 v0.3.0 prebuilt. Each selected manifest is
 verified against the index before its payload is used. The bootstrap requires
 no Rust, source checkout, GitHub login or sudo, and does not install
 system tools, edit PATH or start chats. Add `~/.local/bin`
@@ -50,10 +50,10 @@ existing manual user installation. Other installer arguments are forwarded
 unchanged. Intel macOS prebuilts and notarized Mac downloads remain pending;
 see [platform limits](reference/compatibility.md) and the source build below.
 
-To select Linux v0.3.11 explicitly instead of following the platform default:
+To select Linux v0.3.12 explicitly instead of following the platform default:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh -s -- https://github.com/robert-cronin/flere/releases/download/v0.3.11/flere-x86_64-unknown-linux-gnu.manifest.json
+wget -qO- https://raw.githubusercontent.com/robert-cronin/flere/main/scripts/install.sh | sh -s -- https://github.com/robert-cronin/flere/releases/download/v0.3.12/flere-x86_64-unknown-linux-gnu.manifest.json
 ```
 
 This selects the matching core/companion pair; append `--core-only` for a server.
@@ -69,7 +69,7 @@ scoop install flere/flere
 flere ssh dev
 ```
 
-Or [download and verify the public v0.3.11 ZIP](../packaging/windows/README.md#install-the-public-windows-zip).
+Or [download and verify the public v0.3.12 ZIP](../packaging/windows/README.md#install-the-public-windows-zip).
 Replace `dev` with your OpenSSH hostname or configured alias. Both `flere.exe`
 and `flere-connect.exe` launch the native Windows companion for a Linux/macOS
 workbench. No Rust build or WSL is required. Use Scoop to upgrade/remove its
@@ -107,13 +107,13 @@ those earlier native Homebrew lifecycle checks.
 
 ## Install with Cargo
 
-The published [flere 0.3.11 crate](https://crates.io/crates/flere/0.3.11) builds the
+The published [flere 0.3.12 crate](https://crates.io/crates/flere/0.3.12) builds the
 core locally on Linux x86_64 or macOS with **Rust 1.98+** and a system C linker.
 macOS needs Xcode Command Line Tools. Intel macOS has compile-check evidence;
 see [platform limits](reference/compatibility.md).
 
 ```sh
-cargo install flere --locked --version 0.3.11
+cargo install flere --locked --version 0.3.12
 flere --version
 ```
 
@@ -255,7 +255,7 @@ direct updates through the owning manager.
 Windows uses [install-companion.ps1](../scripts/install-companion.ps1) with
 `-ManifestUrl`, installing both `flere.exe` and the `flere-connect.exe` alias.
 These installers work without Rust or a source checkout. They do not change PATH,
-start chats or publish a release. Public v0.3.11 provides Linux x86_64 GNU
+start chats or publish a release. Public v0.3.12 provides Linux x86_64 GNU
 (glibc 2.39+) and the Windows companion; macOS arm64 prebuilts and GitHub's latest
 pointer remain v0.3.0. Physical acceptance remains separate from those downloads.
 If a release or target is unavailable, use the source-build instructions above
