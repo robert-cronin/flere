@@ -351,19 +351,44 @@ impl Server {
         } else {
             event.turn_id
         };
-        let mut next = self.coordination.clone();
-        if name == "UserPromptSubmit"
-            && let Some(submitted) = event.queue_notice
-            && submitted.workspace == wid
-            && let Some(m) = next.messages.iter_mut().find(|m| {
-                m.id == submitted.id && m.to == wid && m.for_conversation(Some(&target.uuid))
+        // Observations belong to this live epoch/run, not the durable mailbox.
+        // Do not copy and fsync all historical messages for every tool hook.
+        // Refresh flushes the current observations before handing off the same
+        // epoch; a cold restart has a new epoch and cannot reuse these hooks.
+        let mut delivery = self.coordination.delivery.clone();
+        delivery
+            .hooks
+            .retain(|h| h.epoch != self.epoch || h.run != run);
+        delivery.hooks.push(Hook {
+            epoch: self.epoch.clone(),
+            session,
+            run: run.into(),
+            target: target.clone(),
+            event: name.into(),
+            turn: turn.clone(),
+            observed: now(),
+        });
+        delivery.validate()?;
+        let submitted = event
+            .queue_notice
+            .filter(|submitted| name == "UserPromptSubmit" && submitted.workspace == wid);
+        let receipt = submitted.and_then(|submitted| {
+            self.coordination.messages.iter().position(|m| {
+                m.id == submitted.id
+                    && m.to == wid
+                    && m.for_conversation(Some(&target.uuid))
+                    && m.delivery.as_ref().is_some_and(|d| {
+                        d.conversation == target.uuid
+                            && d.session == submitted.session
+                            && d.run == submitted.run
+                            && matches!(d.outcome.as_str(), "queue-prepared" | "queued" | "unknown")
+                    })
             })
-            && let Some(d) = &mut m.delivery
-            && d.conversation == target.uuid
-            && d.session == submitted.session
-            && d.run == submitted.run
-            && matches!(d.outcome.as_str(), "queue-prepared" | "queued" | "unknown")
-        {
+        });
+        if let Some(index) = receipt {
+            let mut next = self.coordination.clone();
+            let m = &mut next.messages[index];
+            let d = m.delivery.as_mut().unwrap();
             // The input reached a native hook, even if another hook blocks it or
             // the model's subsequent tools fail. This is not a payload read,
             // model-consumption receipt, acknowledgment, or human approval.
@@ -376,20 +401,13 @@ impl Server {
                 wid,
                 &format!("message={};session={session};run={run};turn={turn}", m.id),
             )?;
+            // Receipt and observation still commit together, with rollback on
+            // failure, before a successful native submission is reported.
+            next.delivery = delivery;
+            self.save_mailbox(next)?;
+        } else {
+            self.coordination.delivery = delivery;
         }
-        next.delivery
-            .hooks
-            .retain(|h| h.epoch != self.epoch || h.run != run);
-        next.delivery.hooks.push(Hook {
-            epoch: self.epoch.clone(),
-            session,
-            run: run.into(),
-            target,
-            event: name.into(),
-            turn,
-            observed: now(),
-        });
-        self.save_mailbox(next)?;
         if self.focus(session, run).is_some()
             || !matches!(name, "PostToolUse" | "Stop")
             || (name == "Stop" && event.stop_hook_active)

@@ -182,6 +182,9 @@ fn chat_message_queue_submission_requires_exact_prompt_and_conversation_and_dura
         json!({"event":"Stop","handle":false,"extra":{"prompt":text}}),
     );
     assert_eq!(mailbox_status(&f, &a, id)["delivery"]["outcome"], "queued");
+    let previous_observation = dispatch_call(&f, &b.tab, "messaging_activation", json!({}))
+        .unwrap()["observation"]
+        .clone();
     let store = f.state.join("workspaces.v2.json");
     let backup = f.state.join("retained-store.json");
     fs::rename(&store, &backup).unwrap();
@@ -194,6 +197,11 @@ fn chat_message_queue_submission_requires_exact_prompt_and_conversation_and_dura
     assert_ne!(failed["code"], 0);
     fs::remove_dir(&store).unwrap();
     fs::rename(&backup, &store).unwrap();
+    assert_eq!(
+        dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap()["observation"],
+        previous_observation,
+        "a failed durable receipt must also roll back its hook observation"
+    );
     assert_eq!(mailbox_status(&f, &a, id)["delivery"]["outcome"], "queued");
     assert_eq!(
         mailbox_event(
@@ -209,6 +217,21 @@ fn chat_message_queue_submission_requires_exact_prompt_and_conversation_and_dura
     assert!(submitted["surfaced"].is_null());
     assert!(submitted["native_surfaced"].is_null());
     assert!(submitted["acknowledged"].is_null());
+    let persisted: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+    let durable = persisted["coordination"]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == id)
+        .unwrap();
+    assert_eq!(durable["delivery"], submitted["delivery"]);
+    assert!(
+        persisted["coordination"]["delivery"]["hooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| { h["run"] == b.tab.run && h["event"] == "UserPromptSubmit" })
+    );
     mailbox_event(
         &b,
         11,

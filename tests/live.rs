@@ -3774,6 +3774,139 @@ fn mailbox_status(f: &Fixture, sender: &MailboxNative, id: &str) -> serde_json::
         .clone()
 }
 #[test]
+fn mailbox_routine_observations_avoid_store_writes_and_survive_refresh_failure() {
+    use serde_json::{Value, json};
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "11111111-aaaa-bbbb-eeee-111111111111");
+    let b = mailbox_native(&f, "recipient", "22222222-aaaa-bbbb-eeee-222222222222");
+    let store = f.state.join("workspaces.v2.json");
+    // Allow normal conversation discovery to settle before measuring hook writes.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let saved: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        if [a.wid, b.wid].iter().all(|id| {
+            saved["workspaces"].as_array().unwrap().iter().any(|w| {
+                w["id"] == *id && !w["meta"]["conversations"].as_array().unwrap().is_empty()
+            })
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "native discovery did not settle");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    f.req(&["focus", &b.wid.to_string(), &b.tab.id.to_string()]);
+    let saved = fs::read(&store).unwrap();
+    let before = f.snapshot();
+    for (i, event) in [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "PreCompact",
+        "PostCompact",
+        "Stop",
+        "Interrupt",
+        "SessionEnd",
+        "PermissionRequest",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let result = mailbox_event(
+            &b,
+            i as u64 + 1,
+            json!({
+                "event":event,"turn":"main","handle":false,"screen":"idle"
+            }),
+        );
+        assert_eq!(result["code"], 0, "{event}: {result}");
+        let activation = dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap();
+        assert_eq!(activation["observation"]["event"], event);
+        assert_eq!(activation["observation"]["run"], b.tab.run);
+        assert_eq!(
+            fs::read(&store).unwrap(),
+            saved,
+            "routine {event} rewrote history"
+        );
+    }
+    let observation =
+        dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap()["observation"]
+            .clone();
+    let backup = f.state.join("retained-store.json");
+    fs::rename(&store, &backup).unwrap();
+    fs::create_dir(&store).unwrap();
+    f.req(&[
+        "refresh",
+        &wire::hex(env!("CARGO_BIN_EXE_flere").as_bytes()),
+    ]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = String::from_utf8(f.req(&["refresh-status"])).unwrap();
+        if status.starts_with("Refresh failed:") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "refresh did not fail: {status}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert_eq!(
+        dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap()["observation"],
+        observation
+    );
+    assert_eq!(f.snapshot().session().unwrap().pid, b.tab.pid);
+    fs::remove_dir(&store).unwrap();
+    fs::rename(&backup, &store).unwrap();
+    f.req(&[
+        "refresh",
+        &wire::hex(env!("CARGO_BIN_EXE_flere").as_bytes()),
+    ]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = String::from_utf8(f.req(&["refresh-status"])).unwrap();
+        if status.starts_with("Refreshed Flere;") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "refresh did not recover: {status}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let after = f.snapshot();
+    assert_eq!(after.epoch, before.epoch);
+    assert_eq!(after.session().unwrap().pid, b.tab.pid);
+    assert_eq!(after.session().unwrap().run, b.tab.run);
+    assert_eq!(
+        dispatch_call(&f, &b.tab, "messaging_activation", json!({})).unwrap()["observation"],
+        observation
+    );
+    // The existing on-disk representation also carries the observation for
+    // supported older refresh readers, without a new schema or sidecar file.
+    let persisted: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+    assert!(
+        persisted["coordination"]["delivery"]["hooks"]
+            .as_array()
+            .unwrap()
+            .contains(&observation)
+    );
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    let result = dispatch_call(
+        &f,
+        &a.tab,
+        "deliver_message",
+        json!({
+            "id":id,"session":b.tab.id,"run":b.tab.run
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        result["message"]["delivery"]["outcome"],
+        "waiting-for-human"
+    );
+    assert!(!b.root.join("queue.jsonl").exists());
+}
+
+#[test]
 fn mailbox_first_queued_turn_activates_deferred_start_hook_without_manual_prompt() {
     use serde_json::{Value, json};
     let f = Fixture::new();

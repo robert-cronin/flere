@@ -225,6 +225,11 @@ pub(super) fn replace(
     clients: &[Client],
     binary: &Path,
 ) -> io::Result<()> {
+    // Routine hooks are kept in memory. Persist them before exec because the
+    // restored supervisor reuses this epoch and loads coordination from disk.
+    // This also preserves permission/activity guards with older refresh readers.
+    // A failed flush must leave the current supervisor and its sessions intact.
+    s.persist()?;
     let token = os::nonce()?;
     let mut workspaces = Vec::new();
     for w in &s.workspaces {
