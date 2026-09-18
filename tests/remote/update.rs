@@ -574,7 +574,7 @@ fn automatic_update_discovers_a_new_release_from_old_pins_and_preserves_live_ses
 
 #[test]
 #[ignore = "requires an explicitly selected, verified previous release core"]
-fn automatic_update_from_previous_release_core_uses_legacy_discovery() {
+fn automatic_update_from_previous_release_core_selects_supported_discovery() {
     let core = std::env::var_os("FLERE_TEST_PREVIOUS_CORE").expect("select the previous core");
     automatic_update(Some(Path::new(&core)));
 }
@@ -582,6 +582,14 @@ fn automatic_update_from_previous_release_core_uses_legacy_discovery() {
 fn automatic_update(previous_core: Option<&Path>) {
     let f = Fixture::new();
     let older = install_older_release(&f, previous_core);
+    // Recent published cores already support default-channel discovery. Only
+    // older cores without that capability should use the build-status fallback.
+    let capability = fixture_home(&mut Command::new(f.root.join("older-flere")), &f.root)
+        .args(flere::install::DEFAULT_CHANNEL_ARGS)
+        .output()
+        .unwrap();
+    let legacy_discovery = !capability.status.success()
+        || capability.stdout != flere::install::DEFAULT_CHANNEL_CAPABILITY;
     let checkout = f.root.join("registered-development");
     fs::create_dir_all(checkout.join("scripts")).unwrap();
     fs::set_permissions(&checkout, fs::Permissions::from_mode(0o700)).unwrap();
@@ -689,13 +697,13 @@ fn automatic_update(previous_core: Option<&Path>) {
     );
     let applied = plans(&f);
     assert_eq!(applied[0]["phase"], "applied");
-    if previous_core.is_some() {
-        assert!(
-            fs::read_to_string(f.root.join("ssh-updates"))
-                .unwrap()
-                .contains("build-status")
-        );
-    }
+    assert_eq!(
+        fs::read_to_string(f.root.join("ssh-updates"))
+            .unwrap()
+            .contains("build-status"),
+        legacy_discovery,
+        "discovery must match the selected older core's capability"
+    );
     assert!(
         !f.root.join("developer-source-ran").exists(),
         "automatic update executed the registered development script"
