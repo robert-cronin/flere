@@ -17,6 +17,12 @@ Windows rendering, clipboard, resize and cleanup acceptance remains open.
 The current remote protocol is v6. Companion previews and badges use Sixel on
 Windows/Linux/macOS after capability and cell-geometry replies; a Kitty-only
 terminal does not provide that path. The local core uses Kitty, including Ghostty.
+Current `main` also negotiates `sixel-project-icons-damage-v1` alongside sized
+badges. Its complete layout frames (tag 55) carry a one-byte damage flag before
+the sized layout. Unchanged icon pixels survive ordinary text/animation frames;
+full clears, changed icon cells, layout/font changes and newly received images
+restore them. Either older peer retains the previous repaint behavior; this is
+an optional v6 extension, not a protocol-version or saved-state migration.
 The Unix companion decodes PNG/JPEG portably; macOS reads native PNG/TIFF clipboard
 images and Linux uses optional installed desktop helpers. Automatic Codex delivery
 is tested with harmless native stand-ins; actual handling and acknowledgement

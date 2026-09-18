@@ -74,6 +74,25 @@ use std::{
     sync::mpsc,
     time::{Duration, Instant},
 };
+/// Keep timing diagnostics bounded and exclude keys, text and session metadata.
+#[derive(Default)]
+struct Stalls {
+    reported: Option<Instant>,
+}
+impl Stalls {
+    fn observe(&mut self, event: &'static str, started: Instant) {
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(started);
+        if elapsed >= Duration::from_millis(50)
+            && self
+                .reported
+                .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(5))
+        {
+            self.reported = Some(now);
+            diagnostics::record(event, &format!("elapsed_ms={}", elapsed.as_millis()));
+        }
+    }
+}
 struct Ssh(Child);
 impl Drop for Ssh {
     fn drop(&mut self) {
@@ -527,6 +546,8 @@ fn run() -> io::Result<()> {
     let mut dimensions = size;
     let mut checked = Instant::now();
     let mut typed = Instant::now();
+    let mut input_stalls = Stalls::default();
+    let mut render_stalls = Stalls::default();
     if let Some(path) = image {
         offer(
             &mut queue,
@@ -543,6 +564,7 @@ fn run() -> io::Result<()> {
         )?;
         match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(Event::Input(bytes, received)) => {
+                input_stalls.observe("input-queue", received);
                 typed = Instant::now();
                 if coordinated.discard_input(received) {
                     continue;
@@ -622,6 +644,14 @@ fn run() -> io::Result<()> {
                     browser.suspend();
                     continue;
                 }
+                let rendering = matches!(
+                    packet.tag,
+                    protocol::OUTPUT
+                        | protocol::AVATAR_LAYOUT
+                        | protocol::AVATAR_LAYOUT_SIZED
+                        | protocol::AVATAR_FRAME
+                );
+                let render_started = Instant::now();
                 match packet.tag {
                     protocol::CAPABILITIES
                         if tools_protocol
@@ -719,6 +749,7 @@ fn run() -> io::Result<()> {
                     protocol::AVATAR_IMAGE
                     | protocol::AVATAR_LAYOUT
                     | protocol::AVATAR_LAYOUT_SIZED
+                    | protocol::AVATAR_FRAME
                     | protocol::AVATAR_CLEAR
                     | protocol::PREVIEW_BEGIN
                     | protocol::PREVIEW_DATA
@@ -838,6 +869,16 @@ fn run() -> io::Result<()> {
                         if packet.id == 0 && avatars_advertised && sized_icons =>
                     {
                         avatars.sized_frame(&packet.data, dimensions)?;
+                        avatars.paint(
+                            viewer.cell(),
+                            &mut display.keyboard.local_output(&mut io::stdout()),
+                            os::decode_preview,
+                        )?;
+                    }
+                    protocol::AVATAR_FRAME
+                        if packet.id == 0 && avatars_advertised && sized_icons =>
+                    {
+                        avatars.damage_frame(&packet.data, dimensions)?;
                         avatars.paint(
                             viewer.cell(),
                             &mut display.keyboard.local_output(&mut io::stdout()),
@@ -976,6 +1017,9 @@ fn run() -> io::Result<()> {
                     }
                     _ => return Err(io::Error::other("unsupported remote packet or direction")),
                 }
+                if rendering {
+                    render_stalls.observe("remote-render", render_started);
+                }
             }
             Ok(Event::Closed(reason)) => {
                 diagnostics::record("connection-closed", reason);
@@ -1005,6 +1049,15 @@ fn run() -> io::Result<()> {
                 );
             }
             queue.push_back(Packet::new(protocol::CAPABILITIES, 0, capability));
+            if sized_icons {
+                // Older cores ignore unknown bounded capabilities and keep
+                // sending the legacy layouts, which always repaint.
+                queue.push_back(Packet::new(
+                    protocol::CAPABILITIES,
+                    0,
+                    protocol::AVATAR_DAMAGE_CAP,
+                ));
+            }
             avatars_advertised = true;
         }
         if avatar_cell != viewer.cell() {

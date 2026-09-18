@@ -18,6 +18,7 @@ pub(super) struct Connection {
     pub screenshot: Option<super::screenshot::Export>,
     pub avatar_capable: bool,
     pub avatar_cell: Option<(usize, usize)>,
+    pub avatar_damage: bool,
     pub force_redraw: bool,
     pub preview_counter: u64,
     pub preview: Option<super::image_preview::ImagePreview>,
@@ -108,6 +109,7 @@ impl Connection {
             screenshot: None,
             avatar_capable: false,
             avatar_cell: None,
+            avatar_damage: false,
             force_redraw: false,
             preview_counter: 0,
             preview: None,
@@ -200,6 +202,13 @@ impl Ui {
                 self.remote.as_mut().unwrap().screenshot_capable = true;
             }
             protocol::SCREENSHOT_RESULT => self.screenshot_result(packet)?,
+            protocol::CAPABILITIES
+                if packet.id == 0 && packet.data == protocol::AVATAR_DAMAGE_CAP =>
+            {
+                let r = self.remote.as_mut().unwrap();
+                r.avatar_damage = true;
+                r.force_redraw = true;
+            }
             protocol::CAPABILITIES
                 if packet.id == 0 && packet.data.starts_with(protocol::AVATAR_SIZE_CAP) =>
             {

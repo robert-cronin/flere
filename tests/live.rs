@@ -22,8 +22,9 @@ mod updating;
 #[path = "viewport/mod.rs"]
 mod viewport;
 use flere::{
+    avatar, image_preview,
     model::{Snapshot, TabView},
-    os,
+    os, sixel,
     terminal::Terminal,
     wire,
 };

@@ -88,3 +88,12 @@ Shell directories are sampled once per second and before an explicit supervisor 
 ### A project logo disappears when Ghostty redraws
 
 Ghostty can discard uploaded image data when the screen is cleared. Flere reuploads cached project icons after a full redraw; ordinary frames reuse the existing image. A missing logo does not imply a missing GitHub URL: repository-local logos are discovered directly from the checkout.
+
+## Delayed input over SSH
+
+Current `main` companion diagnostics record `input-queue` or `remote-render` when
+the corresponding local step takes at least 50 ms, at most once per five seconds
+for each step. Entries contain elapsed time only. `input-queue` measures the wait
+from reading local input to handling it; `remote-render` measures handling a
+remote text or icon frame, including writing it to the terminal. These timings
+do not measure SSH round-trip time or the terminal's later physical presentation.

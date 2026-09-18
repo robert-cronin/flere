@@ -2255,6 +2255,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                 clear_next = true;
                 previous_pet = pet_region;
             }
+            let avatar_damage = hyperlinks::badges_damaged(&c, &previous);
             let mut paint = render(&c, &mut previous);
             if ui.remote.is_some() {
                 paint.push_str(&ui.pet_pixels()?);
@@ -2286,14 +2287,20 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
             if !out.is_empty() {
                 remote::emit(is_remote, out.as_bytes())?;
                 if avatar_capable {
+                    let r = ui.remote.as_ref().unwrap();
+                    let damage_capable = r.avatar_damage && r.avatar_cell.is_some();
                     crate::remote_protocol::Packet::new(
-                        if ui.remote.as_ref().is_some_and(|r| r.avatar_cell.is_some()) {
+                        if damage_capable {
+                            crate::remote_protocol::AVATAR_FRAME
+                        } else if r.avatar_cell.is_some() {
                             crate::remote_protocol::AVATAR_LAYOUT_SIZED
                         } else {
                             crate::remote_protocol::AVATAR_LAYOUT
                         },
                         0,
-                        if ui.remote.as_ref().is_some_and(|r| r.avatar_cell.is_some()) {
+                        if damage_capable {
+                            avatars.encode_frame(graphics_reset || avatar_damage)
+                        } else if r.avatar_cell.is_some() {
                             avatars.encode_sized()
                         } else {
                             avatars.encode()

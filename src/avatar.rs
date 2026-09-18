@@ -99,6 +99,18 @@ impl Layout {
     pub fn encode_sized(&self) -> Vec<u8> {
         self.encode_slots(true)
     }
+    /// A complete sized layout plus whether preceding output damaged its pixels.
+    pub fn encode_frame(&self, damaged: bool) -> Vec<u8> {
+        let mut data = vec![u8::from(damaged)];
+        data.extend(self.encode_sized());
+        data
+    }
+    pub fn decode_frame(data: &[u8]) -> io::Result<(Self, bool)> {
+        let Some((&flag @ 0..=1, layout)) = data.split_first() else {
+            return Err(io::Error::other("invalid avatar damage flag"));
+        };
+        Ok((Self::decode_sized(layout)?, flag == 1))
+    }
     fn encode_slots(&self, sized: bool) -> Vec<u8> {
         let mut data = [self.width.to_be_bytes(), self.height.to_be_bytes()].concat();
         for badge in &self.badges {

@@ -3,6 +3,7 @@ use super::*;
 mod split_screenshot;
 use flere::remote_protocol::{self as protocol, Packet};
 use std::{process::ChildStdin, sync::mpsc};
+mod avatar_damage;
 mod drop;
 mod drop_backend;
 mod environment;

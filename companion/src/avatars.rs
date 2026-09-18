@@ -71,21 +71,28 @@ impl Avatars {
         self.pending_frame = true;
     }
     pub fn frame(&mut self, data: &[u8], dimensions: (u16, u16)) -> io::Result<()> {
-        self.set_frame(Layout::decode(data)?, dimensions)
+        self.set_frame(Layout::decode(data)?, dimensions, true);
+        Ok(())
     }
     pub fn sized_frame(&mut self, data: &[u8], dimensions: (u16, u16)) -> io::Result<()> {
-        self.set_frame(Layout::decode_sized(data)?, dimensions)
+        self.set_frame(Layout::decode_sized(data)?, dimensions, true);
+        Ok(())
     }
-    fn set_frame(&mut self, layout: Layout, dimensions: (u16, u16)) -> io::Result<()> {
+    pub fn damage_frame(&mut self, data: &[u8], dimensions: (u16, u16)) -> io::Result<()> {
+        let (layout, damaged) = Layout::decode_frame(data)?;
+        self.set_frame(layout, dimensions, damaged);
+        Ok(())
+    }
+    fn set_frame(&mut self, layout: Layout, dimensions: (u16, u16), damaged: bool) {
         self.pending_frame = false;
         // Resize can race queued old frames. Wait for a matching complete frame.
-        self.layout = if (layout.width, layout.height) == dimensions {
+        let layout = if (layout.width, layout.height) == dimensions {
             layout
         } else {
             Layout::default()
         };
-        self.dirty = true;
-        Ok(())
+        self.dirty |= damaged || self.layout != layout;
+        self.layout = layout;
     }
     pub fn suspend(&mut self) {
         self.layout = Layout::default();
@@ -272,6 +279,91 @@ mod tests {
         out.clear();
         v.paint(Some((10, 20)), &mut out, decode).unwrap();
         assert!(out.is_empty());
+    }
+    #[test]
+    fn stable_frames_avoid_repainting_but_damage_and_late_images_restore_icons() {
+        let mut v = Avatars::default();
+        let mut l = layout(3);
+        l.badges.extend(
+            (1..16)
+                .map(|i| {
+                    let mut b = l.badges[0].clone();
+                    b.y += i;
+                    b
+                })
+                .collect::<Vec<_>>(),
+        );
+        let p = png();
+        v.damage_frame(&l.encode_frame(true), (60, 24)).unwrap();
+        let mut out = Vec::new();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        assert!(out.is_empty());
+        // Image completion during OUTPUT must not paint until the layout arrives.
+        v.begin_output();
+        v.receive(&avatar::chunk("repo-1", p.len(), 0, &p)).unwrap();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        assert!(out.is_empty());
+        v.damage_frame(&l.encode_frame(false), (60, 24)).unwrap();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        let first = out.clone();
+        assert!(!first.is_empty());
+        out.clear();
+        for _ in 0..120 {
+            v.begin_output();
+            v.damage_frame(&l.encode_frame(false), (60, 24)).unwrap();
+            v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        }
+        assert!(out.is_empty(), "unchanged frames must not write any Sixel");
+        for _ in 0..120 {
+            v.sized_frame(&l.encode_sized(), (60, 24)).unwrap();
+            v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        }
+        assert_eq!(out.len(), first.len() * 120, "old cores still repaint");
+        eprintln!(
+            "120 unchanged frames, 16 icons: legacy={} bytes; damage-aware=0 bytes",
+            out.len()
+        );
+        out.clear();
+        v.damage_frame(&l.encode_frame(true), (60, 24)).unwrap();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        assert_eq!(out, first, "same-layout screen clears must repaint");
+        out.clear();
+        v.clear(&mut out).unwrap();
+        out.clear();
+        v.damage_frame(&l.encode_frame(false), (60, 24)).unwrap();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        assert_eq!(
+            out, first,
+            "local modal cleanup invalidates cached placement"
+        );
+        out.clear();
+        v.damage_frame(&l.encode_frame(false), (61, 24)).unwrap();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        assert!(out.is_empty(), "queued old-size layout must not paint");
+        v.damage_frame(&l.encode_frame(false), (60, 24)).unwrap();
+        v.paint(Some((10, 20)), &mut out, decode).unwrap();
+        assert_eq!(
+            out, first,
+            "returning from mismatched layout restores icons"
+        );
+        v.suspend();
+    }
+    #[test]
+    fn damage_frames_validate_flag_and_complete_layout() {
+        let l = layout(3);
+        for damaged in [false, true] {
+            assert_eq!(
+                Layout::decode_frame(&l.encode_frame(damaged)).unwrap(),
+                (l.clone(), damaged)
+            );
+        }
+        for data in [vec![], vec![0], vec![1], vec![2, 0, 60, 0, 24]] {
+            assert!(Layout::decode_frame(&data).is_err());
+        }
+        let encoded = l.encode_frame(false);
+        for len in 6..encoded.len() {
+            assert!(Layout::decode_frame(&encoded[..len]).is_err());
+        }
     }
     #[test]
     fn image_chunks_require_order_bounds_and_valid_data() {

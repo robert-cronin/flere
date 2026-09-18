@@ -73,6 +73,17 @@ pub(super) fn render(c: &Canvas, previous: &mut Vec<Cell>) -> String {
     render_bounded(c, previous, PAINT_LINK_BYTES)
 }
 
+/// Ordinary row updates skip unchanged badge cells. Report any cells that the
+/// renderer will overwrite so the companion can restore just when necessary.
+pub(super) fn badges_damaged(c: &Canvas, previous: &[Cell]) -> bool {
+    c.badges.iter().any(|b| {
+        (usize::from(b.x)..usize::from(b.x + b.columns)).any(|x| {
+            let i = usize::from(b.y) * c.width + x;
+            previous.len() != c.cells.len() || previous[i] != c.cells[i]
+        })
+    })
+}
+
 fn render_bounded(c: &Canvas, previous: &mut Vec<Cell>, budget: usize) -> String {
     // Include the fixed row boundaries and display_frame's two resets in the
     // total OSC8 budget, even when only a subset of rows needs repainting.
@@ -144,6 +155,32 @@ mod tests {
         for cell in &mut c.cells[row * c.width + start..row * c.width + end] {
             cell.link = Some(link.clone());
         }
+    }
+
+    #[test]
+    fn badge_damage_tracks_overwritten_cells_and_full_redraws() {
+        let mut c = Canvas::new(60, 24);
+        c.badges.push(crate::avatar::Badge {
+            x: 3,
+            y: 5,
+            columns: 3,
+            key: "repo-1".into(),
+            bg: [18, 26, 41],
+        });
+        let mut previous = Vec::new();
+        assert!(badges_damaged(&c, &previous));
+        render(&c, &mut previous);
+        assert!(!badges_damaged(&c, &previous));
+        // Changing text beside an icon repaints the row but skips its cells.
+        c.cells[5 * c.width + 12].text = "x".into();
+        assert!(!badges_damaged(&c, &previous));
+        assert!(!render(&c, &mut previous).is_empty());
+        c.cells[5 * c.width + 4].text = "y".into();
+        assert!(badges_damaged(&c, &previous));
+        render(&c, &mut previous);
+        assert!(!badges_damaged(&c, &previous));
+        previous.clear();
+        assert!(badges_damaged(&c, &previous));
     }
 
     fn outer(c: &Canvas, paint: &str) -> Terminal {
