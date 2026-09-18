@@ -3,7 +3,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub(super) const COORDINATION_WORKFLOW: &str = "When the user asks you to implement issues or put agents to work, reuse existing cards; for a new agent card use prepare_workspace without an initial shell (or new/worktree --no-shell from the CLI), then prepare_worker, authorized start_worker, and worker_status verification. Creating cards/shells is preparation, not working-agent completion. Do not ask again for local work already authorized. If only cards are requested, prepare only. Preserve the actual user request in prepare_worker as context, not a permission credential. Native approval refusals must be reported with report_worker_block; do not retry via raw sockets, terminal input, another tool, or changed settings. A later explicit human clarification can support a newly reviewed attempt. No new assignments launch on navigation or supervisor restart; UI activation may resume an exact saved chat. Report hosted, native-started, assignment-surfaced and assignment-acknowledged separately. A started process or acknowledgement alone is not proof of progress. Use worker_status and checkpoints, and never mark unfinished dispatch complete.";
+pub(super) const COORDINATION_WORKFLOW: &str = "For a fresh worker, reuse a ready card or prepare_workspace without an initial shell, then prepare_worker, authorized start_worker and worker_status. Reuse live chats: send_chat_message addresses verified conversations. An already-open blank chat without a conversation ID can receive its first assignment through inspect_terminal and authorized send_terminal_input; preserve drafts and native trust/approval prompts. Resume stopped chats by exact UUID, or use the harness picker when unknown. Do not ask again for local work already authorized. If only cards are requested, prepare only. Saved user_request is context, not an approval credential. Native approval refusals block alternate routes; report with report_worker_block when a dispatch exists. Later explicit human clarification can support fresh native review. Navigation/restart never starts a new assignment. Report hosted, native-started, assignment-surfaced and acknowledged separately; verify actual progress through checkpoints/results. Never mark unfinished work complete.";
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -355,12 +355,19 @@ impl Server {
             {
                 return Err(invalid("stale or invalid worker workspace/epoch/directory"));
             }
-            if !w.meta.operation.is_empty()
-                || !w.meta.conversations.is_empty()
-                || w.tabs.iter().any(|t| t.native.is_some())
-            {
+            if !w.meta.operation.is_empty() {
                 return Err(invalid(
-                    "worker needs a ready workspace without a native run or saved conversation; use explicit exact-UUID resume for existing work",
+                    "workspace preparation is still in progress; no worker prepared",
+                ));
+            }
+            if w.tabs.iter().any(|t| t.native.is_some()) {
+                return Err(invalid(
+                    "workspace already has a native tab; inspect_terminal to reuse the exact live chat via messaging or authorized input, or explicitly retry a stopped tab. No worker prepared; native approval refusals still apply",
+                ));
+            }
+            if !w.meta.conversations.is_empty() {
+                return Err(invalid(
+                    "workspace has a saved conversation; resume its exact native UUID instead of starting a fresh worker",
                 ));
             }
             if self.coordination.dispatches.iter().any(|d| {

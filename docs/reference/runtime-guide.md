@@ -586,7 +586,7 @@ State defaults to `$XDG_STATE_HOME/flere` or `~/.local/state/flere` in a private
 
 A shell card is preparation. Issue or saved-chat cards with no hosted native tab say
 **no agent**; a hosted agent and observed working animation remain distinct.
-For authorized implementation work, any agent uses this sequence through Flere MCP:
+For a fresh implementation worker, any agent uses this sequence through Flere MCP:
 
 1. `list_workspaces` obtains exact current workspace IDs, directories and epoch.
 2. Use `add_project` with `cwd` and optional `name` to create/reuse the main checkout card without launching a shell or moving human focus. For a **new agent card**, use `prepare_workspace` with `name` and `cwd`, or
@@ -612,9 +612,20 @@ Older supervisors reject these new preparation commands; refresh first.
 
 Fresh Codex workers get a short instruction to call `get_context`, read their
 assignment/inbox and call `ack_assignment`. The brief stays in the private state
-store. Existing conversations continue through explicit exact-UUID resume with no
-appended context dump. Dispatch refuses workspaces with existing native work or
-saved conversations, so it cannot silently replace a chat already underway.
+store. Dispatch refuses workspaces with existing native work or saved conversations,
+so it cannot silently replace a chat already underway.
+
+Reuse an existing live chat through `send_chat_message` when its conversation is
+verified. A newly opened blank chat may not have a conversation ID until its first
+turn: inspect that exact terminal with `inspect_terminal`, then use authorized
+`send_terminal_input` to submit its initial assignment. Preserve drafts and native
+trust/approval prompts. This uses the existing chat; it does not require a guessed
+UUID, another launch or resume. Input being queued does not prove the assignment
+was handled; verify the recipient's context and progress. These routes do not
+permit retrying a native approval refusal.
+
+Resume stopped conversations by exact native UUID with no appended context dump.
+If the ID is unknown, use the harness picker.
 
 A native approval refusal must be recorded with `report_worker_block` and reported
 to the user. The blocked ID never launches. Do not retry through terminal input,
