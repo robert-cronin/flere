@@ -47,6 +47,7 @@ mod attachments;
 mod chat_messages;
 mod clients;
 mod close;
+mod context_view;
 mod coordination;
 mod delivery;
 mod dispatch;
@@ -415,7 +416,7 @@ impl Server {
                 self.cache_reservations.borrow_mut().push(pin);
             }
         }
-        let data = serde_json::to_vec_pretty(&saved).map_err(io::Error::other)?;
+        let data = serde_json::to_vec(&saved).map_err(io::Error::other)?;
         if data.len() > 8 * 1024 * 1024 {
             return Err(invalid("workspace metadata exceeds 8 MiB"));
         }

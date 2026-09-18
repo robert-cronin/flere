@@ -757,7 +757,10 @@ fn chat_message_cold_start_validates_provenance_and_preserves_stopped_mail() {
     ]);
     let context: Value = serde_json::from_slice(&response).unwrap();
     assert_eq!(context["messages"][0]["id"], id);
-    assert_eq!(context["messages"][0]["chat"], sent["message"]["chat"]);
+    let mut address = context["messages"][0]["chat"].clone();
+    assert_eq!(address["user_request_ref"], "fixture:user-request:1");
+    address.as_object_mut().unwrap().remove("user_request_ref");
+    assert_eq!(address, sent["message"]["chat"]);
     assert!(context["messages"][0]["native_surfaced"].is_null());
     assert!(context["messages"][0]["acknowledged"].is_null());
     assert!(!b.root.join("queue.jsonl").exists());

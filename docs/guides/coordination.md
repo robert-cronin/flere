@@ -29,6 +29,60 @@ Literal text rejects embedded control keys. Multiline diagnostic text is allowed
 
 State defaults to `$XDG_STATE_HOME/flere` or `~/.local/state/flere` in a private directory. Metadata and coordination share an atomic versioned store; UI preferences, run specifications, socket, lock, action receipts and supervisor log are also local. Child temporary files use the Flere home/XDG cache, not system `/tmp`. No Switchyard data is imported or modified, and Flere has no GitHub publication feature.
 
+## Bounded agent context and inbox pages
+
+Agent `get_context` defaults to the current workspace/run identity, complete
+assignment, up to 32 decisions (pending first, then recent answers), the latest checkpoint and up to 32 pending message
+summaries. Summaries contain IDs and byte counts, not message bodies, and do not
+mark bodies as surfaced. `pending_messages` reports all pending messages, including
+those outside that summary page. Use `inbox` for bodies or `message_status` with an
+exact ID. `get_context({"detail":true})` restores the fuller view with card notes,
+up to eight checkpoints, board summary and activation diagnostics. Human
+`coordinate ... context` retains the full view. Assignments, decisions and the
+latest checkpoint remain complete, so context has no universal byte cap.
+
+`list_workspaces` returns up to 32 compact cards by default (maximum `limit:64`),
+without notes or saved conversation history. Exact live tab/run identities and
+worktree preparation state remain available. Follow `next_after` using `after`
+until it is null; `remaining` counts records beyond the returned page. To fetch
+one card's complete metadata and dispatch receipts, use
+`list_workspaces({"workspace":43,"detail":true})`. Full detail requires a target
+workspace; `workspace` and `after` cannot be combined. Compact metadata is not a
+valid replacement for complete `expected.meta` in a guarded update.
+
+`inbox` returns up to eight pending messages by default (`limit` accepts 1–32),
+with a 32 KiB serialized-record target. Inventory pages use the same byte target.
+Records are never cut in half: one oversized message/card is returned whole, so
+this is a soft page target plus a small response envelope, not a hard wire limit.
+Use `next_after` as `after` to continue; only returned bodies are surfaced by the
+inbox read. The cursor remains valid after its message is acknowledged and is
+scoped to the recipient conversation. `pending` counts all unacknowledged
+messages; `remaining` counts those after this page. Read again without a cursor
+to revisit older unhandled messages. Paging is a live view, not a frozen snapshot.
+
+`inbox({"ack_ids":["HANDLED_ID"]})` returns an acknowledgement receipt and pending
+counts without reading another page. Include `limit` or `after` explicitly to
+combine acknowledgement with a page read. Acknowledgement is not deletion.
+Unchanged reads and repeated acknowledgements do not rewrite the durable store.
+Sender responses and checkpoints return compact receipts instead of echoing
+bodies. `message_status` includes a body for an unacknowledged recipient read;
+use `detail:true` for other permitted bodies and full activation diagnostics.
+Exact conversation authorization and request deduplication are unchanged.
+
+Existing chats retain their native tool catalog until refreshed by the harness.
+After updating the supervisor, an older catalog can use the same scoped CLI:
+
+```sh
+flere --state "$FLERE_STATE" agent-call list_workspaces '{"workspace":43,"detail":true}'
+flere --state "$FLERE_STATE" agent-call inbox '{"after":"LAST_RETURNED_ID","limit":8}'
+flere --state "$FLERE_STATE" agent-call message_status '{"id":"MESSAGE_ID","detail":true}'
+```
+
+Records stay in the atomic store, now serialized without formatting whitespace.
+This reduces overhead; it adds no automatic record deletion, archival or garbage
+collection. See the [research and design rationale](../design/context-engineering.md)
+for the separation between durable history and working context.
+
 ## Assignments and agent startup
 
 A shell card is preparation. Issue or saved-chat cards with no hosted native tab say
@@ -100,7 +154,8 @@ than discarding them. Existing cards can use this flow; recreation is unnecessar
 ## Card administration
 
 Any live agent can use `update_workspace` to edit an existing card's `name`, `project`,
-`pinned`, `status`, `notes`, `issue` and `pr`. Read `list_workspaces` first and
+`pinned`, `status`, `notes`, `issue` and `pr`. Read targeted
+`list_workspaces({"workspace":ID,"detail":true})` first and
 supply its `epoch` as `expected_epoch` and the exact target workspace ID.
 
 Updates containing `status`, `notes`, `issue` or `pr` also require

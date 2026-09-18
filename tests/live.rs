@@ -1,6 +1,8 @@
 //! Real supervisor, Unix sockets and kernel PTYs. No tmux or paid harnesses.
 #[path = "chat_messages/mod.rs"]
 mod chat_messages;
+#[path = "context_budget/mod.rs"]
+mod context_budget;
 #[path = "dock_flere/mod.rs"]
 mod dock_flere;
 #[path = "flere/mod.rs"]
@@ -5022,7 +5024,13 @@ fn card_update(
     fields: serde_json::Value,
 ) -> serde_json::Value {
     use serde_json::json;
-    let listed = dispatch_call(f, lead, "list_workspaces", json!({})).unwrap();
+    let listed = dispatch_call(
+        f,
+        lead,
+        "list_workspaces",
+        json!({"workspace":wid,"detail":true}),
+    )
+    .unwrap();
     let card = listed["workspaces"]
         .as_array()
         .unwrap()
@@ -7777,8 +7785,8 @@ fn ordinary_agents_share_coordination_tools_and_can_delegate_without_pinning() {
     let f = Fixture::new();
     let (a, first) = dispatch_fixture(&f);
     let (b, second) = dispatch_fixture(&f);
-    let ca = dispatch_call(&f, &first, "context", json!({})).unwrap();
-    let cb = dispatch_call(&f, &second, "context", json!({})).unwrap();
+    let ca = dispatch_call(&f, &first, "context", json!({"detail":true})).unwrap();
+    let cb = dispatch_call(&f, &second, "context", json!({"detail":true})).unwrap();
     assert_eq!(ca["workspaces"], cb["workspaces"]);
     assert_eq!(ca["workspaces"].as_array().unwrap().len(), 2);
     assert_eq!(ca["coordination_workflow"], cb["coordination_workflow"]);

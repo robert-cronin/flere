@@ -181,11 +181,88 @@ impl Server {
             return result.and_then(|b| serde_json::from_slice(&b).map_err(io::Error::other));
         }
         if op == "list_workspaces" {
-            let data: Value =
-                serde_json::from_slice(&self.command("list")?).map_err(io::Error::other)?;
-            return Ok(json!({"epoch":self.epoch,"workspaces":data["workspaces"],
-                "dispatches":self.coordination.dispatches.iter().rev().take(64).map(|d|d.receipt(self)).collect::<Vec<_>>(),
-                "instructions":COORDINATION_WORKFLOW}));
+            let detail = super::context_view::detail(args)?;
+            let workspace = args
+                .get("workspace")
+                .map(|v| v.as_u64().ok_or_else(|| invalid("workspace must be an ID")))
+                .transpose()?;
+            let after = args
+                .get("after")
+                .map(|v| {
+                    v.as_u64()
+                        .ok_or_else(|| invalid("after must be a workspace ID"))
+                })
+                .transpose()?;
+            if detail && workspace.is_none() {
+                return Err(invalid("detail requires one workspace ID"));
+            }
+            if workspace.is_some() && after.is_some() {
+                return Err(invalid("choose workspace or after"));
+            }
+            let limit = super::context_view::limit(args, 32, 64)?;
+            let mut candidates: Vec<_> = self
+                .workspaces
+                .iter()
+                .filter(|w| {
+                    workspace.is_none_or(|id| w.id == id) && after.is_none_or(|id| w.id > id)
+                })
+                .collect();
+            candidates.sort_by_key(|w| w.id);
+            if workspace.is_some() && candidates.is_empty() {
+                return Err(invalid("unknown workspace"));
+            }
+            let total = candidates.len();
+            let mut workspaces = Vec::new();
+            let mut bytes = 0;
+            for original in candidates {
+                // Construct the projection directly: a compact inventory must not serialize
+                // every card's private notes and conversation history just to discard them.
+                let mut w = super::context_view::workspace(original);
+                if detail {
+                    w["meta"] = json!(original.meta);
+                }
+                w["selected_tab"] = json!(original.selected);
+                w["tabs"] = json!(
+                    original
+                        .tabs
+                        .iter()
+                        .map(|t| json!({
+                            "id":t.id,"run":t.run,"pid":t.child.id(),"alive":t.alive,
+                            "title":t.title,"kind":t.kind,"path":t.path
+                        }))
+                        .collect::<Vec<_>>()
+                );
+                w["detail"] = json!(detail);
+                let len = serde_json::to_vec(&w).map_err(io::Error::other)?.len();
+                if workspaces.len() == limit
+                    || (!workspaces.is_empty() && bytes + len > super::context_view::PAGE_BYTES)
+                {
+                    break;
+                }
+                bytes += len;
+                workspaces.push(w);
+            }
+            let more = workspaces.len() < total;
+            let next_after = if more {
+                workspaces.last().map(|w| w["id"].clone())
+            } else {
+                None
+            };
+            let mut result = json!({"epoch":self.epoch,"workspaces":workspaces,"remaining":total-workspaces.len(),"next_after":next_after,
+                "instructions":"Use next_after to read another page. Before metadata updates, read list_workspaces with workspace=<id>, detail=true for complete expected metadata. Older tool catalogs can use agent-call with the same arguments."});
+            if detail {
+                result["dispatches"] = json!(
+                    self.coordination
+                        .dispatches
+                        .iter()
+                        .rev()
+                        .filter(|d| Some(d.workspace) == workspace)
+                        .take(64)
+                        .map(|d| d.receipt(self))
+                        .collect::<Vec<_>>()
+                );
+            }
+            return Ok(result);
         }
         if op == "update_workspace" {
             if args
@@ -235,7 +312,7 @@ impl Server {
                     || expected.meta != serde_json::to_value(&w.meta).map_err(io::Error::other)?)
             {
                 return Err(invalid(
-                    "stale workspace metadata; read list_workspaces and reconcile again",
+                    "stale workspace metadata or incomplete expectation; read list_workspaces with workspace=<id>, detail=true and reconcile again",
                 ));
             }
             let name = update.name.unwrap_or_else(|| w.name.clone());

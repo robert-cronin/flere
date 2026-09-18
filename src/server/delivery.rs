@@ -258,16 +258,26 @@ impl Server {
             ));
         }
         if op == "message_status" {
-            if native.is_some() && recipient && m.native_surfaced.is_none() {
+            let detailed = super::context_view::detail(args)?;
+            let body = native.is_none() || detailed || (recipient && m.acknowledged.is_none());
+            if native.is_some() && recipient && body && m.native_surfaced.is_none() {
                 let mut next = self.coordination.clone();
                 let m = next.messages.iter_mut().find(|x| x.id == id).unwrap();
                 m.surfaced.get_or_insert(now() / 1000);
                 m.native_surfaced = Some(now() / 1000);
                 self.save_mailbox(next)?;
             }
-            return Ok(
-                json!({"message":self.coordination.messages.iter().find(|x|x.id==id),"activation":self.activation_at(m.to,self.message_recipient(&m).ok())}),
-            );
+            let record = self
+                .coordination
+                .messages
+                .iter()
+                .find(|x| x.id == id)
+                .unwrap();
+            let mut result = json!({"message":super::context_view::message(record,body)});
+            if detailed || native.is_none() {
+                result["activation"] = self.activation_at(m.to, self.message_recipient(&m).ok());
+            }
+            return Ok(result);
         }
         if op == "deliver_message" {
             let session = args["session"]
@@ -284,7 +294,13 @@ impl Server {
                 return Err(invalid("ambiguous recipient"));
             }
             self.try_delivery(id)?;
-            return Ok(json!({"message":self.coordination.messages.iter().find(|x|x.id==id)}));
+            let record = self
+                .coordination
+                .messages
+                .iter()
+                .find(|x| x.id == id)
+                .unwrap();
+            return Ok(json!({"message":super::context_view::message(record,native.is_none())}));
         }
         Err(invalid("unknown delivery operation"))
     }

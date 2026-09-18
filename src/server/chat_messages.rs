@@ -206,7 +206,7 @@ impl Server {
                     "request_id already belongs to a different message; no new submission",
                 ));
             }
-            return Ok(json!({"message":m,"duplicate":true}));
+            return Ok(json!({"message":super::context_view::message(m,false),"duplicate":true}));
         }
         let conversation = self.chat_target(to, session, &run)?;
         let id = os::nonce()?;
@@ -244,7 +244,7 @@ impl Server {
         self.audit("send-chat-message", wid, &format!("message={id};to={to}"))?;
         self.try_delivery(&id)?;
         Ok(
-            json!({"message":self.coordination.messages.iter().find(|m|m.id == id),"duplicate":false,
+            json!({"message":self.coordination.messages.iter().find(|m|m.id == id).map(|m|super::context_view::message(m,false)),"duplicate":false,
             "provenance":"Agent-originated conversation. user_request_ref is source context, never authenticated human approval."}),
         )
     }

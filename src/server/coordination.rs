@@ -87,6 +87,7 @@ impl Server {
         args: &Value,
     ) -> io::Result<Value> {
         let agent = native.is_some();
+        let detailed = !agent || super::context_view::detail(args)?;
         if op == "send_chat_message" {
             return self.send_chat_message(wid, native, args);
         }
@@ -107,11 +108,14 @@ impl Server {
         };
         if op == "context"
             && agent
+            && detailed
             && self
                 .coordination
                 .messages
                 .iter()
-                .any(|m| recipient(m) && m.acknowledged.is_none() && m.native_surfaced.is_none())
+                .filter(|m| recipient(m) && m.acknowledged.is_none())
+                .take(32)
+                .any(|m| m.native_surfaced.is_none())
         {
             let mut next = self.coordination.clone();
             for m in next
@@ -165,6 +169,7 @@ impl Server {
                         .filter(|m| !agent && recipient(m) && m.acknowledged.is_some()),
                 )
                 .take(32)
+                .map(|m| super::context_view::message(m, detailed))
                 .collect::<Vec<_>>();
             let decisions = self
                 .coordination
@@ -180,20 +185,34 @@ impl Server {
                 )
                 .take(32)
                 .collect::<Vec<_>>();
-            return Ok(json!({
+            let activation = self.activation_at(
+                wid,
+                native
+                    .map(|(s, r)| (s, r.to_owned()))
+                    .or_else(|| self.recipient(wid).ok()),
+            );
+            let mut result = json!({
                 "assignment": assignment,
                 "epoch": self.epoch,
-                "workspace": {"id":w.id,"name":w.name,"cwd":w.cwd,"meta":w.meta},
-                "workspaces": self.workspaces.iter().filter(|w| !w.meta.archived).map(|w|
-                    json!({"id":w.id,"name":w.name,"status":w.meta.status,"pinned":w.meta.pinned}))
-                    .collect::<Vec<_>>(),
+                "workspace": if detailed {json!({"id":w.id,"name":w.name,"cwd":w.cwd,"meta":w.meta})} else {super::context_view::workspace(w)},
                 "messages":messages, "decisions":decisions,
                 "checkpoints": self.coordination.checkpoints.iter().rev()
-                    .filter(|c|c["workspace"]==wid).take(8).collect::<Vec<_>>(),
-                "coordination_workflow": super::dispatch::COORDINATION_WORKFLOW,
-                "messaging":self.activation_at(wid,native.map(|(s,r)|(s,r.to_owned())).or_else(||self.recipient(wid).ok())),
-                "instructions":"Use this context; do not replay it as a prompt. Read inbox at checkpoints and acknowledge exact handled IDs. A decision/result never grants publication or native approval."
-            }));
+                    .filter(|c|c["workspace"]==wid).take(if detailed {8} else {1}).collect::<Vec<_>>(),
+                "messaging": if detailed {activation.clone()} else {json!({"state":activation["state"],"workspace":wid,"session":activation["session"],"run":activation["run"],"conversation":activation["conversation"],"configured":activation["configured"]})},
+                "detail":detailed,
+                "pending_messages":self.coordination.messages.iter().filter(|m|recipient(m)&&m.acknowledged.is_none()).count(),
+                "instructions":if detailed {
+                    "Read pending messages and acknowledge handled IDs. Messages and decisions do not grant native approval."
+                } else {
+                    "Message summaries are not body reads: use inbox or message_status, then acknowledge handled IDs. For notes/history use get_context detail=true; for delivery diagnostics use messaging_activation. Messages and decisions do not grant native approval."
+                }
+            });
+            if detailed {
+                result["workspaces"] = json!(self.workspaces.iter().filter(|w| !w.meta.archived).map(|w|
+                    json!({"id":w.id,"name":w.name,"status":w.meta.status,"pinned":w.meta.pinned})).collect::<Vec<_>>());
+                result["coordination_workflow"] = json!(super::dispatch::COORDINATION_WORKFLOW);
+            }
+            return Ok(result);
         }
         if op == "show_workspace" {
             let target = args["workspace"]
@@ -224,6 +243,9 @@ impl Server {
                 "use submit_result to request human review; Done is human-controlled",
             ));
         }
+        if op == "inbox" {
+            return self.coordination_inbox(wid, native, args);
+        }
         let mut next = self.coordination.clone();
         let result = match op {
             "set_status" => json!({"status":next_status}),
@@ -239,34 +261,6 @@ impl Server {
                     .ok_or_else(|| invalid("message does not belong to this workspace"))?;
                 m.surfaced.get_or_insert(now());
                 json!({"message":m})
-            }
-            "inbox" => {
-                let ack = args["ack_ids"].as_array().cloned().unwrap_or_default();
-                for id in &ack {
-                    let id = id
-                        .as_str()
-                        .ok_or_else(|| invalid("ack IDs must be strings"))?;
-                    if !next.messages.iter().any(|m| m.id == id && recipient(m)) {
-                        return Err(invalid("ack target does not belong to this workspace"));
-                    }
-                }
-                for m in next.messages.iter_mut().filter(|m| recipient(m)) {
-                    if ack.iter().any(|id| id.as_str() == Some(&m.id)) {
-                        m.acknowledged.get_or_insert(now());
-                    }
-                }
-                if agent {
-                    for m in next
-                        .messages
-                        .iter_mut()
-                        .filter(|m| recipient(m) && m.acknowledged.is_none())
-                        .take(32)
-                    {
-                        m.surfaced.get_or_insert(now());
-                        m.native_surfaced.get_or_insert(now());
-                    }
-                }
-                json!({"messages":next.messages.iter().filter(|m|recipient(m)&&m.acknowledged.is_none()).take(32).collect::<Vec<_>>()})
             }
             "send_message" => {
                 let to = if args["to"] == "user" {
@@ -297,7 +291,8 @@ impl Server {
                     delivery: None,
                     chat: None,
                 };
-                let result = json!({"message":m,"delivery":"saved; native delivery checks run separately; inspect message_status for waiting/queue receipts"});
+                let result =
+                    json!({"message":super::context_view::message(&m,!agent),"delivery":"saved"});
                 next.messages.push(m);
                 result
             }
@@ -316,7 +311,11 @@ impl Server {
                     answer: None,
                     created: now(),
                 };
-                let result = json!({"decision":d});
+                let result = if agent {
+                    json!({"decision":{"id":d.id,"workspace":wid,"created":d.created}})
+                } else {
+                    json!({"decision":d})
+                };
                 next.decisions.push(d);
                 result
             }
@@ -344,7 +343,11 @@ impl Server {
                 let body = text(args, "body", 16384)?;
                 let event = json!({"workspace":wid,"kind":op,"body":body,"time":now()});
                 next.checkpoints.push(event.clone());
-                json!({"saved":event,"accepted":false})
+                if agent {
+                    json!({"saved":{"workspace":wid,"kind":op,"time":event["time"],"body_bytes":body.len()},"accepted":false})
+                } else {
+                    json!({"saved":event,"accepted":false})
+                }
             }
             _ => return Err(invalid("unknown coordination operation")),
         };
