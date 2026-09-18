@@ -317,18 +317,25 @@ impl Server {
         }
         let previous = self.observation(session, run);
         let name = event.hook_event_name.as_str();
-        if matches!(name, "PreToolUse" | "PostToolUse" | "PermissionRequest")
-            && (event.turn_id.is_empty() || previous.is_none_or(|h| h.turn != event.turn_id))
+        if matches!(
+            name,
+            "UserPromptSubmit"
+                | "PreToolUse"
+                | "PostToolUse"
+                | "PermissionRequest"
+                | "Stop"
+                | "Interrupt"
+        ) && event.turn_id.is_empty()
         {
-            return Err(invalid("tool hook is outside the observed main turn"));
-        }
-        if matches!(name, "UserPromptSubmit" | "Stop" | "Interrupt") && event.turn_id.is_empty() {
             return Err(invalid("missing main turn identity"));
         }
-        if matches!(name, "Stop" | "Interrupt")
-            && previous.is_some_and(|h| !h.turn.is_empty() && h.turn != event.turn_id)
+        if matches!(
+            name,
+            "PreToolUse" | "PostToolUse" | "PermissionRequest" | "Stop" | "Interrupt"
+        ) && previous.is_none_or(|h| h.turn != event.turn_id)
+            && !crate::native::delivery::recorded_turn_matches(&target, &event.turn_id)?
         {
-            return Err(invalid("stale main turn hook"));
+            return Err(invalid("hook is outside the recorded native main turn"));
         }
         if name == "SessionStart" && previous.is_some_and(|h| !h.turn.is_empty()) {
             return Ok(json!({"output":{}}));

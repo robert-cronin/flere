@@ -82,6 +82,11 @@ while True:
             subprocess.run(['/usr/bin/true'],check=True) # a normal completed tool boundary
         if 'screen' in value:
             current_screen=value['screen'];screen(current_screen)
+        if 'recorded_turn' in value:
+            # Automatic goal/agent continuations record a main turn without
+            # invoking UserPromptSubmit. Keep the real native JSONL boundary.
+            with transcript.open('a') as out:
+                out.write(json.dumps({'type':'event_msg','payload':{'type':'task_started','turn_id':value['recorded_turn']}})+'\n')
         result=hook(value['event'],value.get('turn','main'),value.get('handle',True),**value.get('extra',{})) if 'event' in value else {'code':0}
         (root/f'done-{last}.json').write_text(json.dumps(result))
     try: lines=(root/'queue.jsonl').read_text().splitlines()

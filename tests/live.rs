@@ -4032,6 +4032,81 @@ fn mailbox_after_tool_surfaces_and_handles_without_manual_inbox_reminder() {
     assert!(mailbox_status(&f, &a, &id2)["surfaced"].is_null());
 }
 #[test]
+fn mailbox_automatic_main_turn_without_prompt_hook_still_delivers() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "11111111-aaaa-bbbb-cccc-111111111111");
+    let b = mailbox_native(&f, "recipient", "22222222-aaaa-bbbb-cccc-222222222222");
+    mailbox_event(&b, 1, json!({"event":"UserPromptSubmit","screen":"active"}));
+    mailbox_event(&b, 2, json!({"event":"Stop"}));
+    // Codex goal continuations and native agent messages skip UserPromptSubmit.
+    let started = mailbox_event(
+        &b,
+        3,
+        json!({"recorded_turn":"automatic-turn",
+        "event":"PreToolUse","turn":"automatic-turn","screen":"active"}),
+    );
+    assert_eq!(started["code"], 0, "{started}");
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    for (seq, event) in [(4, "PostToolUse"), (5, "Stop"), (6, "Interrupt")] {
+        let stale = mailbox_event(&b, seq, json!({"event":event,"turn":"main"}));
+        assert_ne!(stale["code"], 0, "{stale}");
+        assert!(mailbox_status(&f, &a, &id)["surfaced"].is_null());
+    }
+    let permission = mailbox_event(
+        &b,
+        7,
+        json!({"event":"PermissionRequest",
+        "turn":"automatic-turn","screen":"approval"}),
+    );
+    assert_eq!(permission["code"], 0, "{permission}");
+    let status = dispatch_call(
+        &f,
+        &a.tab,
+        "deliver_message",
+        json!({"id":id,"session":b.tab.id,"run":b.tab.run}),
+    )
+    .unwrap();
+    assert_eq!(
+        status["message"]["delivery"]["outcome"],
+        "waiting-for-human"
+    );
+    let completed = mailbox_event(
+        &b,
+        8,
+        json!({"event":"PostToolUse",
+        "turn":"automatic-turn","tool":true,"screen":"active"}),
+    );
+    assert_eq!(completed["code"], 0, "{completed}");
+    assert!(wait_file(&b.root.join("handled.jsonl"), 3).contains(&id));
+    assert!(!mailbox_status(&f, &a, &id)["acknowledged"].is_null());
+    assert!(!b.root.join("queue.jsonl").exists());
+    // A tool-free automatic turn must also be able to stop without a prompt hook.
+    let stopped = mailbox_event(
+        &b,
+        9,
+        json!({"recorded_turn":"automatic-no-tools",
+        "event":"Stop","turn":"automatic-no-tools"}),
+    );
+    assert_eq!(stopped["code"], 0, "{stopped}");
+    // The first observed hook can also be a permission request or completion.
+    for (seq, event) in [
+        (10, "PermissionRequest"),
+        (11, "PostToolUse"),
+        (12, "Interrupt"),
+    ] {
+        let turn = format!("automatic-{seq}");
+        let result = mailbox_event(
+            &b,
+            seq,
+            json!({"recorded_turn":turn,
+            "event":event,"turn":turn,"screen":"active"}),
+        );
+        assert_eq!(result["code"], 0, "{result}");
+    }
+}
+
+#[test]
 fn mailbox_idle_queue_after_dnd_expiry_targets_exact_native_without_tool_call() {
     use serde_json::{Value, json};
     let f = Fixture::new();

@@ -63,24 +63,8 @@ pub fn inspect(host: u32, cwd: &Path, session: u64, run: &str) -> io::Result<Tar
             if !file.metadata()?.is_file() {
                 continue;
             }
-            let mut line = String::new();
-            io::BufReader::new(file.take(65536)).read_line(&mut line)?;
-            if line.len() >= 65536 {
-                continue;
-            }
-            let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            let p = &v["payload"];
-            let Some(id) = p["id"].as_str() else {
-                continue;
-            };
-            if v["type"] == "session_meta"
-                && p["source"] == "cli"
-                && p["cwd"].as_str() == cwd.to_str()
-                && valid_uuid(id)
-            {
-                transcripts.insert(path.clone(), id.to_owned());
+            if let Some(id) = transcript_id(file, cwd)? {
+                transcripts.insert(path.clone(), id);
             }
         }
         if process_start(pid)? != start {
@@ -106,6 +90,105 @@ pub fn inspect(host: u32, cwd: &Path, session: u64, run: &str) -> io::Result<Tar
     }
     Ok(targets.remove(0))
 }
+fn transcript_id(file: impl Read, cwd: &Path) -> io::Result<Option<String>> {
+    let mut line = String::new();
+    io::BufReader::new(file.take(65536)).read_line(&mut line)?;
+    if line.len() >= 65536 {
+        return Ok(None);
+    }
+    let Ok(v) = serde_json::from_str::<Value>(&line) else {
+        return Ok(None);
+    };
+    let p = &v["payload"];
+    Ok(p["id"]
+        .as_str()
+        .filter(|id| {
+            v["type"] == "session_meta"
+                && p["source"] == "cli"
+                && p["cwd"].as_str() == cwd.to_str()
+                && valid_uuid(id)
+        })
+        .map(str::to_owned))
+}
+
+/// Goal continuations and native agent messages can begin a main turn without
+/// UserPromptSubmit. Prove a changed turn from this process's open transcript;
+/// neither hook input nor a latest-session filename is sufficient evidence.
+pub fn recorded_turn_matches(target: &Target, turn: &str) -> io::Result<bool> {
+    if process_start(target.pid)? != target.start {
+        return Err(crate::wire::invalid("native process changed"));
+    }
+    let entry = crate::os::process_files(target.pid, 256)?
+        .into_iter()
+        .find(|entry| entry.path == target.transcript)
+        .ok_or_else(|| crate::wire::invalid("native transcript is no longer open"))?;
+    let mut file = entry.open()?;
+    if !file.metadata()?.is_file()
+        || transcript_id(&mut file, &target.cwd)?.as_deref() != Some(&target.uuid)
+    {
+        return Err(crate::wire::invalid("native transcript identity changed"));
+    }
+    let recorded = recorded_turn(file)?;
+    if process_start(target.pid)? != target.start {
+        return Err(crate::wire::invalid("native process changed"));
+    }
+    Ok(recorded.as_deref() == Some(turn))
+}
+
+const TURN_SCAN_LIMIT: u64 = 1024 * 1024;
+fn recorded_turn(mut file: impl Read + io::Seek) -> io::Result<Option<String>> {
+    use io::SeekFrom;
+    let end = file.seek(SeekFrom::End(0))?;
+    let start = end.saturating_sub(TURN_SCAN_LIMIT);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    (&mut file).take(end - start).read_to_end(&mut bytes)?;
+    if file.seek(SeekFrom::End(0))? != end {
+        return Ok(None);
+    }
+    // A concurrent partial write cannot prove which turn is newest.
+    if bytes.last() != Some(&b'\n') {
+        return Ok(None);
+    }
+    let bytes = if start == 0 {
+        bytes.as_slice()
+    } else {
+        let Some(first) = bytes.iter().position(|b| *b == b'\n') else {
+            return Ok(None);
+        };
+        &bytes[first + 1..]
+    };
+    #[derive(Deserialize)]
+    struct Record<'a> {
+        #[serde(rename = "type", borrow)]
+        kind: &'a str,
+        #[serde(borrow)]
+        payload: Payload<'a>,
+    }
+    #[derive(Deserialize)]
+    struct Payload<'a> {
+        #[serde(rename = "type", default, borrow)]
+        kind: Option<&'a str>,
+        #[serde(default, borrow)]
+        turn_id: Option<&'a str>,
+    }
+    for line in bytes.split(|b| *b == b'\n').rev().filter(|s| !s.is_empty()) {
+        let Ok(record) = serde_json::from_slice::<Record<'_>>(line) else {
+            return Ok(None);
+        };
+        if record.kind == "turn_context"
+            || (record.kind == "event_msg" && record.payload.kind == Some("task_started"))
+        {
+            return Ok(record
+                .payload
+                .turn_id
+                .filter(|turn| !turn.is_empty() && turn.len() <= 1024)
+                .map(str::to_owned));
+        }
+    }
+    Ok(None)
+}
+
 fn environment(pid: u32) -> io::Result<BTreeMap<String, String>> {
     let data = crate::os::process_environment(pid)?;
     Ok(data
@@ -279,6 +362,44 @@ fn single_braille_dot(text: &str) -> bool {
 mod tests {
     use super::*;
     use crate::terminal::Terminal;
+    #[test]
+    fn recorded_turn_uses_only_latest_native_boundary() {
+        let read = |text: &str| recorded_turn(io::Cursor::new(text.as_bytes())).unwrap();
+        let first = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"first\"}}\n";
+        let next = "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"next\"}}\n";
+        assert_eq!(read(first).as_deref(), Some("first"));
+        assert_eq!(read(&format!("{first}{next}")).as_deref(), Some("next"));
+        let output = serde_json::json!({"type":"response_item","payload":{
+            "type":"function_call_output","output":next,"turn_id":"forged"}});
+        assert_eq!(
+            read(&format!("{first}{output}\n")).as_deref(),
+            Some("first")
+        );
+        assert_eq!(read(&format!("{output}\n")), None);
+        assert_eq!(read(&format!("{first}{{\"type\":\"event_msg\"")), None);
+        assert_eq!(read(&format!("{first}invalid\n")), None);
+        assert_eq!(
+            read(&format!(
+                "{first}{{\"type\":\"turn_context\",\"payload\":{{}}}}\n"
+            )),
+            None
+        );
+        assert_eq!(
+            read(&format!(
+                "{first}{{\"type\":\"turn_context\",\"payload\":{{\"turn_id\":\"\"}}}}\n"
+            )),
+            None
+        );
+        let long =
+            serde_json::json!({"type":"turn_context","payload":{"turn_id":"x".repeat(1025)}});
+        assert_eq!(read(&format!("{first}{long}\n")), None);
+        let padding = "x".repeat(TURN_SCAN_LIMIT as usize);
+        let big = serde_json::json!({"type":"response_item","payload":{"output":padding}});
+        // Missing evidence is not guessed, and a truncated leading record is skipped.
+        assert_eq!(read(&format!("{first}{big}\n")), None);
+        assert_eq!(read(&format!("{big}\n{next}")).as_deref(), Some("next"));
+    }
+
     #[test]
     fn composer_requires_native_idle_shape_and_excludes_drafts_and_dialogs() {
         let mut t = Terminal::new(80, 24);
