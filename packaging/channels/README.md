@@ -1,7 +1,7 @@
 # Default release selection
 
 `stable.json` selects independently verified releases per platform. Linux and
-Windows currently select 0.3.12. macOS arm64 explicitly retains the unsigned
+Windows currently select 0.3.13. macOS arm64 explicitly retains the unsigned
 0.3.0 prebuilt; current Mac source builds are available through Homebrew.
 Intel Mac prebuilt selection is unavailable.
 
