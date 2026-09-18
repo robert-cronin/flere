@@ -7,11 +7,11 @@ OpenSSH/clipboard companion for a workbench on a Linux or macOS host.
 
 ## Available downloads
 
-[Flere v0.3.10](https://github.com/robert-cronin/flere/releases/tag/v0.3.10) provides
+[Flere v0.3.11](https://github.com/robert-cronin/flere/releases/tag/v0.3.11) provides
 Linux x86_64 core/companion, a Debian package, the Windows x86_64 MSVC companion
 and its portable ZIP, complete source, manifests and checksums. All 11 anonymous
-downloads match the sealed immutable release from source `b36a23a`, published by
-[run 35290909905](https://github.com/robert-cronin/flere/actions/runs/35290909905).
+downloads match the sealed immutable release from source `361ec7c`, published by
+[run 35296248945](https://github.com/robert-cronin/flere/actions/runs/35296248945).
 This Linux/Windows release does not publish new macOS prebuilts.
 
 The earlier v0.3.7 release remains tied to source `48e209ba` and
@@ -29,7 +29,7 @@ Developer ID notarization. Older macOS and Intel runtime acceptance are not
 established by that release. Homebrew source formulas now track v0.3.8.
 
 The Unix shell bootstrap pins the verified installer at commit `48e1cf9`. It
-selects Linux v0.3.10 or the unsigned macOS arm64 v0.3.0 prebuilt from the
+selects Linux v0.3.11 or the unsigned macOS arm64 v0.3.0 prebuilt from the
 [per-platform release index](../packaging/channels/stable.json), independently of
 GitHub's unchanged latest pointer. The v0.3.8 companion uses that same index for
 default remote-core bootstrap. Intel Mac prebuilt selection is unavailable.
@@ -57,8 +57,8 @@ channels retain their individual validation and publication requirements.
 | Channel | Scope | Status |
 | --- | --- | --- |
 | [Homebrew tap](https://github.com/robert-cronin/homebrew-flere) | Source builds for macOS arm64 and Linux x86_64 | Published v0.3.8 from verified release source; earlier v0.3.2 native Linux and hosted macOS 15/26 arm64 lifecycle checks passed |
-| [Cargo / crates.io](https://crates.io/crates/flere/0.3.10) | Core source package for Linux/macOS | Published v0.3.10 through Trusted Publishing from the matching GitHub source. Companion excluded |
-| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.10 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
+| [Cargo / crates.io](https://crates.io/crates/flere/0.3.11) | Core source package for Linux/macOS | Published v0.3.11 through Trusted Publishing from the matching GitHub source. Companion excluded |
+| [Debian `.deb`](#install-the-debian-package) | Linux x86_64 with glibc 2.39+ | v0.3.11 download published and independently inspected; native Ubuntu lifecycle and missing-Git download checks passed for v0.3.2 |
 | [AUR](../packaging/linux/README.md) | Linux x86_64 with glibc 2.39+ | Native Arch v0.3.0 → v0.3.3 lifecycle and corrected licence metadata passed; separate private v0.3.4 core/companion ownership refusal passed. Account setup and submission pending |
 | [Scoop bucket](https://github.com/robert-cronin/scoop-flere) | Windows x86_64 companion | Published v0.3.8 recipe uses the verified public ZIP. Earlier owned-Git-bucket upgrade, ownership, local UI refusal and removal/preservation passed on candidate `4f3b693`; the new public bucket route and physical acceptance remain untested |
 | [WinGet](../packaging/windows/README.md) | Windows x86_64 companion | Public v0.3.8 ZIP and native manifest validation passed. Earlier local-recipe upgrades, both installed-owner reports and removal/preservation passed. Community submission is deferred; physical acceptance remains pending |

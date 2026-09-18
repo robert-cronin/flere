@@ -4,7 +4,7 @@ The native Windows package is the OpenSSH/clipboard **companion**. It connects
 to a Linux or macOS workbench. Both `flere.exe` and `flere-connect.exe` launch
 that companion; this does not claim a native Windows core.
 
-The [v0.3.10 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.10/flere-connect-0.3.10-x86_64-pc-windows-msvc.zip)
+The [v0.3.11 Windows ZIP](https://github.com/robert-cronin/flere/releases/download/v0.3.11/flere-connect-0.3.11-x86_64-pc-windows-msvc.zip)
 is published. [Flere's Scoop bucket](https://github.com/robert-cronin/scoop-flere)
 currently supplies v0.3.8. WinGet submission is deferred; Chocolatey catalogue
 publication remains pending.
@@ -42,9 +42,9 @@ checksum, then extract:
 ```powershell
 $Download = Join-Path $env:LOCALAPPDATA ('Flere\downloads\' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Download | Out-Null
-$Zip = Join-Path $Download 'flere-connect-0.3.10-x86_64-pc-windows-msvc.zip'
-Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.10/flere-connect-0.3.10-x86_64-pc-windows-msvc.zip' -OutFile $Zip
-if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne '589f754471074fc3af3de4bccf7eb2e5fbc9a388ffbd3b2888c8103017b02a5d') { throw 'ZIP checksum differs.' }
+$Zip = Join-Path $Download 'flere-connect-0.3.11-x86_64-pc-windows-msvc.zip'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/robert-cronin/flere/releases/download/v0.3.11/flere-connect-0.3.11-x86_64-pc-windows-msvc.zip' -OutFile $Zip
+if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne 'd4e86ef4780d362b6121a73e16207eb2ced155125cb550b7142a130f6f79f718') { throw 'ZIP checksum differs.' }
 $Portable = Join-Path $Download 'app'
 Expand-Archive -LiteralPath $Zip -DestinationPath $Portable
 $env:Path = "$Portable;$env:Path"  # This PowerShell session only.
@@ -85,11 +85,11 @@ above provides both command names.
 
 ## Release and candidate evidence
 
-The public v0.3.10 ZIP was built from exact source `b36a23a` in
-[run 35290909905](https://github.com/robert-cronin/flere/actions/runs/35290909905).
+The public v0.3.11 ZIP was built from exact source `361ec7c` in
+[run 35296248945](https://github.com/robert-cronin/flere/actions/runs/35296248945).
 Native MSVC checks, release packaging and all six portable alias checks passed.
 All 11 public release downloads were independently verified; physical desktop
-acceptance remains separate. See the [release notes](../../docs/releases/0.3.10.md).
+acceptance remains separate. See the [release notes](../../docs/releases/0.3.11.md).
 
 The earlier public v0.3.8 ZIP was built from exact source `48e1cf9` in
 [run 34969732255](https://github.com/robert-cronin/flere/actions/runs/34969732255).
