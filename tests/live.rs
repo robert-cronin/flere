@@ -1507,12 +1507,21 @@ fn wait_current_ui_for(
     panic!("UI condition not reached: {}", screen.capture(100));
 }
 fn finish_ui(master: &mut fs::File, screen: &mut Terminal, child: &mut os::Process) {
+    let _ = finish_ui_output(master, screen, child);
+}
+fn finish_ui_output(
+    master: &mut fs::File,
+    screen: &mut Terminal,
+    child: &mut os::Process,
+) -> Vec<u8> {
+    let mut output = Vec::new();
     master.write_all(b"\0q").unwrap();
     let until = Instant::now() + Duration::from_secs(2);
     while Instant::now() < until {
         let mut bytes = [0; 65536];
         if let Ok(n) = master.read(&mut bytes) {
             screen.feed(&bytes[..n]);
+            output.extend_from_slice(&bytes[..n]);
         }
         if let Some(status) = child.try_wait().unwrap() {
             assert!(status.success());
@@ -1521,7 +1530,10 @@ fn finish_ui(master: &mut fs::File, screen: &mut Terminal, child: &mut os::Proce
             loop {
                 match master.read(&mut bytes) {
                     Ok(0) => break,
-                    Ok(n) => screen.feed(&bytes[..n]),
+                    Ok(n) => {
+                        screen.feed(&bytes[..n]);
+                        output.extend_from_slice(&bytes[..n]);
+                    }
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock
                             || e.raw_os_error() == Some(libc::EIO) =>
@@ -1531,7 +1543,7 @@ fn finish_ui(master: &mut fs::File, screen: &mut Terminal, child: &mut os::Proce
                     Err(e) => panic!("UI tail read: {e}"),
                 }
             }
-            return;
+            return output;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -7160,10 +7172,9 @@ fn local_graphics_negotiation_preview_resize_and_detach_preserve_native_draft() 
     // Keep consuming graphics/restore output while waiting for native input.
     // A real terminal drains its PTY; leaving it unread can block the UI writer.
     wait_ui_text(&f, &t, &mut master, &mut screen, "LOCAL_DRAFT");
-    master.write_all(b"\0q").unwrap();
-    let cleanup = pump_ui_bytes(&mut master, &mut screen, 150);
+    // Cleanup is emitted on drop; wait for detach and drain the final PTY tail.
+    let cleanup = finish_ui_output(&mut master, &mut screen, &mut child);
     assert!(String::from_utf8_lossy(&cleanup).contains(&format!("d=I,i={pet_id}")));
-    assert!(child.wait().unwrap().success());
     let after = f.snapshot();
     assert_eq!(after.epoch, before.epoch);
     let current = after.session().unwrap();
@@ -7445,16 +7456,26 @@ fn actual_ui_terminal_tree_and_notes_overlay_preserve_drafts_and_exact_focus() {
     let raw = pump_ui_bytes(&mut master, &mut screen, 100);
     assert!(raw.windows(7).any(|b| b == b"\x1b]52;c;"));
     master.write_all(b"\x1b").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 80);
+    wait_current_ui(&mut master, &mut screen, |s| {
+        let text = s.capture(100);
+        text.contains("Details · Tree fixture") && !text.contains("Edit notes · Tree fixture")
+    });
     master.write_all(b"\x1b").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 80);
-    master.write_all(b"\th").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 80); // Explicit child mode returns to its card.
+    wait_current_ui(&mut master, &mut screen, |s| {
+        !s.capture(100).contains("Details · Tree fixture")
+    });
+    // Input stays ordered; the clipboard notice can still own the status line.
+    master.write_all(b"\th").unwrap(); // Explicit child mode returns to its card.
     let (_, title_y) = hover_tooltips::locate(&screen, "Tree fixture");
     master
         .write_all(format!("\x1b[<0;3;{}M\x1b[<0;3;{}m", title_y + 1, title_y + 1).as_bytes())
         .unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 80); // Disclosure still collapses the tree.
+    // Observe the persisted collapse rather than a previously queued frame.
+    wait_current_ui(&mut master, &mut screen, |_| {
+        let pref: serde_json::Value =
+            serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+        pref["expanded_cards"] == serde_json::json!([])
+    });
     let pref: serde_json::Value =
         serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
     assert_eq!(pref["expanded_cards"], serde_json::json!([]));
