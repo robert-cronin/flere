@@ -562,6 +562,54 @@ pub fn process_children(pid: u32, limit: usize) -> io::Result<Vec<u32>> {
 pub fn process_executable(pid: u32) -> io::Result<std::path::PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/exe"))
 }
+/// Stable Linux executable identity; pathname-only discovery remains on macOS.
+pub fn process_executable_id(_pid: u32) -> io::Result<Option<(u64, u64)>> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(format!("/proc/{_pid}/exe"))?;
+        Ok(Some((metadata.dev(), metadata.ino())))
+    }
+    #[cfg(target_os = "macos")]
+    Ok(None)
+}
+/// Prepare a helper using the running process's executable, even after unlink.
+/// Callers must prove the process identity before preparation and before spawn.
+#[cfg(target_os = "linux")]
+pub fn process_executable_command(pid: u32, expected: &std::path::Path) -> io::Result<Command> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let process_path = format!("/proc/{pid}/exe");
+    let executable = File::open(&process_path)?;
+    let pinned_path = format!("/proc/self/fd/{}", executable.as_raw_fd());
+    let pinned = executable.metadata()?;
+    let current = std::fs::metadata(&process_path)?;
+    if !pinned.is_file()
+        || (pinned.dev(), pinned.ino()) != (current.dev(), current.ino())
+        || std::fs::read_link(&pinned_path)? != expected
+    {
+        return Err(io::Error::other("native executable changed"));
+    }
+    let mut command = Command::new(pinned_path);
+    command.arg0(expected);
+    // On Linux, execve resolves /proc/self/fd before closing CLOEXEC descriptors.
+    // File owns the CLOEXEC fd; the closure retains it until Command is dropped,
+    // including failed/abandoned spawns. The child callback allocates nothing and
+    // makes no calls. Never execute a replacement pathname or a reused PID.
+    unsafe {
+        command.pre_exec(move || {
+            let _keep_open = &executable;
+            Ok(())
+        });
+    }
+    Ok(command)
+}
+#[cfg(target_os = "macos")]
+pub fn process_executable_command(pid: u32, expected: &std::path::Path) -> io::Result<Command> {
+    if process_executable(pid)? != expected {
+        return Err(io::Error::other("native executable changed"));
+    }
+    Ok(Command::new(expected))
+}
 #[cfg(target_os = "linux")]
 pub fn process_cwd(pid: u32) -> io::Result<std::path::PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd"))

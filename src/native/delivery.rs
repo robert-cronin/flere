@@ -10,9 +10,29 @@ pub struct Target {
     pub pid: u32,
     pub start: String,
     pub exe: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executable_id: Option<(u64, u64)>,
     pub cwd: PathBuf,
     pub uuid: String,
     pub transcript: PathBuf,
+}
+impl Target {
+    /// A rename/unlink must not invalidate an idle observation of the same inode.
+    /// Old observations lack an inode: keep their stricter path check until the
+    /// next verified native hook refreshes them, rather than guessing ownership.
+    pub fn same_process(&self, other: &Self) -> bool {
+        self.host == other.host
+            && self.host_start == other.host_start
+            && self.pid == other.pid
+            && self.start == other.start
+            && self.cwd == other.cwd
+            && self.uuid == other.uuid
+            && self.transcript == other.transcript
+            && match (self.executable_id, other.executable_id) {
+                (Some(a), Some(b)) => a == b,
+                _ => self.exe == other.exe,
+            }
+    }
 }
 pub fn inspect(host: u32, cwd: &Path, session: u64, run: &str) -> io::Result<Target> {
     let host_start = process_start(host)?;
@@ -37,10 +57,11 @@ pub fn inspect(host: u32, cwd: &Path, session: u64, run: &str) -> io::Result<Tar
         let Ok(exe) = crate::os::process_executable(pid) else {
             continue;
         };
-        if exe.file_name().is_none_or(|n| n != "codex") {
+        if !is_codex_executable(pid, &exe) {
             continue;
         }
         let start = process_start(pid)?;
+        let executable_id = crate::os::process_executable_id(pid)?;
         if crate::os::process_cwd(pid)? != cwd {
             continue;
         }
@@ -67,7 +88,7 @@ pub fn inspect(host: u32, cwd: &Path, session: u64, run: &str) -> io::Result<Tar
                 transcripts.insert(path.clone(), id);
             }
         }
-        if process_start(pid)? != start {
+        if process_start(pid)? != start || crate::os::process_executable_id(pid)? != executable_id {
             return Err(crate::wire::invalid("native process changed"));
         }
         for (transcript, uuid) in transcripts {
@@ -77,6 +98,7 @@ pub fn inspect(host: u32, cwd: &Path, session: u64, run: &str) -> io::Result<Tar
                 pid,
                 start: start.clone(),
                 exe: exe.clone(),
+                executable_id,
                 cwd: cwd.into(),
                 uuid,
                 transcript,
@@ -241,7 +263,7 @@ pub fn queue_command(
     }
     let env = environment(target.pid)?;
     let tmp = private_cache(state, run)?;
-    let mut command = Command::new(&target.exe);
+    let mut command = crate::os::process_executable_command(target.pid, &target.exe)?;
     command
         .args(["queue", "--thread", &target.uuid, "--message", notice])
         .current_dir(&target.cwd);

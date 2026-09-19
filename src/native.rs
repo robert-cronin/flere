@@ -228,6 +228,18 @@ pub fn host(state: &Path, run: &str) -> io::Result<()> {
 fn process_start(pid: u32) -> io::Result<String> {
     crate::os::child_identity(pid).map(|(_, start)| start)
 }
+// Linux appends this marker when an upgrade unlinks a still-running binary.
+// Require an unlinked inode too: a literal filename is not the kernel marker.
+fn is_codex_executable(_pid: u32, exe: &Path) -> bool {
+    match exe.file_name().and_then(|name| name.to_str()) {
+        Some("codex") => true,
+        #[cfg(target_os = "linux")]
+        Some("codex (deleted)") => {
+            fs::metadata(format!("/proc/{_pid}/exe")).is_ok_and(|metadata| metadata.nlink() == 0)
+        }
+        _ => false,
+    }
+}
 /// Inspect only descendants of the owned host and metadata on their open rollout FDs.
 /// No transcript search, timestamps-as-identity, latest-session heuristic, or global process scan.
 pub fn discover_codex(root: u32, cwd: &Path) -> io::Result<Option<String>> {
@@ -245,7 +257,7 @@ pub fn discover_codex(root: u32, cwd: &Path) -> io::Result<Option<String>> {
         let Ok(exe) = crate::os::process_executable(pid) else {
             continue;
         };
-        if exe.file_name().is_none_or(|s| s != "codex") {
+        if !is_codex_executable(pid, &exe) {
             continue;
         }
         let Ok(start) = process_start(pid) else {

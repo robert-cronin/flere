@@ -715,7 +715,12 @@ impl Server {
         // The same exact-owner, composer, DND and receipt guards still apply;
         // no observation or native trust is inferred from configured flags.
         let target = match self.proof(session, &run) {
-            Ok(t) if hook.is_none_or(|h| t == h.target) && m.for_conversation(Some(&t.uuid)) => t,
+            Ok(t)
+                if hook.is_none_or(|h| t.same_process(&h.target))
+                    && m.for_conversation(Some(&t.uuid)) =>
+            {
+                t
+            }
             _ => {
                 return self.waiting(
                     id,

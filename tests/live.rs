@@ -4704,6 +4704,234 @@ fn mailbox_unconfirmed_hook_lease_compaction_and_exact_terminal_reply() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
+fn native_executable_command_pins_inode_and_releases_descriptors() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let n = mailbox_native(&f, "native", "33333333-abcd-abcd-abcd-333333333333");
+    let target =
+        flere::native::delivery::inspect(n.tab.pid, &n.root, n.tab.id, &n.tab.run).unwrap();
+    assert!(os::process_executable_command(target.pid, &f.root.join("wrong")).is_err());
+    // Both abandoning a prepared command and a failed spawn release the pin.
+    for fail_spawn in [false, true] {
+        let mut command = os::process_executable_command(target.pid, &target.exe).unwrap();
+        let pin = PathBuf::from(command.get_program());
+        assert_eq!(fs::read_link(&pin).unwrap(), target.exe);
+        if fail_spawn {
+            assert!(command.current_dir(f.root.join("missing")).spawn().is_err());
+        }
+        drop(command);
+        assert!(!fs::read_link(&pin).is_ok_and(|path| path == target.exe));
+    }
+    let mut command = os::process_executable_command(target.pid, &target.exe).unwrap();
+    let pin = PathBuf::from(command.get_program());
+    let metadata = fs::metadata(&pin).unwrap();
+    // Pin before replacement, then stop the fixture. Preparation must not leave
+    // a PID-dependent or installation-path-dependent executable for later spawn.
+    fs::remove_file(&target.exe).unwrap();
+    fs::copy("/usr/bin/false", &target.exe).unwrap();
+    f.req(&["close", &n.tab.id.to_string(), &n.tab.run]);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while os::process_executable(target.pid).is_ok() {
+        assert!(Instant::now() < deadline, "fixture native did not stop");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = command
+        .args(["-c", "import os, sys\np=sys.argv[1]\ntry: s=os.stat(p)\nexcept FileNotFoundError: s=None\nassert s is None or (s.st_dev,s.st_ino)!=(int(sys.argv[2]),int(sys.argv[3])), 'executable descriptor leaked'\nprint('PINNED_EXECUTABLE')"])
+        .arg(&pin)
+        .arg(metadata.dev().to_string())
+        .arg(metadata.ino().to_string())
+        .env_clear()
+        .env("HOME", &f.root)
+        .env("TMPDIR", &f.root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"PINNED_EXECUTABLE\n");
+    drop(command);
+    assert!(
+        !fs::metadata(&pin).is_ok_and(|m| (m.dev(), m.ino()) == (metadata.dev(), metadata.ino()))
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn mailbox_literal_deleted_filename_does_not_prove_unlinked_codex() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let n = mailbox_native(&f, "native", "44444444-abcd-abcd-abcd-444444444444");
+    let executable = f.root.join("codex");
+    let literal = f.root.join("codex (deleted)");
+    fs::rename(&executable, &literal).unwrap();
+    assert!(flere::native::delivery::inspect(n.tab.pid, &n.root, n.tab.id, &n.tab.run).is_err());
+    assert!(
+        flere::native::discover_codex(n.tab.pid, &n.root)
+            .unwrap()
+            .is_none()
+    );
+    let result = mailbox_event(&n, 1, json!({"event":"SessionStart","turn":""}));
+    assert_ne!(result["code"], 0);
+    fs::rename(&literal, &executable).unwrap();
+    assert_eq!(
+        mailbox_event(&n, 2, json!({"event":"SessionStart","turn":""}))["code"],
+        0
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn mailbox_idle_observation_survives_upgrade_without_another_hook() {
+    use serde_json::json;
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "55555555-abcd-abcd-abcd-555555555555");
+    let b = mailbox_native(&f, "recipient", "66666666-abcd-abcd-abcd-666666666666");
+    assert_eq!(
+        mailbox_event(&b, 1, json!({"event":"SessionStart","turn":""}))["code"],
+        0
+    );
+    let retired = f.root.join("retired");
+    fs::create_dir(&retired).unwrap();
+    let executable = f.root.join("codex");
+    fs::rename(&executable, retired.join("codex")).unwrap();
+    fs::remove_file(retired.join("codex")).unwrap();
+    fs::copy("/usr/bin/false", &executable).unwrap();
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    assert!(wait_file(&b.root.join("handled.jsonl"), 5).contains(&id));
+    assert!(!mailbox_status(&f, &a, &id)["acknowledged"].is_null());
+    assert_eq!(
+        fs::read_to_string(b.root.join("queue.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn mailbox_hooks_and_queue_survive_native_executable_replacement() {
+    use serde_json::{Value, json};
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "sender", "11111111-abcd-abcd-abcd-111111111111");
+    let b = mailbox_native(&f, "recipient", "22222222-abcd-abcd-abcd-222222222222");
+    let before =
+        flere::native::delivery::inspect(b.tab.pid, &b.root, b.tab.id, &b.tab.run).unwrap();
+    assert_eq!(
+        mailbox_event(&b, 1, json!({"event":"SessionStart","turn":""}))["code"],
+        0
+    );
+
+    // Package managers can rename their old directory, then unlink its binary.
+    // The running chat keeps the original inode; the new path is a decoy.
+    let retired = f.root.join("retired");
+    fs::create_dir(&retired).unwrap();
+    let executable = f.root.join("codex");
+    fs::rename(&executable, retired.join("codex")).unwrap();
+    let renamed = mailbox_event(&b, 2, json!({"event":"SessionStart","turn":""}));
+    assert_eq!(renamed["code"], 0, "{renamed}");
+    fs::remove_file(retired.join("codex")).unwrap();
+    fs::write(
+        &executable,
+        "#!/bin/sh\nprintf replacement > replacement-ran\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let result = mailbox_event(
+        &b,
+        3,
+        json!({"event":"SessionStart","turn":"","screen":"draft"}),
+    );
+    assert_eq!(result["code"], 0, "{result}");
+    let after = flere::native::delivery::inspect(b.tab.pid, &b.root, b.tab.id, &b.tab.run).unwrap();
+    assert_eq!(
+        (
+            after.host,
+            &after.host_start,
+            after.pid,
+            &after.start,
+            &after.uuid
+        ),
+        (
+            before.host,
+            &before.host_start,
+            before.pid,
+            &before.start,
+            &before.uuid
+        )
+    );
+    assert_eq!(after.exe.file_name().unwrap(), "codex (deleted)");
+    assert!(after.same_process(&before));
+    let mut legacy = before.clone();
+    legacy.executable_id = None;
+    // Existing serialized observations still decode, but cannot prove a moved inode.
+    let mut legacy_json = serde_json::to_value(&before).unwrap();
+    legacy_json.as_object_mut().unwrap().remove("executable_id");
+    assert_eq!(
+        serde_json::from_value::<flere::native::delivery::Target>(legacy_json).unwrap(),
+        legacy
+    );
+    assert!(legacy.same_process(&before));
+    assert!(!legacy.same_process(&after));
+    let mut different = after.clone();
+    different.executable_id = Some((0, 0));
+    assert!(!different.same_process(&after));
+
+    assert_eq!(
+        flere::native::discover_codex(b.tab.pid, &b.root)
+            .unwrap()
+            .as_deref(),
+        Some(b.uuid.as_str())
+    );
+    let wrong = mailbox_event(&b, 4, json!({"event":"Stop","extra":{"session_id":a.uuid}}));
+    assert_ne!(wrong["code"], 0);
+    assert!(flere::native::delivery::inspect(b.tab.pid, &b.root, b.tab.id, &a.tab.run).is_err());
+
+    let id = mailbox_send(&f, &a, &b, "quiet");
+    std::thread::sleep(Duration::from_millis(1200));
+    assert_eq!(
+        mailbox_status(&f, &a, &id)["delivery"]["outcome"],
+        "waiting-for-idle"
+    );
+    assert!(!b.root.join("queue.jsonl").exists());
+    assert_eq!(
+        mailbox_event(
+            &b,
+            5,
+            json!({"event":"SessionStart","turn":"","screen":"idle"})
+        )["code"],
+        0
+    );
+    let handled: Value = serde_json::from_str(
+        wait_file(&b.root.join("handled.jsonl"), 5)
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(handled["ids"], json!([id]));
+    assert_eq!(handled["session"], b.tab.id.to_string());
+    assert_eq!(handled["run"], b.tab.run);
+    assert_eq!(handled["workspace"], b.wid);
+    let queued = fs::read_to_string(b.root.join("queue.jsonl")).unwrap();
+    assert_eq!(queued.lines().count(), 1);
+    assert_eq!(
+        serde_json::from_str::<Value>(&queued).unwrap()["thread"],
+        b.uuid
+    );
+    assert!(!mailbox_status(&f, &a, &id)["acknowledged"].is_null());
+    assert!(!a.root.join("queue.jsonl").exists());
+    assert!(!b.root.join("replacement-ran").exists());
+    let final_target =
+        flere::native::delivery::inspect(b.tab.pid, &b.root, b.tab.id, &b.tab.run).unwrap();
+    assert_eq!(final_target, after);
+}
+
+#[test]
 fn mailbox_multiple_chats_and_changed_native_target_reject_delivery() {
     use serde_json::json;
     let f = Fixture::new();
