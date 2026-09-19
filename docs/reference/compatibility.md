@@ -67,3 +67,15 @@ encoded link tables each have a 64 KiB budget; history annotations count toward
 the existing 32 MiB retention limit. The renderer caps hyperlink sequence output
 at 256 KiB per paint. When a limit is reached, readable text remains without a
 clickable target. Invalid targets and literal control characters are discarded.
+
+
+## Indexed coordination storage
+
+The [record backend](../design/coordination-storage.md) activates when a save
+would exceed the legacy 8 MiB combined JSON bound. It writes a saved-state
+version-11 manifest; the underlying layout image and refresh format remain 10.
+Build metadata declares saved-state reads through 11. An older binary without
+that support cannot read an activated store, so its retained executable does not
+provide a supported downgrade. Small JSON stores retain their existing format.
+No records are automatically pruned. Storage validation uses disposable Linux
+fixtures; other platforms and physical power-loss behavior remain unverified.

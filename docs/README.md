@@ -37,7 +37,9 @@ local graphics, pets, Git trees and the latest file-loading behaviour.
 ## Engineering records
 
 The [design record](../DESIGN.md), [validation record](releases/0.3.0-validation.md),
-[macOS validation](../MACOS.md), and [remote development notes](../REMOTE-DEVELOPMENT.md)
+[macOS validation](../MACOS.md), [offline system evaluations](evaluations.md),
+[coordination storage](design/coordination-storage.md),
+and [remote development notes](../REMOTE-DEVELOPMENT.md)
 retain detailed implementation and acceptance history. Historical records may
 reference author-local evidence; portable demos and measurements live in this
 handbook.

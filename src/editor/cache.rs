@@ -448,7 +448,10 @@ impl Report {
     }
 }
 fn references(state: &Path) -> io::Result<BTreeSet<PathBuf>> {
-    let v: serde_json::Value = read_json(&state.join("workspaces.v2.json"), 8 * 1024 * 1024)?;
+    let mut v: serde_json::Value = read_json(&state.join("workspaces.v2.json"), 8 * 1024 * 1024)?;
+    if v["version"] == 11 {
+        v = crate::server::storage::read_layout(state, v)?;
+    }
     // Versions 8–10 add mail, native recency and receipt state; tab/path layout is unchanged.
     if !matches!(v.get("version").and_then(|v| v.as_u64()), Some(7..=10)) {
         return Err(invalid(

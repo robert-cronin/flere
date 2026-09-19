@@ -35,11 +35,70 @@ Agent `get_context` defaults to the current workspace/run identity, complete
 assignment, up to 32 decisions (pending first, then recent answers), the latest checkpoint and up to 32 pending message
 summaries. Summaries contain IDs and byte counts, not message bodies, and do not
 mark bodies as surfaced. `pending_messages` reports all pending messages, including
-those outside that summary page. Use `inbox` for bodies or `message_status` with an
-exact ID. `get_context({"detail":true})` restores the fuller view with card notes,
+those outside that summary page; `messages_total` also includes acknowledged
+received messages visible to this conversation. Use `inbox` for bodies or
+`message_status` with an exact ID. `get_context({"detail":true})` restores the fuller view with card notes,
 up to eight checkpoints, board summary and activation diagnostics. Human
 `coordinate ... context` retains the full view. Assignments, decisions and the
 latest checkpoint remain complete, so context has no universal byte cap.
+
+### Retrieving older decisions and checkpoints
+
+`decisions_total`, `decisions_remaining` and `pending_decisions` make the context
+window explicit. `decisions` reads complete decision records in creation order,
+eight per page by default (`limit:1..32`) with the same soft 32 KiB record budget
+as the inbox. Follow `next_after` using `after`, or pass `id` for one decision,
+including an older answer omitted from context. `total` and `pending` describe
+the whole workspace; `remaining` describes records beyond this page. An answer
+can change between reads, so re-read an exact ID when its current answer matters.
+Human `coordinate ... decisions {}` keeps its complete unpaged history view.
+
+`checkpoints_total` and `latest_checkpoint_id` accompany the recent context view.
+`checkpoints` retrieves all checkpoint and submitted-result history, oldest first,
+with the same page limits. Each entry contains an opaque `id` and the complete
+original `checkpoint`. Use that ID with `id` for an exact read or `after` for the
+next page. IDs remain stable across appends and supervisor refresh; callers must
+not construct or interpret them. These references depend on the preserved,
+append-only history, so future archival must retain their meaning.
+
+Both history tools are scoped to the caller's workspace and perform no durable
+writes, acknowledgements, acceptance or status changes. A single oversized
+record remains whole. `id` cannot be combined with pagination. Pages are live
+views; new records can arrive between calls. Reading history still works when
+persistence is unavailable. Original records are retained; no pruning is added.
+
+### Optional incremental reads
+
+A compact `get_context` response includes `context_mode:"full"` and an opaque
+`context_revision`. If the previous compact view is still in your working
+context, pass that revision as `since` on the next call. A matching cached base
+returns `context_mode:"delta"`, `base_revision`, a new `context_revision`, exact
+changed top-level fields in `changes`, and deleted field names in `removed`.
+Replace each changed field in full (including arrays); keep omitted fields from
+the matching base. An empty `changes`/`removed` pair means that view is unchanged.
+Each delta includes the current epoch, workspace, session, run and conversation
+in `identity`. Revisions are retrieval hints, not authorization credentials.
+
+Verified native `PreCompact` and `PostCompact` hooks discard only that exact
+run's optional base. The next read returns the complete compact view even if an
+old revision is supplied. A changed conversation, workspace or epoch also
+requires a full base; a native process can switch chats while keeping its run.
+
+**After lost context or uncertainty about the base, omit `since`.** This remains
+necessary when compaction hooks are unavailable. It always returns the complete
+compact view. Unknown, superseded, foreign-run or evicted revisions also return
+a full view. `detail:true` always returns full
+detail and does not use the delta cache. A delta remains a summary read: it does
+not surface message bodies or acknowledge handling. Read pending bodies through
+`inbox` and acknowledge exact handled IDs as usual.
+
+The supervisor retains at most 64 cached compact views, with a total encoded
+payload budget of 2 MiB and at most 128 KiB per view. Oversized views are returned
+whole with `context_revision:null`; no extra copy is cached. Cache eviction and
+supervisor refresh require a full response next time; they never delete durable
+records. Exact content comparison determines changes, without model summaries
+or hash-based omission. See the [evaluation guide](../evaluations.md) for the
+measured scope and limits.
 
 `list_workspaces` returns up to 32 compact cards by default (maximum `limit:64`),
 without notes or saved conversation history. Exact live tab/run identities and
@@ -57,8 +116,21 @@ this is a soft page target plus a small response envelope, not a hard wire limit
 Use `next_after` as `after` to continue; only returned bodies are surfaced by the
 inbox read. The cursor remains valid after its message is acknowledged and is
 scoped to the recipient conversation. `pending` counts all unacknowledged
-messages; `remaining` counts those after this page. Read again without a cursor
-to revisit older unhandled messages. Paging is a live view, not a frozen snapshot.
+messages, regardless of cursor or history selection. `total` counts all records
+selected by the call, and `remaining` counts selected records after this page.
+Read again without a cursor to revisit older unhandled messages. Paging is a
+live view, not a frozen snapshot.
+
+To recover a received message after losing its ID, request
+`inbox({"include_acknowledged":true})` and retain that option on each page. This
+includes handled records in creation order, using the same count/byte bounds
+and exact recipient-conversation scope. The original bodies, provenance and
+acknowledgement timestamps remain intact. Reading history does not reopen or
+acknowledge work; returned bodies acquire a surfaced timestamp only if needed.
+Other conversations' private messages and sent-only history are not included.
+The default inbox still returns only unacknowledged messages. Inbox resolves
+its current native conversation once at the paging boundary; ownership is
+proved again on each call, never retained as an authorization cache.
 
 `inbox({"ack_ids":["HANDLED_ID"]})` returns an acknowledgement receipt and pending
 counts without reading another page. Include `limit` or `after` explicitly to
@@ -75,8 +147,18 @@ After updating the supervisor, an older catalog can use the same scoped CLI:
 ```sh
 flere --state "$FLERE_STATE" agent-call list_workspaces '{"workspace":43,"detail":true}'
 flere --state "$FLERE_STATE" agent-call inbox '{"after":"LAST_RETURNED_ID","limit":8}'
+flere --state "$FLERE_STATE" agent-call inbox '{"include_acknowledged":true,"limit":8}'
 flere --state "$FLERE_STATE" agent-call message_status '{"id":"MESSAGE_ID","detail":true}'
 ```
+
+Hook and tool-response notices carry compact identity/ID reminders. Native queue
+submissions retain their existing canonical wording so older hook binaries in
+already-running chats can still recognize submission receipts. Message bodies
+and permission grants never come from a notice. Routine tool replies first check
+whether any saved message could need a notice in that workspace. If none does,
+no native ownership inspection is needed; otherwise current conversation scope
+is proved before selecting IDs. This check is repeated per call, so newly arrived
+messages remain discoverable and already surfaced mail is not re-announced.
 
 Records stay in the atomic store, now serialized without formatting whitespace.
 This reduces overhead; it adds no automatic record deletion, archival or garbage

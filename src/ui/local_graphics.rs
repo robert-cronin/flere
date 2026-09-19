@@ -219,16 +219,23 @@ impl Graphics {
         // replacement graphics. A late decoder result retains its old generation
         // and poll() discards it instead of placing it over the new preview.
         let mut out = String::new();
-        if self.transfer.take().is_some() {
+        if self.transfer.is_some() {
             out.push_str("\x1b_Gq=2,m=0;\x1b\\");
         }
         out.push_str(&delete(PREVIEW, true));
-        if let Err(error) = remote::emit(false, out.as_bytes()) {
-            crate::diagnostics::error("preview-cancel", &error);
+        match remote::emit(false, out.as_bytes()) {
+            Ok(()) => {
+                self.transfer = None;
+                self.owned.remove(&PREVIEW);
+            }
+            Err(error) => {
+                // Keep the pending chunk and owned ID for reserved destructor
+                // cleanup; failed admission has not sent the terminator/delete.
+                crate::diagnostics::error("preview-cancel", &error);
+            }
         }
         self.preview_uploaded = None;
         self.preview_size = None;
-        self.owned.remove(&PREVIEW);
         self.invalidated = true;
     }
     pub fn emit_preview(&mut self) -> io::Result<()> {
@@ -392,12 +399,12 @@ impl Drop for Graphics {
         // Terminate a pending inline transfer before cleanup; an invalid/truncated
         // image is silently rejected (q=2). Delete only IDs owned by this attachment.
         if self.transfer.is_some() {
-            let _ = remote::emit(false, b"\x1b_Gq=2,m=0;\x1b\\");
+            let _ = remote::cleanup(false, b"\x1b_Gq=2,m=0;\x1b\\");
             self.owned.insert(PREVIEW);
         }
         let out: String = self.owned.iter().map(|id| delete(*id, true)).collect();
         if !out.is_empty() {
-            let _ = remote::emit(false, out.as_bytes());
+            let _ = remote::cleanup(false, out.as_bytes());
         }
     }
 }
@@ -474,6 +481,34 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rejected_preview_cancel_retains_partial_transfer_for_destructor_cleanup() {
+        let bytes = crate::ui::output::tests::saturated(|| {
+            let mut graphics = super::Graphics::new();
+            graphics.transfer = Some(super::Transfer {
+                bitmap: super::Bitmap {
+                    format: 100,
+                    width: 1,
+                    height: 1,
+                    compressed: false,
+                    data: "AAAA".into(),
+                },
+                generation: 1,
+                offset: 2,
+            });
+            graphics.owned.insert(super::PREVIEW);
+            graphics.cancel_preview();
+            assert!(graphics.transfer.is_some());
+            assert!(graphics.owned.contains(&super::PREVIEW));
+            drop(graphics);
+        });
+        let expected = format!(
+            "\x1b_Gq=2,m=0;\x1b\\{}",
+            super::delete(super::PREVIEW, true)
+        );
+        assert_eq!(bytes, expected.as_bytes());
+    }
+
     use super::*;
     #[test]
     fn capability_requires_a_matching_positive_reply_and_valid_cell_metrics() {

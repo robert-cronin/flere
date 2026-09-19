@@ -141,6 +141,7 @@ pub fn resume_arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<V
     Ok(argv)
 }
 pub fn write_spec(state: &Path, spec: &HostSpec) -> io::Result<()> {
+    let _timing = crate::diagnostics::measure("native-spec-write");
     let dir = state.join("runs");
     if !dir.exists() {
         use std::os::unix::fs::DirBuilderExt;

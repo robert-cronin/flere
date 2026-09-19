@@ -3,7 +3,7 @@ use std::{
     io::{self, Read, Write},
     os::unix::net::UnixStream,
     path::Path,
-    time::Duration,
+    time::{Duration, Instant},
 };
 // A v5/v6 snapshot can contain two retained 240×100 grids, including 64-byte
 // combining cells, plus the existing 8 MiB persisted metadata budget. The
@@ -86,10 +86,65 @@ pub fn connect(state: &Path) -> io::Result<UnixStream> {
     s.set_write_timeout(Some(Duration::from_secs(2)))?;
     Ok(s)
 }
+// Raw input and liveness checks must fail promptly. Other commands may be
+// admitted before a slow durable save; keep their completion wait separate from
+// the supervisor's bounded queue-admission and response-output deadlines.
+fn reply_budget(fields: &[&str]) -> Duration {
+    Duration::from_secs(
+        if matches!(fields.first(), Some(&"ping" | &"input" | &"text")) {
+            2
+        } else {
+            30
+        },
+    )
+}
+
+struct ReplyReader<'a> {
+    stream: &'a mut UnixStream,
+    until: Instant,
+}
+impl Read for ReplyReader<'_> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.until.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "supervisor reply deadline exceeded",
+            ));
+        }
+        self.stream.set_read_timeout(Some(remaining))?;
+        match self.stream.read(bytes) {
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "supervisor reply deadline exceeded",
+            )),
+            result => result,
+        }
+    }
+}
+fn unconfirmed(error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!(
+            "Supervisor reply not confirmed; the command may have completed. Inspect state before retrying: {error}"
+        ),
+    )
+}
 pub fn request(state: &Path, fields: &[&str]) -> io::Result<Vec<u8>> {
+    let request = fields.join("\t");
+    if request.len() > MAX_REQUEST {
+        return Err(invalid("request exceeds bound; command not sent"));
+    }
     let mut s = connect(state)?;
-    s.write_all(&frame(fields.join("\t").as_bytes()))?;
-    let b = read_frame(&mut s)?;
+    // A partial send or lost reply cannot prove that a mutation did not happen.
+    // Never reconnect or replay a command here.
+    s.write_all(&frame(request.as_bytes()))
+        .map_err(unconfirmed)?;
+    let b = read_frame(&mut ReplyReader {
+        stream: &mut s,
+        until: Instant::now() + reply_budget(fields),
+    })
+    .map_err(unconfirmed)?;
     if b.first() == Some(&b'!') {
         return Err(io::Error::other(
             String::from_utf8_lossy(&b[1..]).into_owned(),
@@ -112,6 +167,14 @@ impl Encoder {
     pub fn string(&mut self, s: &str) {
         self.u64(s.len() as u64);
         self.0.extend_from_slice(s.as_bytes())
+    }
+    /// Serialize a JSON string directly into its length-prefixed wire slot.
+    pub(crate) fn json(&mut self, value: &impl serde::Serialize) {
+        let start = self.0.len();
+        self.u64(0);
+        serde_json::to_writer(&mut self.0, value).expect("serializable metadata");
+        let length = (self.0.len() - start - 8) as u64;
+        self.0[start..start + 8].copy_from_slice(&length.to_be_bytes());
     }
 }
 pub struct Decoder<'a>(pub &'a [u8]);
@@ -177,4 +240,67 @@ pub fn passive(s: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+
+    #[test]
+    fn total_reply_budget_cannot_be_renewed_by_partial_frame_progress() {
+        let (mut reader, mut writer) = UnixStream::pair().unwrap();
+        let until = Instant::now() + Duration::from_millis(80);
+        let worker = std::thread::spawn(move || {
+            if writer.write_all(&40u32.to_be_bytes()).is_err() {
+                return;
+            }
+            for _ in 0..40 {
+                std::thread::sleep(Duration::from_millis(10));
+                if writer.write_all(b"x").is_err() {
+                    break;
+                }
+            }
+        });
+        let error = read_frame(&mut ReplyReader {
+            stream: &mut reader,
+            until,
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        drop(reader);
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn lost_reply_reports_uncertainty_without_reconnecting_or_replaying() {
+        use std::{
+            fs,
+            os::unix::{fs::PermissionsExt, net::UnixListener},
+        };
+        let root = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
+            .join(".cache/flere/tests")
+            .join(&crate::os::nonce().unwrap()[..12]);
+        fs::create_dir_all(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(root.join("control.sock")).unwrap();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let (mut stream, _) = listener.accept().unwrap();
+                assert_eq!(read_frame(&mut stream).unwrap(), b"rename\t1\t6e6577");
+                // A real peer may commit and then disconnect before sending a reply.
+                drop(stream);
+            });
+            let error = request(&root, &["rename", "1", "6e6577"]).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+            assert!(error.to_string().contains("may have completed"));
+            worker.join().unwrap();
+        });
+        listener.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        drop(listener);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

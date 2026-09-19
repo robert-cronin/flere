@@ -2,6 +2,7 @@
 use super::*;
 use crate::{attachments::Upload, remote_protocol as protocol};
 use protocol::Packet;
+pub(super) mod refresh;
 pub(super) struct Connection {
     pub size: (u16, u16),
     pub buffer: Vec<u8>,
@@ -30,8 +31,8 @@ impl Drop for Connection {
         // Ui drops before DisplayGuard, including on errors/refresh: remove graphics
         // before the alternate screen is left, never repaint into the user's shell.
         if self.avatar_capable {
-            let _ =
-                Packet::new(protocol::AVATAR_CLEAR, 0, Vec::new()).write(&mut io::stdout().lock());
+            let _ = Packet::new(protocol::AVATAR_CLEAR, 0, Vec::new())
+                .write(&mut output::cleanup_writer());
         }
         let id = self
             .preview_clear
@@ -39,7 +40,7 @@ impl Drop for Connection {
             .or_else(|| self.preview.as_ref().and_then(|p| p.clear_id()));
         if let Some(id) = id {
             let _ = Packet::new(protocol::PREVIEW_CLEAR, id, Vec::new())
-                .write(&mut io::stdout().lock());
+                .write(&mut output::cleanup_writer());
         }
     }
 }
@@ -70,8 +71,10 @@ impl Connection {
     pub fn handshake(input: &mut fs::File) -> io::Result<Self> {
         let mut challenge = protocol::VERSION.to_vec();
         challenge.extend_from_slice(os::nonce()?.as_bytes());
-        Packet::new(protocol::HELLO, 0, &challenge[..]).write(&mut io::stdout().lock())?;
-        let mut discarded = 0;
+        Packet::new(protocol::HELLO, 0, &challenge[..]).write(&mut output::writer())?;
+        // Emit the new challenge before waiting for any old fragmented tail;
+        // the companion may finish that packet only after seeing this HELLO.
+        let mut discarded = refresh::discard_inherited(input)?;
         let size = loop {
             // Read exactly one frame from the event loop's unbuffered file;
             // capabilities following HELLO remain visible to its poll call.
@@ -119,18 +122,21 @@ impl Connection {
     }
 }
 pub(super) fn emit(remote: bool, bytes: &[u8]) -> io::Result<()> {
-    let started = Instant::now();
-    let mut stdout = io::stdout().lock();
+    super::output::submit(encoded(remote, bytes)?)
+}
+pub(super) fn cleanup(remote: bool, bytes: &[u8]) -> io::Result<()> {
+    super::output::cleanup(encoded(remote, bytes)?)
+}
+fn encoded(remote: bool, bytes: &[u8]) -> io::Result<Vec<u8>> {
+    let mut output = Vec::new();
     if remote {
         for chunk in bytes.chunks(protocol::CHUNK) {
-            Packet::new(protocol::OUTPUT, 0, chunk).write(&mut stdout)?;
+            Packet::new(protocol::OUTPUT, 0, chunk).write(&mut output)?;
         }
     } else {
-        stdout.write_all(bytes)?;
-        stdout.flush()?;
+        output.extend_from_slice(bytes);
     }
-    crate::diagnostics::slow("terminal-write", started);
-    Ok(())
+    Ok(output)
 }
 impl Ui {
     pub(super) fn remote_image_busy(&self) -> bool {
@@ -140,7 +146,7 @@ impl Ui {
         self.notice = message.into();
         let mut data = vec![u8::from(success)];
         data.extend_from_slice(wire::passive(message).as_bytes());
-        Packet::new(protocol::RESULT, id, data).write(&mut io::stdout().lock())
+        Packet::new(protocol::RESULT, id, data).write(&mut output::writer())
     }
     pub(super) fn remote_cancel_changed(&mut self) -> io::Result<bool> {
         let Some(remote) = &mut self.remote else {
@@ -188,7 +194,7 @@ impl Ui {
             protocol::NOTICE if packet.id == 0 && packet.data == crate::browser_links::PROBE => {
                 self.remote.as_mut().unwrap().browser_capable = true;
                 Packet::new(protocol::CAPABILITIES, 0, crate::browser_links::CAPABILITY)
-                    .write(&mut io::stdout().lock())?;
+                    .write(&mut output::writer())?;
             }
             crate::browser_links::INPUT if self.remote.as_ref().unwrap().browser_capable => {
                 let remote = self.remote.as_mut().unwrap();
@@ -327,7 +333,7 @@ impl Ui {
                         self.remote.as_mut().unwrap().pending = Some(p);
                         self.notice = "Receiving clipboard image…".into();
                         Packet::new(protocol::READY, packet.id, Vec::new())
-                            .write(&mut io::stdout().lock())?;
+                            .write(&mut output::writer())?;
                     }
                     Err(e) => return self.remote_result(packet.id, false, &e.to_string()),
                 }

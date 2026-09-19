@@ -149,3 +149,70 @@ fn fragmented_capability_after_hello_keeps_its_prefix_and_needs_no_probe() {
     b.disconnect();
     unchanged(&f, &t);
 }
+
+#[test]
+fn refresh_preserves_a_partial_old_frame_boundary_without_replaying_its_content() {
+    // One atomic pipe write makes the refresh key and next frame prefix available
+    // to the same event-loop read. Withhold its tail until the NEW process HELLO.
+    // A fresh frame reader cannot parse that tail without the retained boundary.
+    let f = Fixture::new();
+    let (_, t) = native(&f);
+    let mut b = Bridge::new(&f, 100, 30);
+    b.wait_screen("IMAGE_NATIVE_DRAFT");
+    let mut stale = Vec::new();
+    append(
+        &mut stale,
+        protocol::KEYS,
+        0,
+        b"STALE_DRAFT_MUST_NOT_REPLAY\r",
+    );
+    for split in [1, 2, 3, 4, 8, 12, stale.len() - 1] {
+        let mut before = Vec::new();
+        append(&mut before, protocol::KEYS, 0, b"\0 R\rIN_FRAME_STALE\r");
+        append(
+            &mut before,
+            protocol::NOTICE,
+            0,
+            b"BUFFERED_NOTICE_MUST_NOT_APPEAR",
+        );
+        before.extend_from_slice(&stale[..split]);
+        write_once(&mut b, &before);
+        let hello = b.until(|p, _| p.tag == protocol::HELLO);
+        b.screen = Terminal::new(100, 30);
+        let mut after = stale[split..].to_vec();
+        append(&mut after, protocol::KEYS, 0, b"SECOND_STALE_DRAFT\r");
+        after.extend(negotiated(&hello, 100, 30, "SPLIT_REFRESH_READY"));
+        write_once(&mut b, &after);
+        wait_negotiated(&mut b, 100, 30, "SPLIT_REFRESH_READY");
+        assert!(!b.screen.capture(100).contains("BUFFERED_NOTICE"));
+        unchanged(&f, &t);
+    }
+    // A later refresh with no partial packet must clear the old descriptor.
+    b.send(protocol::KEYS, 0, b"\0 R");
+    let hello = b.until(|p, _| p.tag == protocol::HELLO);
+    b.screen = Terminal::new(100, 30);
+    write_once(&mut b, &negotiated(&hello, 100, 30, "FRESH_BOUNDARY_READY"));
+    wait_negotiated(&mut b, 100, 30, "FRESH_BOUNDARY_READY");
+    unchanged(&f, &t);
+    b.send(protocol::KEYS, 0, b"fresh after split refresh");
+    assert_eq!(wait_input(&f, 25), b"fresh after split refresh");
+}
+
+#[test]
+fn detach_discards_trailing_keys_in_the_same_packet_and_preserves_the_child() {
+    let f = Fixture::new();
+    let (_, t) = native(&f);
+    let mut b = Bridge::new(&f, 100, 30);
+    b.wait_screen("IMAGE_NATIVE_DRAFT");
+    b.send(protocol::KEYS, 0, b"\0q\rSTALE_AFTER_DETACH\r");
+    let until = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = b.child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < until, "detach did not finish");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    unchanged(&f, &t);
+}

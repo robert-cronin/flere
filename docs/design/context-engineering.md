@@ -96,3 +96,43 @@ For a subsequent agent evaluation, compare the prior behavior, the compact behav
 | Resumption after compaction, disconnect and restart | Exercise continuity rather than only a fresh happy path |
 
 Include long notes, interleaved acknowledgements/new arrivals, multiple conversations in one card, large escaped/Unicode bodies, changed decisions and deliberately stale evidence. Classify failures with MAST where useful, but confirm causes against traces. Do not claim that response-size reductions alone fix input lag, approval transfer or all premature compaction.
+
+
+### Repeatable evaluations and incremental context
+
+The [offline evaluation tools](../evaluations.md) now compare full-detail reads,
+progressive retrieval, a simulated exact-field delta, and the optional implemented
+`get_context(since=...)` path. They exercise real supervisors and MCP calls,
+complete assignments, a later decision correction, Unicode/escaped messages,
+interleaved acknowledgements and new arrivals, and recovery after losing the base.
+They measure bytes, calls and latency while checking exact retrieval. They do not
+yet establish model comprehension, actual token use or fewer compactions.
+
+Incremental reads are explicit because a model or consumer that has lost the base
+cannot safely interpret omitted constraints. Verified compaction hooks invalidate
+the exact run's base, and identity changes require a full response. Callers still
+omit the revision when unsure or when hooks are unavailable. These lifecycle
+checks protect reconstruction; they do not prove model recall. A full response is
+always available; the bounded cache never serves as the durable source of truth.
+Runtime evaluation separately measures output-active supervisors with detached,
+legacy, pane and hyperlink readers. Mixing these results into a claim about
+Windows key-to-photon latency would exceed their evidence.
+
+
+Retained information needs a discovery path as well as exact lookup. A message
+ID can itself be lost during compaction. The optional
+`inbox(include_acknowledged=true)` view recovers received records through bounded
+pages without putting handled bodies back into routine context. Its scope is the
+same verified recipient conversation as the pending inbox. Acknowledgement,
+body surfacing and deletion remain separate; this is not a retention policy or a
+claim that the model will retrieve the right record unaided.
+
+
+Storage pressure also affects completion, not only new work. In the legacy JSON
+store, a first body preview or ACK can cross the combined 8 MiB file bound by
+replacing a null timestamp with an integer. The
+[record backend](coordination-storage.md) now activates at that boundary and
+separates retained originals from lifecycle updates. Cold startup and ordinary
+context reads do not load all historical bodies. This is storage engineering,
+not garbage collection: records remain exact and retrievable, and no history is
+automatically deleted. Physical disk failures still require honest error handling.

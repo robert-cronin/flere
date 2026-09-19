@@ -192,14 +192,24 @@ impl Keyboard {
     pub(in crate::ui) fn flush(&mut self) {
         if !self.output.is_empty() {
             let output = std::mem::take(&mut self.output);
-            let _ = super::super::remote::emit(self.remote, &output);
+            if super::super::remote::emit(self.remote, &output).is_err() {
+                // Admission is atomic. Retain a rejected POP (or negotiation
+                // sequence) so error teardown can restore our keyboard mode.
+                self.output = output;
+            }
+        }
+    }
+    pub(in crate::ui) fn finish(&mut self) {
+        self.stop(Instant::now());
+        if !self.output.is_empty() {
+            let output = std::mem::take(&mut self.output);
+            let _ = super::super::remote::cleanup(self.remote, &output);
         }
     }
 }
 impl Drop for Keyboard {
     fn drop(&mut self) {
-        self.stop(Instant::now());
-        self.flush();
+        self.finish();
     }
 }
 
@@ -267,6 +277,23 @@ pub(super) fn event(bytes: &[u8]) -> Option<Event> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rejected_keyboard_restore_is_retained_for_reserved_teardown() {
+        let bytes = crate::ui::output::tests::saturated(|| {
+            let mut keyboard = super::Keyboard::new(false);
+            // The attachment has already pushed its owned enhancement mode.
+            keyboard.owned = true;
+            keyboard.stop(std::time::Instant::now());
+            keyboard.flush();
+            assert!(
+                !keyboard.output.is_empty(),
+                "rejected restoration must be retained"
+            );
+            drop(keyboard);
+        });
+        assert_eq!(bytes, [super::POP, super::QUERY].concat());
+    }
+
     use super::*;
     #[test]
     fn complete_keyboard_reports_preserve_event_types_and_ignore_modifiers() {

@@ -250,6 +250,7 @@ pub fn spawn_command_pty(
     cols: u16,
     rows: u16,
 ) -> io::Result<(File, Process)> {
+    let _timing = crate::diagnostics::measure("pty-spawn");
     // O_RDWR | O_NOCTTY | O_CLOEXEC. The master is not the supervisor's controlling TTY.
     let fd = cvt(unsafe { posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) })?;
     let master = unsafe { File::from_raw_fd(fd) };

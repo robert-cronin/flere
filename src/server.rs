@@ -43,19 +43,45 @@ struct SavedWorkspace {
     #[serde(default)]
     split: Option<crate::panes::PaneLayout>,
 }
+// Write the same schema while borrowing large metadata and coordination records.
+// Only the computed cold-reopen tab layouts need owned temporary values.
+#[derive(serde::Serialize)]
+struct SavedView<'a> {
+    version: u32,
+    active: u64,
+    workspaces: Vec<SavedWorkspaceView<'a>>,
+    coordination: Option<&'a coordination::Coordination>,
+}
+#[derive(serde::Serialize)]
+struct SavedWorkspaceView<'a> {
+    id: u64,
+    name: &'a str,
+    cwd: &'a Path,
+    meta: &'a CardMeta,
+    tabs: Vec<restore::Tab>,
+    selected: u64,
+    split: Option<crate::panes::PaneLayout>,
+}
 mod attachments;
 mod chat_messages;
 mod clients;
 mod close;
+mod context_delta;
 mod context_view;
 mod coordination;
 mod delivery;
 mod dispatch;
 mod launcher;
+mod observation;
 mod panes;
+mod preferences;
 mod projects;
+mod reactor;
 mod refresh;
 mod restore;
+pub(crate) mod storage;
+#[cfg(test)]
+mod storage_adapter;
 mod tasks;
 mod terminal_input;
 mod transfers;
@@ -152,8 +178,13 @@ struct Server {
     refresh: Option<PathBuf>,
     last_refresh: String,
     coordination: coordination::Coordination,
+    context_cache: context_delta::Cache,
+    storage: Option<storage::Storage>,
     audit: File,
-    native_checked: Instant,
+    native_observation: observation::State,
+    preferences: preferences::Writer,
+    reactor: Option<reactor::Reactor>,
+    io_retired: bool,
     restoration: restore::State,
     delivery_checked: Instant,
     delivery_cursor: usize,
@@ -202,6 +233,10 @@ fn secure_file(path: &Path) -> io::Result<File> {
 }
 impl Server {
     fn load(state: &Path) -> io::Result<Self> {
+        Self::load_source(state, None)
+    }
+    // Captured migration sources use exactly the same validation as cold load.
+    fn load_source(state: &Path, source: Option<(&[u8], Option<&[u8]>)>) -> io::Result<Self> {
         let audit = OpenOptions::new()
             .append(true)
             .create(true)
@@ -225,8 +260,13 @@ impl Server {
             command_depth: 0,
             frontend_inventory: serde_json::json!({"schema_version":1,"status":"known","tracked":[],"untracked":0}),
             coordination: coordination::Coordination::default(),
+            context_cache: Default::default(),
+            storage: None,
             audit,
-            native_checked: Instant::now(),
+            native_observation: Default::default(),
+            preferences: Default::default(),
+            reactor: None,
+            io_retired: false,
             restoration: restore::State::default(),
             delivery_checked: Instant::now(),
             delivery_cursor: 0,
@@ -251,27 +291,29 @@ impl Server {
             f.take(1024 * 1024 + 1).read_to_string(&mut data)?;
             Ok(data)
         };
-        let v2 = state.join("workspaces.v2.json");
-        if v2.exists() {
-            let f = OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(&v2)?;
-            if !f.metadata()?.is_file() {
-                return Err(invalid("workspace store must be a regular file"));
-            }
-            let mut bytes = Vec::new();
-            f.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-            if bytes.len() > 8 * 1024 * 1024 {
-                return Err(invalid("workspace metadata exceeds 8 MiB"));
-            }
-            let saved: Saved = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+        let captured = match source {
+            Some((bytes, _)) => Some(bytes.to_vec()),
+            None => storage::read_legacy(&state.join("workspaces.v2.json"))?,
+        };
+        if let Some(bytes) = captured {
+            let saved: Saved = if let Some((saved, storage)) = storage::load(state, &bytes)? {
+                s.storage = Some(storage);
+                saved
+            } else {
+                serde_json::from_slice(&bytes).map_err(io::Error::other)?
+            };
             if !matches!(saved.version, 2..=10) {
                 return Err(invalid("unsupported workspace store version"));
             }
             s.coordination = match saved.coordination {
                 Some(c) => c,
-                None => coordination::Coordination::load(state)?,
+                None => match source {
+                    Some((_, Some(bytes))) => {
+                        serde_json::from_slice(bytes).map_err(io::Error::other)?
+                    }
+                    Some((_, None)) => coordination::Coordination::default(),
+                    None => coordination::Coordination::load(state)?,
+                },
             };
             s.coordination.validate_dispatches()?;
             s.coordination.delivery.validate()?;
@@ -369,19 +411,20 @@ impl Server {
         s.coordination = coordination::Coordination::load(state)?;
         Ok(s)
     }
-    fn persist(&self) -> io::Result<()> {
-        let saved = Saved {
+    fn persist(&mut self) -> io::Result<()> {
+        let _timing = crate::diagnostics::measure("supervisor-persist");
+        let saved = SavedView {
             version: 10,
             active: self.active,
-            coordination: Some(self.coordination.clone()),
+            coordination: Some(&self.coordination),
             workspaces: self
                 .workspaces
                 .iter()
-                .map(|w| SavedWorkspace {
+                .map(|w| SavedWorkspaceView {
                     id: w.id,
-                    name: w.name.clone(),
-                    cwd: w.cwd.clone(),
-                    meta: w.meta.clone(),
+                    name: &w.name,
+                    cwd: &w.cwd,
+                    meta: &w.meta,
                     tabs: self.saved_tabs(w),
                     selected: self.saved_selection(w),
                     split: self.saved_split(w),
@@ -417,10 +460,10 @@ impl Server {
             }
         }
         let data = serde_json::to_vec(&saved).map_err(io::Error::other)?;
-        if data.len() > 8 * 1024 * 1024 {
-            return Err(invalid("workspace metadata exceeds 8 MiB"));
+        if self.storage.is_some() || data.len() > 8 * 1024 * 1024 {
+            return self.persist_records(&data);
         }
-        atomic_write(&self.state.join("workspaces.v2.json"), &data)
+        self.write_durable(&self.state.join("workspaces.v2.json"), &data)
     }
 
     fn changed(&mut self) {
@@ -433,9 +476,10 @@ impl Server {
         self.dirty = true
     }
     fn audit(&mut self, op: &str, target: u64, detail: &str) -> io::Result<()> {
-        writeln!(
-            self.audit,
-            "{}\t{}\t{}\t{}\t{}",
+        // Formatting directly into File splits one record into many writes.
+        // Keep append completion and errors synchronous for the caller.
+        let record = format!(
+            "{}\t{}\t{}\t{}\t{}\n",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -444,7 +488,8 @@ impl Server {
             op,
             target,
             wire::hex(detail.as_bytes())
-        )?;
+        );
+        self.audit.write_all(record.as_bytes())?;
         self.audit.flush()
     }
     fn create_workspace(
@@ -581,6 +626,8 @@ impl Server {
         }
     }
     fn command(&mut self, line: &str) -> io::Result<Vec<u8>> {
+        let _timing =
+            (self.command_depth == 0).then(|| crate::diagnostics::measure("supervisor-command"));
         let gate = self.file_transfers.command_gate();
         let outer = self.command_depth == 0;
         let _guard = if outer {
@@ -595,12 +642,41 @@ impl Server {
         let result = self.command_scoped(line);
         self.command_depth -= 1;
         if outer {
+            self.release_legacy_view();
             self.expire_file_transfers();
         }
         result
     }
     fn command_scoped(&mut self, line: &str) -> io::Result<Vec<u8>> {
         let op = line.split('\t').next().unwrap_or_default();
+        if self.record_unavailable()
+            && !matches!(
+                op,
+                "ping"
+                    | "input"
+                    | "text"
+                    | "snapshot"
+                    | "snapshot-panes"
+                    | "snapshot-links"
+                    | "capture"
+                    | "scrollback"
+                    | "scrollback-links"
+                    | "search-output"
+                    | "command-jump"
+                    | "command-jump-links"
+                    | "command-output"
+                    | "frontends"
+                    | "build-info"
+                    | "refresh-status"
+                    | "resize"
+                    | "resize-panes"
+                    | "list"
+            )
+        {
+            return Err(invalid(
+                "record storage unavailable pending recovery; terminal I/O remains available",
+            ));
+        }
         if matches!(op, "stop" | "save-tabs") {
             self.sample_tab_directories();
         }
@@ -630,10 +706,16 @@ impl Server {
             self.record_pane_selection();
             self.remember_native_selection()?;
         }
+        // Input queues bytes without changing the saved layout. Structural and
+        // lifecycle changes checkpoint separately; an unrelated save failure
+        // must not report already-accepted keystrokes as failed input.
         if result.is_ok()
             && !matches!(
                 op,
                 "ping"
+                    | "input"
+                    | "text"
+                    | "ui-preferences"
                     | "snapshot"
                     | "snapshot-panes"
                     | "snapshot-links"
@@ -677,6 +759,7 @@ impl Server {
         let arg = |i: usize| p.get(i).copied().ok_or_else(|| invalid("missing argument"));
         let num = |i: usize| -> io::Result<u64> { arg(i)?.parse().map_err(io::Error::other) };
         match arg(0)? {
+            "ui-preferences" => self.preferences_command(&p),
             "task-start" | "task-list" | "task-info" => self.task_operation(&p),
             "file-begin" | "file-read" | "file-write" | "file-finish" | "file-cancel"
             | "file-poll" => self.file_command(&p),
@@ -995,6 +1078,7 @@ impl Server {
                 let id = num(1)?;
                 let run = arg(2)?;
                 self.session(id, run)?;
+                self.finish_native_observation();
                 self.audit("native-returned-to-shell", id, run)?;
                 let s = self.session(id, run)?;
                 if let Some(spec) = s.native.take() {
@@ -1304,7 +1388,9 @@ impl Server {
                 } else {
                     value.into_bytes()
                 };
-                self.command(&format!("input\t{id}\t{run}\t{}", wire::hex(&bytes)))
+                // Literal text shares the volatile input path, including during
+                // a save. Its conversion must not enter a persistence wrapper.
+                self.command_inner(&format!("input\t{id}\t{run}\t{}", wire::hex(&bytes)))
             }
             "input" => {
                 let id = num(1)?;
@@ -1322,6 +1408,7 @@ impl Server {
                 self.audit("input", id, &format!("run={run};bytes={}", bytes.len()))?;
                 if !bytes.is_empty() {
                     self.close_input(id, run);
+                    self.record_save_input(id, run);
                 }
                 self.session(id, run)?.input.extend(bytes);
                 Ok(b"ok".to_vec())
@@ -1333,6 +1420,7 @@ impl Server {
                 let id = num(1)?;
                 let run = arg(2)?;
                 self.session(id, run)?;
+                self.finish_native_observation();
                 self.audit("close-request", id, run)?;
                 self.restoration.closed.insert(run.into());
                 self.tasks.remove(run);
@@ -1543,6 +1631,7 @@ impl Server {
                 if !binary.is_absolute() || !binary.is_file() {
                     return Err(invalid("refresh needs an absolute executable path"));
                 }
+                self.finish_native_observation();
                 self.audit("refresh-request", 0, &binary.to_string_lossy())?;
                 self.last_refresh = "Refresh requested; keeping all sessions".into();
                 self.refresh = Some(binary);
@@ -1609,74 +1698,8 @@ impl Server {
         }
         changed
     }
-    fn observe_native(&mut self) -> bool {
-        if self.stop || os::stopping() || self.native_checked.elapsed() < Duration::from_secs(1) {
-            return false;
-        }
-        self.native_checked = Instant::now();
-        self.sample_tab_directories();
-        let mut changed = self.checkpoint_tabs().is_err();
-        let mut recorded = false;
-        for w in &mut self.workspaces {
-            for s in &mut w.tabs {
-                if !s.alive || s.ended {
-                    if s.working {
-                        s.working = false;
-                        changed = true;
-                    }
-                    continue;
-                }
-                let working = crate::native::working_screen(&s.term)
-                    && crate::native::discover_codex(
-                        s.child.id(),
-                        s.native.as_ref().map_or(&w.cwd, |n| &n.cwd),
-                    )
-                    .is_ok_and(|id| id.is_some());
-                if s.working != working {
-                    s.working = working;
-                    changed = true;
-                }
-                let Some(spec) = &mut s.native else {
-                    continue;
-                };
-                if spec.harness != "codex" {
-                    continue;
-                }
-                if spec.launcher.as_ref().is_some_and(|(pid, start)| {
-                    !os::child_identity(*pid).is_ok_and(|p| p.1 == *start)
-                }) {
-                    continue; // Lost launcher ownership requires explicit repair, not adoption of another child.
-                }
-                if let Ok(Some(uuid)) = crate::native::discover_codex(s.child.id(), &spec.cwd) {
-                    // A harness may switch conversations itself. Follow its current,
-                    // unambiguous owned rollout rather than freezing the launch UUID.
-                    if spec.conversation != uuid {
-                        let saved = crate::native::Conversation {
-                            harness: "codex".into(),
-                            uuid: uuid.clone(),
-                            cwd: spec.cwd.clone(),
-                        };
-                        if !w.meta.conversations.contains(&saved) {
-                            w.meta.conversations.push(saved.clone());
-                        }
-                        w.meta.last_conversation = Some(saved);
-                        recorded = true;
-                        changed = true;
-                    }
-                    spec.conversation = uuid;
-                }
-            }
-        }
-        if recorded {
-            if let Err(e) = self.persist() {
-                let _ = self.audit("conversation-save-failed", 0, &e.to_string());
-            } else {
-                let _ = self.audit("conversation-linked", 0, "exact owned process metadata");
-            }
-        }
-        changed
-    }
     fn drain(&mut self) -> bool {
+        let _timing = crate::diagnostics::measure("supervisor-drain");
         let gate = self.file_transfers.command_gate();
         let outer = self.command_depth == 0;
         // The gate protects only commit ordering; workers never hold it over I/O.
@@ -1689,38 +1712,20 @@ impl Server {
         }
         changed
     }
-    fn drain_scoped(&mut self) -> bool {
-        self.cache_cleaner.tick();
-        // Reply to terminal probes before process and filesystem observation,
-        // which can exceed a native program's startup response deadline.
+    // PTY I/O only: no process retirement, layout mutation, native observation,
+    // delivery, or persistence. Safe while the ordinary mutation stack is paused.
+    fn drain_terminals(&mut self) -> (bool, bool) {
         let mut changed = false;
+        let mut retired = false;
         for w in &mut self.workspaces {
             for s in &mut w.tabs {
-                if !s.ended {
-                    match s.child.try_wait() {
-                        Ok(Some(status)) => {
-                            s.ended = true;
-                            self.tasks.exited(&s.run, status.code());
-                            s.title = self.tasks.title(&s.run).unwrap_or_else(|| {
-                                format!(
-                                    "exited {}",
-                                    status
-                                        .code()
-                                        .map_or_else(|| "signal".into(), |c| c.to_string())
-                                )
-                            });
-                            changed = true
-                        }
-                        Ok(None) => {}
-                        Err(_) => {}
-                    }
-                }
                 if s.alive {
                     let mut buf = [0; 8192];
                     for _ in 0..8 {
                         match s.master.read(&mut buf) {
                             Ok(0) => {
                                 s.alive = false;
+                                retired = true;
                                 changed = true;
                                 break;
                             }
@@ -1733,11 +1738,13 @@ impl Server {
                             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                             Err(e) if e.raw_os_error() == Some(libc::EIO) => {
                                 s.alive = false;
+                                retired = true;
                                 changed = true;
                                 break;
                             }
                             Err(_) => {
                                 s.alive = false;
+                                retired = true;
                                 changed = true;
                                 break;
                             }
@@ -1763,9 +1770,60 @@ impl Server {
                 }
             }
         }
+        (changed, retired)
+    }
+    fn drain_scoped(&mut self) -> bool {
+        self.cache_cleaner.tick();
+        // Reply to terminal probes before process and filesystem observation,
+        // which can exceed a native program's startup response deadline.
+        let (terminal_changed, retired) = self.drain_terminals();
+        if self.record_unavailable() {
+            self.io_retired |= retired;
+            self.last_refresh =
+                "Record storage unavailable pending recovery; terminal I/O remains available"
+                    .into();
+            return terminal_changed;
+        }
+        let mut retired = retired | std::mem::take(&mut self.io_retired);
+        // Cell output needs a new frame, not a full saved-layout traversal.
+        // PTY retirement changes the reopen layout even before its child exits.
+        let mut changed = retired;
+        for w in &mut self.workspaces {
+            for s in &mut w.tabs {
+                if !s.ended {
+                    match s.child.try_wait() {
+                        Ok(Some(status)) => {
+                            s.ended = true;
+                            retired = true;
+                            self.tasks.exited(&s.run, status.code());
+                            s.title = self.tasks.title(&s.run).unwrap_or_else(|| {
+                                format!(
+                                    "exited {}",
+                                    status
+                                        .code()
+                                        .map_or_else(|| "signal".into(), |c| c.to_string())
+                                )
+                            });
+                            changed = true
+                        }
+                        Ok(None) => {}
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+        if retired {
+            changed |= self.finish_native_observation();
+        }
         changed |= self.observe_native() | self.finish_worktrees();
         self.close_tick();
         changed |= self.tasks_tick();
+        // A save in maintenance above can drain the final PTY bytes. Flush any
+        // observations before pruning the exact exited run they still refer to.
+        if std::mem::take(&mut self.io_retired) {
+            changed = true;
+            self.finish_native_observation();
+        }
         for w in &mut self.workspaces {
             let before = w.tabs.len();
             for t in w.tabs.iter().filter(|t| t.ended && !t.alive) {
@@ -1794,7 +1852,7 @@ impl Server {
                 self.changed();
             }
         }
-        changed
+        changed || terminal_changed
     }
 }
 struct SocketCleanup(PathBuf);
@@ -1826,201 +1884,71 @@ fn run_loop(
     lock: File,
     listener: UnixListener,
     mut server: Server,
-    mut clients: Vec<Client>,
+    clients: Vec<Client>,
 ) -> io::Result<()> {
     let _cleanup = SocketCleanup(state.join("control.sock"));
     os::signals();
-    let mut last_frame = Instant::now() - Duration::from_secs(1);
+    server.reactor = Some(reactor::Reactor::new(listener, clients));
     while !os::stopping() {
-        let mut fds = vec![os::PollFd {
-            fd: listener.as_raw_fd(),
-            events: os::READ,
-            revents: 0,
-        }];
-        for c in &clients {
-            fds.push(os::PollFd {
-                fd: c.stream.as_raw_fd(),
-                events: os::READ
-                    | if c.output.len() > c.offset {
-                        os::WRITE
-                    } else {
-                        0
-                    },
-                revents: 0,
-            })
-        }
-        for s in server
-            .workspaces
-            .iter()
-            .flat_map(|w| &w.tabs)
-            .filter(|s| s.alive)
-        {
-            fds.push(os::PollFd {
-                fd: s.master.as_raw_fd(),
-                events: os::READ | if !s.input.is_empty() { os::WRITE } else { 0 },
-                revents: 0,
-            })
-        }
-        os::wait(&mut fds, if server.dirty { 16 } else { 250 })?;
-        loop {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    if clients.len() >= 32 || !os::same_user(stream.as_raw_fd())? {
-                        continue;
-                    }
-                    stream.set_nonblocking(true)?;
-                    clients.push(Client {
-                        stream,
-                        input: Vec::new(),
-                        output: Vec::new(),
-                        offset: 0,
-                        watch: false,
-                        panes: false,
-                        links: false,
-                        build: None,
-                        done: false,
-                        deadline: Instant::now() + Client::output_timeout(false),
-                    });
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            }
-        }
+        server.release_legacy_view();
+        let timeout = if server.native_observation.pending() {
+            0
+        } else if server.dirty {
+            16
+        } else {
+            250
+        };
+        server.poll_io(timeout)?;
         if server.drain() {
             server.changed()
         }
+        server.preferences.poll(state);
         server.expire_file_transfers();
+        let clients = &server.reactor.as_ref().unwrap().clients;
         server.frontend_inventory = serde_json::json!({
             "schema_version":1,"status":"known",
             "tracked":clients.iter().filter(|c| c.watch && !c.done).filter_map(|c| c.build.clone()).collect::<Vec<_>>(),
             "untracked":clients.iter().filter(|c| c.watch && !c.done && c.build.is_none()).count(),
         });
-        for c in &mut clients {
-            let mut buf = [0; 8192];
-            for _ in 0..16 {
-                match c.stream.read(&mut buf) {
-                    Ok(0) => {
-                        c.done = true;
-                        break;
-                    }
-                    Ok(n) => {
-                        c.input.extend_from_slice(&buf[..n]);
-                        if c.input.len() > wire::MAX_REQUEST + 4 {
-                            c.done = true;
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(_) => {
-                        c.done = true;
-                        break;
-                    }
-                }
+        server.service_clients(false);
+        server.flush_clients(false);
+        if let Some(binary) = server.refresh.take() {
+            let reactor = server.reactor.take().unwrap();
+            if let Err(e) = refresh::replace(
+                &mut server,
+                &lock,
+                &reactor.listener,
+                &reactor.clients,
+                &binary,
+            ) {
+                server.last_refresh = format!("Refresh failed: {e}");
+                server.changed();
+                let _ = server.audit("refresh-failed", 0, &e.to_string());
             }
-            if c.done {
-                continue;
-            }
-            if c.watch {
-                if !c.input.is_empty() {
-                    c.done = true
-                }
-                continue;
-            }
-            if c.output.is_empty() {
-                match wire::take_request_frame(&mut c.input) {
-                    Ok(Some(b)) => {
-                        let result =
-                            std::str::from_utf8(&b)
-                                .map_err(io::Error::other)
-                                .and_then(|request| {
-                                    if let Some(watch) = WatchRequest::parse(request) {
-                                        if let Some(encoded) = watch.build {
-                                            let data = wire::unhex(encoded)?;
-                                            if data.len() > 8192 {
-                                                return Err(invalid(
-                                                    "frontend metadata exceeds bound",
-                                                ));
-                                            }
-                                            let build: serde_json::Value =
-                                                serde_json::from_slice(&data)
-                                                    .map_err(io::Error::other)?;
-                                            if build["schema_version"] != 1
-                                                || build["build"]["component"] != "flere"
-                                                || build["pid"]
-                                                    .as_u64()
-                                                    .is_none_or(|n| n == 0 || n > u32::MAX as u64)
-                                                || build["attachment"].as_str().is_none_or(|s| {
-                                                    s.len() != 32
-                                                        || !s.bytes().all(|b| b.is_ascii_hexdigit())
-                                                })
-                                            {
-                                                return Err(invalid("invalid frontend metadata"));
-                                            }
-                                            c.build = Some(build);
-                                        }
-                                        c.watch = true;
-                                        c.panes = watch.panes;
-                                        c.links = watch.links;
-                                        Ok(watch.snapshot(&server.snapshot()))
-                                    } else {
-                                        server.command(request)
-                                    }
-                                });
-                        c.output = wire::frame(&result.unwrap_or_else(|e| {
-                            format!("!{}", wire::passive(&e.to_string())).into_bytes()
-                        }));
-                        c.deadline = Instant::now() + Client::output_timeout(c.watch);
-                    }
-                    Err(_) => c.done = true,
-                    Ok(None) => {}
-                }
-            }
+            server.reactor = Some(reactor);
         }
-        if server.dirty && last_frame.elapsed() >= Duration::from_millis(16) {
-            let snapshot = server.snapshot();
-            let frame = wire::frame(&snapshot.encode());
-            let pane_frame = wire::frame(&snapshot.encode_panes());
-            let link_frame = clients
+        if server.stop
+            && server
+                .reactor
+                .as_ref()
+                .unwrap()
+                .clients
                 .iter()
-                .any(|c| c.watch && c.links && !c.done)
-                .then(|| wire::frame(&snapshot.encode_links()));
-            for c in clients.iter_mut().filter(|c| c.watch && !c.done) {
-                let frame = if c.links {
-                    link_frame.as_ref().expect("link watcher frame")
-                } else if c.panes {
-                    &pane_frame
-                } else {
-                    &frame
-                };
-                c.queue_snapshot(frame, Instant::now());
-            }
-            server.dirty = clients.iter().any(|c| c.watch && c.offset > 0);
-            last_frame = Instant::now();
-        }
-        for c in &mut clients {
-            if c.done {
-                continue;
-            }
-            c.flush_output(Instant::now());
-        }
-        clients.retain(|c| !c.done);
-        if let Some(binary) = server.refresh.take()
-            && let Err(e) = refresh::replace(&mut server, &lock, &listener, &clients, &binary)
+                .all(|c| c.watch || c.output.is_empty())
         {
-            server.last_refresh = format!("Refresh failed: {e}");
-            server.changed();
-            let _ = server.audit("refresh-failed", 0, &e.to_string());
-        }
-        if server.stop && clients.iter().all(|c| c.watch || c.output.is_empty()) {
             break;
         }
     }
-    // Checkpoint before hangup; shutdown observation must not erase the layout.
+    // No save worker can outlive its synchronous barrier. Retain sockets until
+    // shutdown completes, but stop accepting commands during final checkpoint.
+    let _reactor = server.reactor.take();
+    // Flush observed identities before checkpoint/hangup; never erase the layout.
+    server.finish_native_observation();
     server.sample_tab_directories();
     if let Err(e) = server.checkpoint_tabs() {
         let _ = server.audit("shutdown-tabs-save-failed", 0, &e.to_string());
     }
+    let preferences_result = server.preferences.flush(state);
     server.stop_delivery_jobs();
     for s in server.workspaces.iter_mut().flat_map(|w| &mut w.tabs) {
         if !s.ended || s.alive {
@@ -2038,7 +1966,7 @@ fn run_loop(
         server.drain();
         std::thread::sleep(Duration::from_millis(20));
     }
-    Ok(())
+    preferences_result
 }
 
 pub fn restore(state: &Path, token: &str) -> io::Result<()> {
@@ -2098,5 +2026,66 @@ mod hyperlink_watch_tests {
         ] {
             assert!(WatchRequest::parse(unsupported).is_none());
         }
+    }
+}
+
+#[cfg(test)]
+mod saved_view_tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_persistence_matches_the_owned_schema_byte_for_byte() {
+        let mut coordination = coordination::Coordination::default();
+        coordination
+            .checkpoints
+            .push(serde_json::json!({"workspace":3,"body":"history 界 ".repeat(1000)}));
+        let saved = Saved {
+            version: 10,
+            active: 3,
+            coordination: Some(coordination),
+            workspaces: vec![SavedWorkspace {
+                id: 3,
+                name: "fixture 界".into(),
+                cwd: PathBuf::from("/fixture"),
+                meta: CardMeta {
+                    notes: "retained notes".repeat(1000),
+                    ..Default::default()
+                },
+                tabs: vec![restore::Tab {
+                    order: 7,
+                    kind: "shell".into(),
+                    cwd: PathBuf::from("/fixture"),
+                    harness: String::new(),
+                    conversation: String::new(),
+                    path: String::new(),
+                    title: "fixture shell".into(),
+                    owner: Some((42, "fixture-start".into())),
+                }],
+                selected: 7,
+                split: None,
+            }],
+        };
+        let view = SavedView {
+            version: saved.version,
+            active: saved.active,
+            coordination: saved.coordination.as_ref(),
+            workspaces: saved
+                .workspaces
+                .iter()
+                .map(|w| SavedWorkspaceView {
+                    id: w.id,
+                    name: &w.name,
+                    cwd: &w.cwd,
+                    meta: &w.meta,
+                    tabs: w.tabs.clone(),
+                    selected: w.selected,
+                    split: w.split.clone(),
+                })
+                .collect(),
+        };
+        let bytes = serde_json::to_vec(&view).unwrap();
+        assert_eq!(bytes, serde_json::to_vec(&saved).unwrap());
+        let restored: Saved = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&restored).unwrap(), bytes);
     }
 }

@@ -144,7 +144,10 @@ pub(super) struct RemoteRpc {
     offset: usize,
 }
 impl Ui {
-    pub(super) fn tick_update_rpc(&mut self) -> io::Result<bool> {
+    pub(super) fn tick_update_rpc(&mut self, can_output: bool) -> io::Result<bool> {
+        if !can_output {
+            return Ok(false);
+        }
         use crate::{
             remote_protocol::{self as protocol, Packet},
             remote_update as update,
@@ -174,16 +177,16 @@ impl Ui {
             rpc.output = bytes;
             let mut begin = vec![u8::from(success)];
             begin.extend((rpc.output.len() as u64).to_be_bytes());
-            Packet::new(update::BEGIN, rpc.id, begin).write(&mut io::stdout().lock())?;
+            Packet::new(update::BEGIN, rpc.id, begin).write(&mut output::writer())?;
         }
         let end = (rpc.offset + protocol::CHUNK).min(rpc.output.len());
         if rpc.offset < end {
             Packet::new(update::DATA, rpc.id, rpc.output[rpc.offset..end].to_vec())
-                .write(&mut io::stdout().lock())?;
+                .write(&mut output::writer())?;
             rpc.offset = end;
         }
         if end == rpc.output.len() {
-            Packet::new(update::END, rpc.id, Vec::new()).write(&mut io::stdout().lock())?;
+            Packet::new(update::END, rpc.id, Vec::new()).write(&mut output::writer())?;
             remote.update_rpc = None;
         }
         Ok(true)
@@ -206,7 +209,7 @@ impl Ui {
         {
             self.remote.as_mut().unwrap().update_capable = true;
             protocol::Packet::new(protocol::CAPABILITIES, 0, update::OWNERSHIP_CAPABILITY)
-                .write(&mut io::stdout().lock())?;
+                .write(&mut output::writer())?;
             return Ok(true);
         }
         if !matches!(packet.tag, update::ACTIVATE | update::RESULT | update::CALL) {
@@ -322,7 +325,7 @@ impl Ui {
                 if self.remote.is_some() {
                     let data = serde_json::to_vec(&serde_json::json!({"attempt":attempt,"build_id":crate::build_info::BUILD_ID})).unwrap();
                     let _ = crate::remote_protocol::Packet::new(crate::remote_update::ACK, 0, data)
-                        .write(&mut io::stdout().lock());
+                        .write(&mut output::writer());
                 }
                 self.update_ack = None;
                 self.notice = format!(
@@ -368,7 +371,7 @@ impl Ui {
                 remote.update_counter,
                 Vec::new(),
             )
-            .write(&mut io::stdout().lock());
+            .write(&mut output::writer());
             self.menu = false;
             self.notice = result
                 .map(|_| "Checking for updates in your local companion".into())

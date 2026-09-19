@@ -445,7 +445,7 @@ fn start_key(key: Key) -> Option<bool> {
 }
 
 pub(super) fn run(state: &Path) -> io::Result<bool> {
-    let prefs = workflows::load_preferences(state);
+    let prefs = crate::workspace::load_preferences(state);
     let quiet = prefs.reduced_motion;
     let _raw = os::RawTerminal::enter(0)?;
     os::signals();

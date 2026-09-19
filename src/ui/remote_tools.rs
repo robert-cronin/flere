@@ -66,7 +66,7 @@ pub(super) struct Tools {
     port_origin: Option<(u64, panes::EditorOrigin)>,
 }
 fn send(tag: u8, id: u64, data: impl Into<Vec<u8>>) -> io::Result<()> {
-    Packet::new(tag, id, data).write(&mut io::stdout().lock())
+    Packet::new(tag, id, data).write(&mut output::writer())
 }
 impl Ui {
     pub(super) fn remote_tools_open(&self) -> bool {
@@ -655,7 +655,7 @@ impl Ui {
         }
         Ok(true)
     }
-    pub(super) fn tick_remote_tools(&mut self) -> bool {
+    pub(super) fn tick_remote_tools(&mut self, can_output: bool) -> bool {
         if self
             .remote_tools
             .port_origin
@@ -680,6 +680,9 @@ impl Ui {
                 "File transfer cancelled: target changed or transfer timed out",
             );
             return true;
+        }
+        if !can_output {
+            return false;
         }
         let Some(mut transfer) = self.remote_tools.transfer.take() else {
             return false;

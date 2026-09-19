@@ -1,7 +1,7 @@
 //! Supervisor-owned mailbox delivery. Native queue acceptance is not handling.
 use super::*;
 use crate::{
-    inbox_hook::{Input, notice},
+    inbox_hook::{Input, context_notice, notice},
     native::delivery::Target,
 };
 use serde::{Deserialize, Serialize};
@@ -313,6 +313,21 @@ impl Server {
         if !event.agent_id.is_empty() {
             return Ok(json!({"output":{}}));
         }
+        if self.record_mode() {
+            let (wid, _, _) = self.native_scope(session, run)?;
+            let extra = event.queue_notice.as_ref().map(|n| n.id.clone());
+            return self.record_notice_view(
+                wid,
+                (session, run),
+                event.hook_event_name == "Stop",
+                true,
+                extra.as_deref(),
+                |server| server.observe_hook(session, run, event),
+            );
+        }
+        if !event.agent_id.is_empty() {
+            return Ok(json!({"output":{}}));
+        }
         if event.turn_id.len() > 1024
             || event.transcript_path.len() > 4096
             || event.tool_name.len() > 1024
@@ -424,6 +439,11 @@ impl Server {
         } else {
             self.coordination.delivery = delivery;
         }
+        if matches!(name, "PreCompact" | "PostCompact") {
+            // Only a verified event for this exact live conversation can discard
+            // its optional base. Durable evidence and other runs are unaffected.
+            self.context_cache.invalidate(session, run);
+        }
         if self.focus(session, run).is_some()
             || !matches!(name, "PostToolUse" | "Stop")
             || (name == "Stop" && event.stop_hook_active)
@@ -479,7 +499,7 @@ impl Server {
             ),
         )?;
         self.save_mailbox(next)?;
-        let text = notice(wid, session, run, &ids);
+        let text = context_notice(wid, session, run, &ids);
         let output = if name == "Stop" {
             json!({"decision":"block","reason":text})
         } else {
@@ -493,6 +513,10 @@ impl Server {
         run: &str,
         lease: &str,
     ) -> io::Result<()> {
+        if self.record_mode() {
+            return self
+                .record_lease_view(lease, |server| server.confirm_notice(session, run, lease));
+        }
         let (wid, _, _) = self.native_scope(session, run)?;
         let conversation = self.mailbox_conversation(wid, Some((session, run)));
         let mut next = self.coordination.clone();
@@ -538,12 +562,31 @@ impl Server {
         if self.focus(session, run).is_some() || !value.is_object() {
             return Ok(());
         }
-        let conversation = self.mailbox_conversation(wid, Some((session, run)));
-        let ids: Vec<_> = self
+        if self.record_mode() {
+            if !self.record_has_notice_candidate(wid)? {
+                return Ok(());
+            }
+            return self.record_notice_view(wid, (session, run), false, false, None, |server| {
+                server.attach_notice(wid, session, run, value)
+            });
+        }
+        if self.focus(session, run).is_some() || !value.is_object() {
+            return Ok(());
+        }
+        let mut candidates = self
             .coordination
             .messages
             .iter()
-            .filter(|m| m.to == wid && m.for_conversation(conversation.as_deref()) && pending(m))
+            .filter(|m| m.to == wid && pending(m))
+            .peekable();
+        // A negative metadata check needs no native inspection. If any candidate
+        // exists, prove the current conversation before selecting notice IDs.
+        if candidates.peek().is_none() {
+            return Ok(());
+        }
+        let conversation = self.mailbox_conversation(wid, Some((session, run)));
+        let ids: Vec<_> = candidates
+            .filter(|m| m.for_conversation(conversation.as_deref()))
             .take(8)
             .map(|m| m.id.clone())
             .collect();
@@ -569,16 +612,19 @@ impl Server {
             });
         }
         self.save_mailbox(next)?;
-        value["mailbox_notice"] = json!(notice(wid, session, run, &ids));
+        value["mailbox_notice"] = json!(context_notice(wid, session, run, &ids));
         Ok(())
     }
     fn waiting(&mut self, id: &str, outcome: &str, detail: &str) -> io::Result<()> {
+        if self.record_mode() {
+            return self.record_message_view(id, |server| server.waiting(id, outcome, detail));
+        }
         let m = self
             .coordination
             .messages
             .iter()
             .find(|m| m.id == id)
-            .unwrap();
+            .ok_or_else(|| invalid("unknown delivery message"))?;
         if !pending(m)
             || m.delivery
                 .as_ref()
@@ -605,6 +651,9 @@ impl Server {
         self.save_mailbox(next)
     }
     pub(super) fn try_delivery(&mut self, id: &str) -> io::Result<()> {
+        if self.record_mode() {
+            return self.record_message_view(id, |server| server.try_delivery(id));
+        }
         let m = self
             .coordination
             .messages
@@ -687,14 +736,20 @@ impl Server {
             return self.waiting(id, "waiting-for-idle", reason);
         }
         let recipient_workspace = m.to;
-        if self.coordination.messages.iter().any(|m| {
-            m.acknowledged.is_none()
-                && m.native_surfaced.is_none()
-                && m.delivery.as_ref().is_some_and(|d| {
-                    (d.run == run || (m.to == recipient_workspace && d.conversation == target.uuid))
-                        && matches!(d.outcome.as_str(), "queue-prepared" | "queued" | "unknown")
-                })
-        }) {
+        let queued = if self.record_backend() {
+            self.record_queued_handoff(recipient_workspace, &target.uuid, &run)?
+        } else {
+            self.coordination.messages.iter().any(|m| {
+                m.acknowledged.is_none()
+                    && m.native_surfaced.is_none()
+                    && m.delivery.as_ref().is_some_and(|d| {
+                        (d.run == run
+                            || (m.to == recipient_workspace && d.conversation == target.uuid))
+                            && matches!(d.outcome.as_str(), "queue-prepared" | "queued" | "unknown")
+                    })
+            })
+        };
+        if queued {
             return self.waiting(id,"waiting-for-receipt","An earlier native handoff to this conversation is awaiting a surface receipt; no duplicate wake-up.");
         }
         let text = notice(m.to, session, &run, std::slice::from_ref(&m.id));
@@ -713,7 +768,7 @@ impl Server {
             return Ok(());
         }
         let mut next = self.coordination.clone();
-        next.messages.iter_mut().find(|m|m.id==id).unwrap().delivery=Some(Receipt{outcome:"queue-prepared".into(),detail:"Native queue handoff reserved; uncertain outcomes are never automatically replayed.".into(),epoch:self.epoch.clone(),session,run:run.clone(),conversation:target.uuid,updated:now(),lease:String::new(),expires:0});
+        next.messages.iter_mut().find(|m|m.id==id).unwrap().delivery=Some(Receipt{outcome:"queue-prepared".into(),detail:"Native queue handoff reserved; uncertain outcomes are never automatically replayed.".into(),epoch:self.epoch.clone(),session,run:run.clone(),conversation:target.uuid.clone(),updated:now(),lease:String::new(),expires:0});
         self.audit(
             "native-queue-request",
             m.to,
@@ -723,6 +778,23 @@ impl Server {
             ),
         )?;
         self.save_mailbox(next)?;
+        // Saving can service terminal input/output. Recheck the reservation's
+        // exact owner and composer after durability, before the first side effect.
+        // Input may already have drained and the composer may look empty again.
+        let still_idle = !self.input_during_save(session, &run)
+            && self
+                .proof(session, &run)
+                .is_ok_and(|current| current == target)
+            && self.native_scope(session, &run).is_ok_and(|(_, s, _)| {
+                s.input.is_empty() && crate::native::delivery::composer_block(&s.term).is_none()
+            });
+        if !still_idle {
+            return self.finish_delivery(
+                id,
+                "waiting-for-idle",
+                "Recipient changed while reserving delivery; no native message submitted.",
+            );
+        }
         match command.spawn() {
             Ok(child) => self.delivery_jobs.push(Job {
                 id: id.into(),
@@ -738,6 +810,10 @@ impl Server {
         Ok(())
     }
     fn finish_delivery(&mut self, id: &str, outcome: &str, detail: &str) -> io::Result<()> {
+        if self.record_mode() {
+            return self
+                .record_message_view(id, |server| server.finish_delivery(id, outcome, detail));
+        }
         let mut next = self.coordination.clone();
         let m = next
             .messages
@@ -795,23 +871,38 @@ impl Server {
         }
         self.delivery_checked = Instant::now();
         let len = self.coordination.messages.len();
-        if len == 0 {
+        if !self.record_mode() && len == 0 {
             return;
         }
-        let start = self.delivery_cursor % len;
-        let ids: Vec<_> = (0..len)
-            .map(|offset| (start + offset) % len)
-            .filter_map(|index| {
-                let m = &self.coordination.messages[index];
-                (m.to != 0 && pending(m)).then(|| (index, m.id.clone()))
-            })
-            .take(16)
-            .collect();
+        let record_mode = self.record_mode();
+        let ids: Vec<_> = if record_mode {
+            match self.record_delivery_candidates() {
+                Ok(ids) => ids,
+                Err(error) => {
+                    self.last_refresh = error.to_string();
+                    return;
+                }
+            }
+        } else {
+            let start = self.delivery_cursor % len;
+            (0..len)
+                .map(|offset| (start + offset) % len)
+                .filter_map(|index| {
+                    let m = &self.coordination.messages[index];
+                    (m.to != 0 && pending(m)).then(|| (index, m.id.clone()))
+                })
+                .take(16)
+                .collect()
+        };
         for (index, id) in ids {
             if self.delivery_jobs.len() >= 4 {
                 break;
             }
-            self.delivery_cursor = (index + 1) % len;
+            if record_mode {
+                self.advance_record_delivery(&id);
+            } else {
+                self.delivery_cursor = (index + 1) % len;
+            }
             if let Err(e) = self.try_delivery(&id) {
                 let _ = self.waiting(&id, "target-unavailable", &wire::passive(&e.to_string()));
             }

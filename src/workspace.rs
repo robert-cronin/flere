@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
     path::Path,
 };
@@ -71,6 +71,57 @@ pub struct CardMeta {
     pub base_sha: String,
 }
 impl CardMeta {
+    /// Borrow the complete legacy frontend projection without copying its notes
+    /// or conversation history. Recency remains supervisor-owned saved state.
+    pub(crate) fn snapshot_metadata(&self) -> impl Serialize + '_ {
+        #[derive(Serialize)]
+        struct View<'a> {
+            status: &'a Workflow,
+            pinned: &'a bool,
+            #[serde(rename = "lead")]
+            legacy_lead: &'a bool,
+            archived: &'a bool,
+            project: &'a str,
+            issue: &'a str,
+            pr: &'a str,
+            notes: &'a str,
+            branch: &'a str,
+            conversations: &'a [crate::native::Conversation],
+            operation: &'a str,
+            base_sha: &'a str,
+        }
+        // Exhaustive destructuring makes a new metadata field require an
+        // explicit wire-compatibility choice, instead of silently omitting it.
+        let Self {
+            status,
+            pinned,
+            legacy_lead,
+            archived,
+            project,
+            issue,
+            pr,
+            notes,
+            branch,
+            conversations,
+            last_conversation: _,
+            operation,
+            base_sha,
+        } = self;
+        View {
+            status,
+            pinned,
+            legacy_lead,
+            archived,
+            project,
+            issue,
+            pr,
+            notes,
+            branch,
+            conversations,
+            operation,
+            base_sha,
+        }
+    }
     pub fn recent_conversation(&self) -> Option<&crate::native::Conversation> {
         self.last_conversation
             .as_ref()
@@ -194,6 +245,30 @@ impl Default for Preferences {
         }
     }
 }
+pub fn load_preferences(state: &Path) -> Preferences {
+    let mut prefs: Preferences = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(state.join("ui.json"))
+        .ok()
+        .and_then(|f| {
+            if !f.metadata().ok()?.is_file() {
+                return None;
+            }
+            let mut b = Vec::new();
+            f.take(65537).read_to_end(&mut b).ok()?;
+            if b.len() > 65536 {
+                return None;
+            }
+            serde_json::from_slice(&b).ok()
+        })
+        .unwrap_or_default();
+    prefs.expanded_cards.truncate(512);
+    if !matches!(prefs.screensaver_minutes, 0 | 5 | 15) {
+        prefs.screensaver_minutes = 5;
+    }
+    prefs
+}
 pub fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
@@ -206,8 +281,12 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
             .mode(0o600)
             .open(&tmp)?;
         f.write_all(data)?;
-        f.sync_all()?;
+        {
+            let _timing = crate::diagnostics::measure("store-file-sync");
+            f.sync_all()?;
+        }
         fs::rename(&tmp, path)?;
+        let _timing = crate::diagnostics::measure("store-directory-sync");
         File::open(parent)?.sync_all()
     })();
     if result.is_err() {

@@ -184,29 +184,9 @@ fn fuzzy(query: &str, text: &str) -> bool {
     let mut chars = text.chars();
     query.to_lowercase().chars().all(|q| chars.any(|c| c == q))
 }
-pub(super) fn load_preferences(state: &Path) -> Preferences {
-    let mut prefs: Preferences = fs::File::open(state.join("ui.json"))
-        .ok()
-        .and_then(|f| {
-            let mut b = Vec::new();
-            f.take(65537).read_to_end(&mut b).ok()?;
-            if b.len() > 65536 {
-                return None;
-            }
-            serde_json::from_slice(&b).ok()
-        })
-        .unwrap_or_default();
-    prefs.expanded_cards.truncate(512);
-    if !matches!(prefs.screensaver_minutes, 0 | 5 | 15) {
-        prefs.screensaver_minutes = 5;
-    }
-    prefs
-}
 impl Ui {
     pub(super) fn save_preferences(&mut self) {
-        if let Ok(bytes) = serde_json::to_vec_pretty(&self.prefs)
-            && let Err(e) = crate::workspace::atomic_write(&self.state.join("ui.json"), &bytes)
-        {
+        if let Err(e) = self.preferences_io.save(&self.state, &self.prefs) {
             self.notice = e.to_string();
         }
         self.relayout();

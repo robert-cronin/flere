@@ -21,6 +21,7 @@ include = [
 build = "build-support/build.rs"
 
 [dependencies]
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "limits"] }
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

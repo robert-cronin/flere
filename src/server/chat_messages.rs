@@ -112,12 +112,15 @@ impl Server {
         native: Option<(u64, &str)>,
     ) -> Option<String> {
         let (session, run) = native?;
-        if !self
-            .coordination
-            .messages
-            .iter()
-            .any(|m| m.chat.is_some() && (m.to == wid || m.from == wid))
-        {
+        let bound = if self.record_backend() {
+            self.record_has_bound_mail(wid).ok()?
+        } else {
+            self.coordination
+                .messages
+                .iter()
+                .any(|m| m.chat.is_some() && (m.to == wid || m.from == wid))
+        };
+        if !bound {
             return None;
         }
         let target = self.proof(session, run).ok()?;

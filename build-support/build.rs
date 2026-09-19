@@ -132,7 +132,7 @@ fn main() {
             // ordinary snapshot/watch requests retain their v4/v5 projections.
             "snapshot": {"current": 5, "read_min": 1, "read_max": 6},
             "refresh_handoff": {"current": 10, "read_min": 1, "read_max": 10},
-            "saved_state": {"current": 10, "read_min": 2, "read_max": 10},
+            "saved_state": {"current": 11, "read_min": 2, "read_max": 11},
             "remote_protocol": {"current": remote, "accepts": [remote]}
         })
     } else {

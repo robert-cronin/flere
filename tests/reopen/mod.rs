@@ -554,6 +554,9 @@ fn tab_tracks_conversation_switches_inside_the_owned_native_harness() {
     f.req(&["native", &wid.to_string(), "codex", ids[0]]);
     let t = f.snapshot().session().unwrap().clone();
     f.wait_text(&t, "FIRST_READY");
+    let context = dispatch_call(&f, &t, "context", json!({})).unwrap();
+    assert_eq!(context["messaging"]["conversation"], ids[0]);
+    let mut revision = context["context_revision"].clone();
     for (id, marker) in [(ids[1], "SECOND_READY"), (ids[0], "BACK_READY")] {
         f.send(&t, b"\r");
         f.wait_text(&t, marker);
@@ -566,7 +569,139 @@ fn tab_tracks_conversation_switches_inside_the_owned_native_harness() {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(f.snapshot().session().unwrap().run, t.run);
+        let context = dispatch_call(&f, &t, "context", json!({"since":revision})).unwrap();
+        assert_eq!(
+            context["context_mode"], "full",
+            "another conversation reused an old base"
+        );
+        assert_eq!(context["messaging"]["conversation"], id);
+        assert_eq!(context["messaging"]["run"], t.run);
+        revision = context["context_revision"].clone();
+        let repeated = dispatch_call(&f, &t, "context", json!({"since":revision})).unwrap();
+        assert_eq!(repeated["context_mode"], "delta");
+        assert_eq!(repeated["changes"], json!({}));
     }
+}
+
+#[test]
+fn busy_native_observation_revalidates_switches_and_ambiguous_open_rollouts() {
+    let f = Fixture::new();
+    let executable = f.root.join("codex");
+    copy_fixture_python(&executable);
+    let ids = [
+        "11111111-1234-5678-9012-123456789012",
+        "22222222-1234-5678-9012-123456789012",
+    ];
+    let files = [
+        f.root.join("rollout-first.jsonl"),
+        f.root.join("rollout-second.jsonl"),
+    ];
+    for (id, path) in ids.iter().zip(&files) {
+        fs::write(
+            path,
+            format!(
+                "{}\n",
+                json!({"type":"session_meta",
+            "payload":{"id":id,"cwd":f.root,"source":"cli"}})
+            ),
+        )
+        .unwrap();
+    }
+    let script = r#"import sys
+
+def paint(marker):
+    print('\x1b[2J\x1b[H' + marker + '\n• Working (1s • esc to interrupt)\n\n› ', end='', flush=True)
+
+held = open(sys.argv[1])
+paint('FIRST_READY')
+sys.stdin.readline()
+held.close()
+held = open(sys.argv[2])
+paint('SECOND_READY')
+sys.stdin.readline()
+extra = open(sys.argv[1])
+paint('AMBIGUOUS_READY')
+sys.stdin.readline()
+held.close()
+paint('BACK_READY')
+sys.stdin.readline()
+extra.close()
+paint('NO_ROLLOUT_READY')
+sys.stdin.readline()
+"#;
+    let mut argv = Vec::<String>::new();
+    #[cfg(target_os = "macos")]
+    argv.extend([
+        "/usr/bin/env".into(),
+        format!("PYTHONHOME={}", mac_python().1.display()),
+    ]);
+    argv.extend([
+        executable.to_str().unwrap().into(),
+        "-c".into(),
+        script.into(),
+        files[0].to_str().unwrap().into(),
+        files[1].to_str().unwrap().into(),
+    ]);
+    fs::write(
+        f.state.join("harnesses.json"),
+        serde_json::to_vec(&json!([{"name":"codex","command":argv}])).unwrap(),
+    )
+    .unwrap();
+    f.req(&[
+        "new-stopped",
+        &wire::hex(b"Busy observation fixture"),
+        &wire::hex(f.root.to_str().unwrap().as_bytes()),
+    ]);
+    let wid = f.snapshot().active;
+    f.req(&["native", &wid.to_string(), "codex", ids[0]]);
+    let tab = f.snapshot().session().unwrap().clone();
+    f.wait_text(&tab, "FIRST_READY");
+    let wait_observation = |conversation: &str, working: bool| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let snapshot = f.snapshot();
+            let current = snapshot.session().unwrap();
+            assert_eq!(
+                (current.id, &current.run, current.pid),
+                (tab.id, &tab.run, tab.pid)
+            );
+            if current.working == working
+                && stored(&f)["workspaces"][0]["tabs"][0]["conversation"] == conversation
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "fresh observation was not reflected"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    wait_observation(ids[0], true);
+    for (marker, conversation, working) in [
+        ("SECOND_READY", ids[1], true),
+        // Both handles remain open: keep history but refuse to claim activity
+        // from a previously successful identity proof.
+        ("AMBIGUOUS_READY", ids[1], false),
+        ("BACK_READY", ids[0], true),
+        ("NO_ROLLOUT_READY", ids[0], false),
+    ] {
+        f.send(&tab, b"\r");
+        f.wait_text(&tab, marker);
+        wait_observation(conversation, working);
+    }
+    let saved = stored(&f);
+    assert_eq!(
+        saved["workspaces"][0]["meta"]["conversations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        saved["workspaces"][0]["meta"]["last_conversation"]["uuid"],
+        ids[0]
+    );
 }
 
 fn close_all(f: &Fixture) {

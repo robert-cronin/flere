@@ -657,6 +657,18 @@ impl Server {
         event: &str,
         detail: &str,
     ) -> io::Result<()> {
+        if self.record_mode() {
+            let id = self
+                .session(session, run)?
+                .native
+                .as_ref()
+                .ok_or_else(|| invalid("worker host is no longer native"))?
+                .dispatch
+                .clone();
+            return self.record_worker_view(&id, |server| {
+                server.worker_event(session, run, event, detail)
+            });
+        }
         let spec = self
             .session(session, run)?
             .native

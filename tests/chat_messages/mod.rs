@@ -62,7 +62,13 @@ fn restart(f: &Fixture, previous: &MailboxNative, uuid: &str) -> MailboxNative {
 
 #[test]
 fn chat_message_queue_submission_unblocks_without_model_tools_and_survives_helper_timeout() {
-    let f = Fixture::new();
+    run_queue_submission(Fixture::new());
+}
+#[test]
+fn record_storage_queue_submission_unblocks_without_model_tools_and_survives_helper_timeout() {
+    run_queue_submission(Fixture::with_record_history());
+}
+fn run_queue_submission(f: Fixture) {
     let a = mailbox_native(&f, "sender", "11111111-bbbb-bbbb-bbbb-111111111111");
     let b = mailbox_native(&f, "recipient", "22222222-bbbb-bbbb-bbbb-222222222222");
     fs::write(b.root.join("queue-mode"), "hang").unwrap();
@@ -332,7 +338,13 @@ fn chat_message_idle_nudge_preserves_provenance_and_deduplicates() {
 
 #[test]
 fn chat_message_is_private_to_the_conversation_across_all_boundaries() {
-    let f = Fixture::new();
+    run_private_mail(Fixture::new());
+}
+#[test]
+fn record_storage_chat_message_is_private_to_the_conversation_across_all_boundaries() {
+    run_private_mail(Fixture::with_record_history());
+}
+fn run_private_mail(f: Fixture) {
     let a = mailbox_native(&f, "sender", "33333333-aaaa-aaaa-aaaa-333333333333");
     let b = mailbox_native(&f, "recipient", "44444444-aaaa-aaaa-aaaa-444444444444");
     let other = launch(
@@ -422,6 +434,39 @@ fn chat_message_is_private_to_the_conversation_across_all_boundaries() {
         b.tab.id
     );
     dispatch_call(&f, &b.tab, "inbox", json!({"ack_ids":[id]})).unwrap();
+    // Losing an acknowledged ID never expands discovery to another chat on this card.
+    let history = dispatch_call(&f, &b.tab, "inbox", json!({"include_acknowledged":true})).unwrap();
+    assert_eq!(history["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(history["messages"][0]["id"], id);
+    assert_eq!(history["messages"][0]["body"], args(&b, "scoped")["body"]);
+    assert_eq!(history["messages"][0]["chat"]["conversation"], b.uuid);
+    assert_eq!(
+        history["messages"][0]["chat"]["sender"]["conversation"],
+        a.uuid
+    );
+    assert!(!history["messages"][0]["acknowledged"].is_null());
+    let other_history = dispatch_call(
+        &f,
+        &other.tab,
+        "inbox",
+        json!({"include_acknowledged":true}),
+    )
+    .unwrap();
+    assert_eq!(other_history["messages"], json!([]));
+    assert_eq!(other_history["total"], 0);
+    assert_eq!(
+        dispatch_call(&f, &other.tab, "context", json!({})).unwrap()["messages_total"],
+        0
+    );
+    assert!(
+        dispatch_call(
+            &f,
+            &other.tab,
+            "inbox",
+            json!({"include_acknowledged":true,"after":id})
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -654,7 +699,13 @@ fn chat_message_unknown_handoff_never_requeues_after_resume_or_retry() {
 
 #[test]
 fn chat_message_refresh_preserves_binding_retry_key_and_permission_guard() {
-    let f = Fixture::new();
+    run_mail_refresh(Fixture::new());
+}
+#[test]
+fn record_storage_chat_message_refresh_preserves_binding_retry_key_and_permission_guard() {
+    run_mail_refresh(Fixture::with_record_history());
+}
+fn run_mail_refresh(f: Fixture) {
     let a = mailbox_native(&f, "sender", "bbbbbbbb-aaaa-aaaa-aaaa-bbbbbbbbbbbb");
     let b = mailbox_native(&f, "recipient", "cccccccc-aaaa-aaaa-aaaa-cccccccccccc");
     mailbox_event(&b, 1, json!({"event":"SessionStart","turn":""}));
@@ -764,4 +815,127 @@ fn chat_message_cold_start_validates_provenance_and_preserves_stopped_mail() {
     assert!(context["messages"][0]["native_surfaced"].is_null());
     assert!(context["messages"][0]["acknowledged"].is_null());
     assert!(!b.root.join("queue.jsonl").exists());
+}
+
+#[test]
+fn chat_message_notices_recheck_new_candidates_without_reopening_seen_or_foreign_mail() {
+    let f = Fixture::new();
+    let a = mailbox_native(&f, "notice-sender", "11111111-cccc-dddd-eeee-111111111111");
+    let b = mailbox_native(
+        &f,
+        "notice-recipient",
+        "22222222-cccc-dddd-eeee-222222222222",
+    );
+    let other = launch(
+        &f,
+        b.wid,
+        b.root.join("other"),
+        "33333333-cccc-dddd-eeee-333333333333",
+    );
+    for native in [&b, &other] {
+        mailbox_event(
+            native,
+            1,
+            json!({"screen":"active","handle":false,"process_queue":false}),
+        );
+    }
+    let old = dispatch_call(&f, &a.tab, "send_chat_message", args(&b, "already-handled")).unwrap()
+        ["message"]["id"]
+        .clone();
+    dispatch_call(&f, &b.tab, "inbox", json!({})).unwrap();
+    dispatch_call(&f, &b.tab, "inbox", json!({"ack_ids":[old]})).unwrap();
+    let seen = dispatch_call(&f, &a.tab, "send_chat_message", args(&b, "seen-unhandled")).unwrap()
+        ["message"]["id"]
+        .clone();
+    dispatch_call(&f, &b.tab, "inbox", json!({})).unwrap();
+    for _ in 0..2 {
+        let reply = dispatch_call(&f, &b.tab, "checkpoints", json!({})).unwrap();
+        assert!(reply.get("mailbox_notice").is_none());
+    }
+    let mut stale = b.tab.clone();
+    stale.run = "ffffffffffffffffffffffffffffffff".into();
+    assert!(dispatch_call(&f, &stale, "checkpoints", json!({})).is_err());
+    // More than a notice page of another chat's candidates must neither leak nor
+    // prevent later own-conversation messages from being selected.
+    let mut foreign = Vec::new();
+    for n in 0..9 {
+        let sent = dispatch_call(
+            &f,
+            &a.tab,
+            "send_chat_message",
+            args(&other, &format!("foreign-{n}")),
+        )
+        .unwrap();
+        foreign.push(sent["message"]["id"].clone());
+    }
+    assert!(
+        dispatch_call(&f, &b.tab, "checkpoints", json!({}))
+            .unwrap()
+            .get("mailbox_notice")
+            .is_none()
+    );
+    let new = dispatch_call(
+        &f,
+        &a.tab,
+        "send_chat_message",
+        args(&b, "new-after-empty-read"),
+    )
+    .unwrap()["message"]["id"]
+        .clone();
+    let reply = dispatch_call(&f, &b.tab, "checkpoints", json!({})).unwrap();
+    let notice = reply["mailbox_notice"].as_str().unwrap();
+    assert!(notice.contains(new.as_str().unwrap()));
+    for excluded in foreign.iter().chain([&old, &seen]) {
+        assert!(!notice.contains(excluded.as_str().unwrap()));
+    }
+    let repeated = dispatch_call(&f, &b.tab, "checkpoints", json!({})).unwrap();
+    assert!(repeated.get("mailbox_notice").is_none());
+    for id in &foreign {
+        let status = mailbox_status(&f, &a, id.as_str().unwrap());
+        assert!(status["native_surfaced"].is_null());
+        assert!(status["acknowledged"].is_null());
+    }
+    for id in [&seen, &new] {
+        let status = mailbox_status(&f, &a, id.as_str().unwrap());
+        assert!(!status["native_surfaced"].is_null());
+        assert!(status["acknowledged"].is_null());
+    }
+    let pending = dispatch_call(&f, &b.tab, "inbox", json!({})).unwrap();
+    assert_eq!(
+        pending["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["id"].clone())
+            .collect::<Vec<_>>(),
+        vec![seen, new]
+    );
+    // Failed notice persistence still rolls back the surface receipt, allowing
+    // a later ordinary read to report that same saved candidate exactly once.
+    let retry = dispatch_call(
+        &f,
+        &a.tab,
+        "send_chat_message",
+        args(&b, "retry-after-write-failure"),
+    )
+    .unwrap()["message"]["id"]
+        .clone();
+    let store = f.state.join("workspaces.v2.json");
+    let retained = f.state.join("notice-retained.json");
+    fs::rename(&store, &retained).unwrap();
+    fs::create_dir(&store).unwrap();
+    assert!(dispatch_call(&f, &b.tab, "checkpoints", json!({})).is_err());
+    assert!(mailbox_status(&f, &a, retry.as_str().unwrap())["native_surfaced"].is_null());
+    fs::remove_dir(&store).unwrap();
+    fs::rename(&retained, &store).unwrap();
+    let reply = dispatch_call(&f, &b.tab, "checkpoints", json!({})).unwrap();
+    assert!(
+        reply["mailbox_notice"]
+            .as_str()
+            .unwrap()
+            .contains(retry.as_str().unwrap())
+    );
+    assert!(mailbox_status(&f, &a, retry.as_str().unwrap())["acknowledged"].is_null());
+    assert!(!b.root.join("queue.jsonl").exists());
+    assert!(!other.root.join("queue.jsonl").exists());
 }

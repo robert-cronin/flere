@@ -11,6 +11,10 @@ mod flere_mascot;
 mod hover_tooltips;
 #[path = "native_launcher/mod.rs"]
 mod native_launcher;
+#[path = "output/mod.rs"]
+mod output;
+#[path = "preferences/mod.rs"]
+mod preferences;
 #[path = "screensaver/mod.rs"]
 mod screensaver;
 #[path = "search/mod.rs"]
@@ -123,13 +127,29 @@ impl Fixture {
     fn with_editor(editor: &str) -> Self {
         Self::with_shell_editor("/bin/sh", editor)
     }
+    fn with_record_history() -> Self {
+        Self::with_shell_editor_history("/bin/sh", "/usr/bin/vim -Nu NONE -n --noplugin", true)
+    }
     fn with_shell_editor(shell: &str, editor: &str) -> Self {
+        Self::with_shell_editor_history(shell, editor, false)
+    }
+    fn with_shell_editor_history(shell: &str, editor: &str, records: bool) -> Self {
         let root = PathBuf::from(std::env::var_os("HOME").unwrap())
             .join(".cache/flere/tests")
             .join(&os::nonce().unwrap()[..12]);
         fs::create_dir_all(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let state = root.join("s");
+        if records {
+            use serde_json::json;
+            fs::create_dir(&state).unwrap();
+            fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+            let messages=(0..495).map(|n|json!({"id":format!("{n:032x}"),"from":0,"to":0,"body":"s".repeat(16384),"intent":"quiet","saved":1,"surfaced":1,"native_surfaced":1,"acknowledged":1})).collect::<Vec<_>>();
+            let document = json!({"version":10,"active":0,"workspaces":[],"coordination":{"messages":messages,"decisions":[],"checkpoints":[],"dispatches":[]}});
+            let bytes = serde_json::to_vec(&document).unwrap();
+            assert!(bytes.len() < 8 * 1024 * 1024);
+            fs::write(state.join("workspaces.v2.json"), bytes).unwrap();
+        }
         let log = fs::File::create(root.join("log")).unwrap();
         let mut server = Command::new(env!("CARGO_BIN_EXE_flere"));
         #[cfg(target_os = "macos")]
@@ -163,6 +183,50 @@ impl Fixture {
             .unwrap();
         let mut f = Self { root, state, child };
         f.ready();
+        if records {
+            use serde_json::{Value, json};
+            let w: Value = serde_json::from_slice(&f.req(&[
+                "new-stopped",
+                &wire::hex(b"retained storage fixture"),
+                &wire::hex(f.root.to_str().unwrap().as_bytes()),
+            ]))
+            .unwrap();
+            let wid = w["workspace"].as_u64().unwrap().to_string();
+            let mut ids = Vec::new();
+            for _ in 0..24 {
+                let reply: Value = serde_json::from_slice(
+                    &f.req(&[
+                        "coordinate",
+                        &wid,
+                        "send_message",
+                        &wire::hex(
+                            serde_json::to_string(&json!({"to":"user","body":"x".repeat(16384)}))
+                                .unwrap()
+                                .as_bytes(),
+                        ),
+                    ]),
+                )
+                .unwrap();
+                ids.push(reply["message"]["id"].clone());
+            }
+            f.req(&[
+                "coordinate",
+                &wid,
+                "inbox",
+                &wire::hex(
+                    serde_json::to_string(&json!({"ack_ids":ids}))
+                        .unwrap()
+                        .as_bytes(),
+                ),
+            ]);
+            let marker: Value =
+                serde_json::from_slice(&fs::read(f.state.join("workspaces.v2.json")).unwrap())
+                    .unwrap();
+            assert_eq!(
+                marker["version"], 11,
+                "fixture must cross the production activation boundary"
+            );
+        }
         f
     }
     fn ready(&mut self) {
@@ -181,8 +245,10 @@ impl Fixture {
         }
         panic!("server readiness timeout")
     }
+    #[track_caller]
     fn req(&self, p: &[&str]) -> Vec<u8> {
-        wire::request(&self.state, p).unwrap()
+        wire::request(&self.state, p)
+            .unwrap_or_else(|error| panic!("fixture request {:?} failed: {error}", p.first()))
     }
     fn snapshot(&self) -> Snapshot {
         Snapshot::decode(&self.req(&["snapshot"])).unwrap()
@@ -823,7 +889,7 @@ fn actual_ui_search_forms_git_shared_width_and_exact_close_cancel() {
     }
     assert!(child.try_wait().unwrap().unwrap().success());
     let prefs: flere::workspace::Preferences =
-        serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+        serde_json::from_value(preferences::durable(&f)).unwrap();
     assert_eq!(prefs.left, 30);
     assert_eq!(prefs.inspector, flere::workspace::Inspector::Git);
 }
@@ -1826,8 +1892,7 @@ fn actual_ui_pet_interactions_select_characters_without_native_input() {
     wait_current_ui(&mut master, &mut screen, |s| {
         s.capture(100).contains("PET Napping")
     });
-    let saved: serde_json::Value =
-        serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+    let saved = preferences::durable(&f);
     assert_eq!(saved["pet_kind"], "cat");
     assert_eq!(saved["pet"], true);
     // Escape returns to NAV; the next Escape returns to the untouched native draft.
@@ -2068,8 +2133,7 @@ fn actual_ui_cat_window_reserves_inspector_and_preserves_native_draft() {
     assert_eq!(f.snapshot().session().unwrap().run, t.run);
     master.write_all(b"o").unwrap();
     pump_ui_bytes(&mut master, &mut screen, 100);
-    let saved: serde_json::Value =
-        serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+    let saved = preferences::durable(&f);
     assert_eq!(saved["pet"], false);
     finish_ui(&mut master, &mut screen, &mut child);
 }
@@ -3231,8 +3295,14 @@ fn prepare_dispatch(f: &Fixture, lead: &TabView, wid: u64, key: &str) -> serde_j
 }
 #[test]
 fn worker_dispatch_exact_assignment_receipts_retry_refresh_and_draft_isolation() {
+    run_dispatch_receipts(Fixture::new());
+}
+#[test]
+fn record_storage_dispatch_receipts_retry_refresh_and_draft_isolation() {
+    run_dispatch_receipts(Fixture::with_record_history());
+}
+fn run_dispatch_receipts(f: Fixture) {
     use serde_json::{Value, json};
-    let f = Fixture::new();
     let (_, lead) = dispatch_fixture(&f);
     let shell = f.new_workspace("assigned issue");
     let wid = f.snapshot().active;
@@ -7269,8 +7339,7 @@ fn actual_ui_compact_cards_attention_and_action_search_preserve_native_draft() {
     wait_current_ui(&mut master, &mut screen, |s| {
         !s.capture(100).contains("FLERE ACTIONS") && s.grid.line(34).contains("NAV")
     });
-    let pref: serde_json::Value =
-        serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+    let pref = preferences::durable(&f);
     assert_eq!(pref["inspector"], "Git");
     // Clearing the query and closing the menu are separate Escape steps.
     master.write_all(b" /not-a-command").unwrap();
@@ -7283,12 +7352,10 @@ fn actual_ui_compact_cards_attention_and_action_search_preserve_native_draft() {
     });
     master.write_all(b" C").unwrap(); // Direct shortcuts still work in Actions.
     wait_current_ui(&mut master, &mut screen, |s| {
-        let pref: serde_json::Value =
-            serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+        let pref = preferences::durable(&f);
         !s.capture(100).contains("FLERE ACTIONS") && pref["compact_cards"] == false
     });
-    let pref: serde_json::Value =
-        serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+    let pref = preferences::durable(&f);
     assert_eq!(pref["compact_cards"], false);
     master.write_all(b"C").unwrap();
     pump_ui_bytes(&mut master, &mut screen, 100);
@@ -7480,12 +7547,10 @@ fn actual_ui_terminal_tree_and_notes_overlay_preserve_drafts_and_exact_focus() {
         .unwrap();
     // Observe the persisted collapse rather than a previously queued frame.
     wait_current_ui(&mut master, &mut screen, |_| {
-        let pref: serde_json::Value =
-            serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+        let pref = preferences::durable(&f);
         pref["expanded_cards"] == serde_json::json!([])
     });
-    let pref: serde_json::Value =
-        serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+    let pref = preferences::durable(&f);
     assert_eq!(pref["expanded_cards"], serde_json::json!([]));
     master.write_all(b"\r_STILL_NATIVE").unwrap();
     drain_pty(&mut master, &mut screen, "TREE_UNSUBMITTED_STILL_NATIVE");
@@ -7725,8 +7790,8 @@ fn actual_ui_stopped_details_keep_notes_without_dead_links_and_close_on_archive(
     drain_pty(&mut master, &mut screen, "Workspace details changed");
     assert!(!screen.capture(100).contains("Details · Stopped"));
     assert!(f.snapshot().workspace().unwrap().tabs.is_empty());
-    master.write_all(b"\x1b").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 80);
+    // Archive already closed the overlay, as asserted above. A redundant bare
+    // Escape can still be pending when the detach chord arrives under load.
     finish_ui(&mut master, &mut screen, &mut child);
 }
 
@@ -7891,3 +7956,92 @@ fn ordinary_agents_share_coordination_tools_and_can_delegate_without_pinning() {
 }
 #[path = "arcade/mod.rs"]
 mod arcade;
+
+#[test]
+fn record_storage_native_results_decisions_and_exact_history_survive_cold_restart() {
+    use serde_json::{Value, json};
+    let mut f = Fixture::with_record_history();
+    let a = mailbox_native(&f, "record actor", "abcdefab-abcd-abcd-abcd-abcdefabcdef");
+    let result = dispatch_call(
+        &f,
+        &a.tab,
+        "submit_result",
+        json!({"body":"Synthetic result 界; preserve original evidence."}),
+    )
+    .unwrap();
+    assert_eq!(result["accepted"], false);
+    let decision=dispatch_call(&f,&a.tab,"request_decision",json!({"question":"Synthetic decision?","recommendation":"Keep exact originals","evidence":"bounded fixture"})).unwrap();
+    let id = decision["decision"]["id"].as_str().unwrap();
+    assert!(
+        dispatch_call(
+            &f,
+            &a.tab,
+            "answer_decision",
+            json!({"id":id,"answer":"not native authority"})
+        )
+        .is_err()
+    );
+    let answer: Value = serde_json::from_slice(
+        &f.req(&[
+            "coordinate",
+            &a.wid.to_string(),
+            "answer_decision",
+            &wire::hex(
+                serde_json::to_string(&json!({"id":id,"answer":"Synthetic human answer"}))
+                    .unwrap()
+                    .as_bytes(),
+            ),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(answer["decision"]["answer"], "Synthetic human answer");
+    let checkpoints = dispatch_call(&f, &a.tab, "checkpoints", json!({})).unwrap();
+    let checkpoint_id = checkpoints["checkpoints"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let exact = dispatch_call(&f, &a.tab, "checkpoints", json!({"id":checkpoint_id})).unwrap();
+    assert_eq!(
+        exact["checkpoints"][0]["checkpoint"]["body"],
+        "Synthetic result 界; preserve original evidence."
+    );
+    let context = dispatch_call(&f, &a.tab, "context", json!({})).unwrap();
+    assert_eq!(context["pending_decisions"], 0);
+    assert_eq!(context["latest_checkpoint_id"], checkpoint_id);
+    f.stop();
+    let log = fs::File::create(f.root.join("cold.log")).unwrap();
+    f.child = Command::new(env!("CARGO_BIN_EXE_flere"))
+        .args(["--state", f.state.to_str().unwrap(), "serve"])
+        .env("HOME", &f.root)
+        .env("TMPDIR", &f.root)
+        .env("SHELL", "/bin/sh")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().unwrap())
+        .stderr(log)
+        .spawn()
+        .unwrap();
+    f.ready();
+    assert!(f.snapshot().workspaces.iter().all(|w| w.tabs.is_empty()));
+    let got: Value = serde_json::from_slice(
+        &f.req(&[
+            "coordinate",
+            &a.wid.to_string(),
+            "checkpoints",
+            &wire::hex(
+                serde_json::to_string(&json!({"id":checkpoint_id}))
+                    .unwrap()
+                    .as_bytes(),
+            ),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(got, exact);
+    let got: Value = serde_json::from_slice(&f.req(&[
+        "coordinate",
+        &a.wid.to_string(),
+        "decisions",
+        &wire::hex(serde_json::to_string(&json!({"id":id})).unwrap().as_bytes()),
+    ]))
+    .unwrap();
+    assert_eq!(got["decisions"][0], answer["decision"]);
+}

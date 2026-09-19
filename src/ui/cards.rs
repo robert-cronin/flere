@@ -1115,7 +1115,7 @@ impl Ui {
             remote.browser_serial,
             serde_json::to_vec(&context).map_err(io::Error::other)?,
         )
-        .write(&mut io::stdout().lock())
+        .write(&mut output::writer())
     }
     pub(super) fn draw_card_popup(&self, c: &mut Canvas) {
         let Some(p) = &self.cards.popup else {

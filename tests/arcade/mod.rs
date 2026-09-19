@@ -237,12 +237,18 @@ fn actual_keyboard_release_protocol_preserves_move_jump_and_fences_late_exit_eve
             "held Right stopped when Space suppressed repeats: {launch} -> {continued} ({width} columns)"
         );
         ui.artifact(&format!("context-ruins-held-jump-{width}x{height}"));
+        let release_sent = Instant::now();
         output.extend(ui.key(b"\x1b[1;1:3C"));
         let released = avatar_x(&ui.screen);
+        let release_observed_after = release_sent.elapsed();
         output.extend(pump_ui_bytes(&mut ui.master, &mut ui.screen, 240));
+        let after_release = avatar_x(&ui.screen);
         assert!(
-            (avatar_x(&ui.screen) - released).abs() < 1.25,
-            "Right release did not stop movement"
+            (after_release - released).abs() < 1.25,
+            "Right release did not stop movement: {released} -> {after_release}, \
+             {width} columns, first sample after {release_observed_after:?}, \
+             second after {:?}",
+            release_sent.elapsed(),
         );
         let before_bare_press = avatar_x(&ui.screen);
         output.extend(ui.key(b"\x1b[C")); // Enhanced terminals may omit default press fields.

@@ -350,9 +350,11 @@ fn expired_cancelled_and_interrupted_shell_checks_never_replay_at_the_next_promp
     ready(&f, &t);
     // A read builtin has no child process; PID inspection alone is insufficient.
     for action in ["timeout", "cancel", "input"] {
+        // Publish only after print finishes; file creation alone can precede
+        // its contents and race the assertion under filesystem load.
         f.send(
             &t,
-            b"read answer; print -r -- $answer > $HOME/read-result\r",
+            b"read answer; print -r -- $answer > $HOME/read-result.pending; mv $HOME/read-result.pending $HOME/read-result\r",
         );
         std::thread::sleep(Duration::from_millis(100));
         let snapshot = f.snapshot();

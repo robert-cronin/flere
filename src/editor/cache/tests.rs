@@ -409,3 +409,55 @@ fn background_batches_are_bounded_and_progress_beyond_the_first_page() {
     }
     panic!("bounded worker did not advance to remaining entries");
 }
+
+#[test]
+fn record_layout_keeps_editor_references_and_fails_closed_on_missing_store() {
+    use crate::record_store::{CommitOutcome, Store};
+    let f = Fixture::new();
+    let (paths, lease) = f.entry("records");
+    drop(lease);
+    f.saved(&[&paths[0]]);
+    let source = fs::read(f.state.join("workspaces.v2.json")).unwrap();
+    let name = format!("records-{}", os::nonce().unwrap());
+    let root = f.state.join(&name);
+    directory(&root, true).unwrap();
+    let mut store = Store::open(&root).unwrap();
+    store.import_legacy(&source, None).unwrap();
+    write_json(
+        &f.state.join("workspaces.v2.json"),
+        &serde_json::json!({"version":11,"records":name}),
+    )
+    .unwrap();
+    let start = now() + 10 * RETENTION_SECONDS;
+    assert_eq!(f.sweep(&paths[0], start).unwrap().referenced, 1);
+    let mut layout = store.load_layout().unwrap();
+    layout["version"] = serde_json::json!(10);
+    layout["workspaces"][0]["tabs"] = serde_json::json!([]);
+    assert!(matches!(
+        store.sync_snapshot(&os::nonce().unwrap(), &layout),
+        CommitOutcome::Committed(())
+    ));
+    assert_eq!(
+        f.sweep(&paths[0], start + RETENTION_SECONDS)
+            .unwrap()
+            .awaiting_retention,
+        1
+    );
+    // A durable reservation still protects an editor before its saved reference.
+    let pin = reserve_open(&f.state, &paths[0]).unwrap().unwrap();
+    assert_eq!(
+        f.sweep(&paths[0], start + 3 * RETENTION_SECONDS)
+            .unwrap()
+            .reserved,
+        1
+    );
+    pin.release();
+    drop(store);
+    fs::rename(root.join("state.sqlite"), root.join("retained.sqlite")).unwrap();
+    assert!(f.sweep(&paths[0], start + 5 * RETENTION_SECONDS).is_err());
+    assert!(paths.iter().all(|p| p.exists()));
+    assert!(
+        !root.join("state.sqlite").exists(),
+        "cleanup must never create a replacement database"
+    );
+}

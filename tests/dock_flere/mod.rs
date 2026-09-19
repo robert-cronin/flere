@@ -62,7 +62,7 @@ fn default_dock_flere_and_original_shortcuts_preserve_draft_through_petting_and_
                 s.capture(100).contains(&format!("PET / {label}"))
             });
             let prefs: flere::workspace::Preferences =
-                serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap();
+                serde_json::from_value(super::preferences::durable(&f)).unwrap();
             assert_eq!(prefs.pet_kind.label(), label);
         }
         // Hover, wheel and pasted commands cannot pet Flere or touch the native draft.

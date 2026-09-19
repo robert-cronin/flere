@@ -112,7 +112,10 @@ impl Ui {
         }
     }
 
-    pub(super) fn tick_screenshot(&mut self) -> bool {
+    pub(super) fn tick_screenshot(&mut self, can_output: bool) -> bool {
+        if !can_output {
+            return false;
+        }
         if let Some(remote) = &mut self.remote
             && let Some(export) = &mut remote.screenshot
         {
@@ -133,7 +136,7 @@ impl Ui {
             };
             if let Some(packet) = packet {
                 let expired = packet.tag == p::SCREENSHOT_CANCEL;
-                if let Err(error) = packet.write(&mut io::stdout().lock()) {
+                if let Err(error) = packet.write(&mut output::writer()) {
                     remote.screenshot = None;
                     self.notice = format!("Screenshot: {error}");
                 } else if expired {
@@ -162,7 +165,7 @@ impl Ui {
                         id,
                         (png.len() as u64).to_be_bytes(),
                     );
-                    match packet.write(&mut io::stdout().lock()) {
+                    match packet.write(&mut output::writer()) {
                         Ok(()) => {
                             remote.screenshot = Some(Export {
                                 id,

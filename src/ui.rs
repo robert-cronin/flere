@@ -28,9 +28,11 @@ mod hyperlinks;
 mod image_preview;
 mod intro;
 mod local_graphics;
+mod output;
 mod panes;
 mod pet;
 mod polish;
+mod preferences;
 mod project_picker;
 mod remote;
 mod remote_tools;
@@ -267,6 +269,7 @@ struct Ui {
     nav_help_at: Option<Instant>,
     mouse_hint: Option<(String, Instant)>,
     prefs: Preferences,
+    preferences_io: preferences::Persistence,
     form: Option<Form>,
     search: Option<search::Search>,
     update: Option<update::Update>,
@@ -610,6 +613,11 @@ impl Ui {
     }
 
     fn key(&mut self, key: Key) {
+        // One read/packet can contain more keys after the transition shortcut.
+        // They belong to the departing attachment, never the native composer.
+        if self.quit || self.refresh {
+            return;
+        }
         if let Key::TerminalReply(bytes) = key {
             if let Some(g) = &mut self.local_graphics {
                 g.reply(&bytes);
@@ -1780,7 +1788,7 @@ struct DisplayGuard {
 }
 impl Drop for DisplayGuard {
     fn drop(&mut self) {
-        let _ = remote::emit(self.remote,
+        let _ = remote::cleanup(self.remote,
             b"\x18\x1b\\\x1b]8;;\x1b\\\x1b[?2026l\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[>0s\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l",
         );
     }
@@ -1825,6 +1833,32 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
         .as_mut()
         .map(remote::Connection::handshake)
         .transpose()?;
+    // HELLO stays synchronous: a failed write must not strand the handshake's
+    // blocking read. Once connected, every UI output shares the queued writer.
+    // Keep raw mode until queued terminal restoration drains, including when
+    // run_session returns an error. Restoring output processing earlier could
+    // change bytes still being written to the local PTY.
+    let mut raw = None;
+    let mut output = output::Output::start()?;
+    let result = run_session(
+        state,
+        is_remote,
+        remote_input,
+        remote,
+        &mut output,
+        &mut raw,
+    );
+    let drained = output.finish();
+    result.and(drained)
+}
+fn run_session(
+    state: &Path,
+    is_remote: bool,
+    mut remote_input: Option<fs::File>,
+    remote: Option<remote::Connection>,
+    output: &mut output::Output,
+    raw: &mut Option<os::RawTerminal>,
+) -> io::Result<()> {
     let input_fd = remote_input.as_ref().map_or(0, |input| input.as_raw_fd());
     let (width, height) = remote
         .as_ref()
@@ -1834,9 +1868,10 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
         &format!("remote={is_remote} size={width}x{height}"),
     );
     let startup = Instant::now();
-    let prefs = workflows::load_preferences(state);
-    let layout = Layout::with_preferences(width as usize, height as usize, &prefs);
     let (initial, pane_capable, link_capable) = hyperlinks::initial_snapshot(state)?;
+    let (prefs, preferences_io, preferences_error) =
+        preferences::Persistence::load(state, &initial.epoch)?;
+    let layout = Layout::with_preferences(width as usize, height as usize, &prefs);
     if pane_capable {
         wire::request(
             state,
@@ -1879,7 +1914,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     };
     stream.write_all(&wire::frame(watch.as_bytes()))?;
     stream.set_nonblocking(true)?;
-    let _raw = if is_remote {
+    *raw = if is_remote {
         None
     } else {
         Some(os::RawTerminal::enter(0)?)
@@ -1923,6 +1958,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
         nav_help_at: None,
         mouse_hint: None,
         prefs,
+        preferences_io,
         form: None,
         search: None,
         update: None,
@@ -1989,6 +2025,9 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     }
     ui.snapshot(snapshot);
     ui.reopen_workspace();
+    if !preferences_error.is_empty() {
+        ui.notice = preferences_error;
+    }
     crate::diagnostics::record(
         "ui-ready",
         &format!("elapsed_ms={}", startup.elapsed().as_millis()),
@@ -2006,7 +2045,24 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
     let mut dirty = true;
     let mut size_checked = Instant::now();
     while !ui.quit && !ui.refresh && !os::stopping() {
-        let loop_started = Instant::now();
+        let mut loop_timing = crate::diagnostics::Stages::new(
+            "ui-loop",
+            [
+                "preferences",
+                "poll",
+                "input",
+                "watch",
+                "maintenance",
+                "frame",
+                "images",
+            ],
+        );
+        if let Err(e) = ui.preferences_io.poll(state) {
+            ui.notice = e.to_string();
+            dirty = true;
+        }
+        loop_timing.mark();
+        output.poll()?;
         let mut fds = [
             os::PollFd {
                 fd: input_fd,
@@ -2018,10 +2074,15 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                 events: os::READ,
                 revents: 0,
             },
+            os::PollFd {
+                fd: output.fd(),
+                events: os::READ,
+                revents: 0,
+            },
         ];
         os::wait(
             &mut fds,
-            if dirty {
+            if dirty && output::ready() {
                 0
             } else if ui.smooth_scroll.is_some() {
                 20
@@ -2029,6 +2090,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                 40
             },
         )?;
+        loop_timing.mark();
         if fds[0].revents & (os::READ | os::HUP) != 0 {
             let mut b = [0; 8192];
             let n = if let Some(input) = &mut remote_input {
@@ -2075,6 +2137,7 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
         }
         ui.finish_input_burst();
         ui.flush_input();
+        loop_timing.mark();
         if fds[1].revents & (os::READ | os::HUP) != 0 {
             let mut b = [0; 65536];
             for _ in 0..32 {
@@ -2097,6 +2160,11 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                 return Err(wire::invalid("watch buffer exceeds bound"));
             }
         }
+        loop_timing.mark();
+        // Admit one bounded production turn only when the previous output has
+        // drained. Use the same grant for frames and transfers so continuous
+        // painting cannot starve image/update/file progress (or vice versa).
+        let can_output = output::ready();
         if size_checked.elapsed() > Duration::from_millis(200)
             || ui.remote.as_ref().is_some_and(|r| r.force_redraw)
         {
@@ -2159,13 +2227,13 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
         dirty |= ui.tick_cards();
         dirty |= ui.tick_restore();
         dirty |= ui.tick_close();
-        dirty |= ui.tick_screenshot();
+        dirty |= ui.tick_screenshot(can_output);
         dirty |= ui.tick_explorer();
         dirty |= ui.tick_search();
         dirty |= ui.tick_update();
         dirty |= ui.tick_update_ack();
-        dirty |= ui.tick_remote_tools();
-        dirty |= ui.tick_update_rpc()?;
+        dirty |= ui.tick_remote_tools(can_output);
+        dirty |= ui.tick_update_rpc(can_output)?;
         dirty |= ui.tick_tasks();
         dirty |= ui.tick_selection();
         dirty |= ui.tick_scroll();
@@ -2210,7 +2278,8 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
             ui.animation_checked = Instant::now();
             dirty = true;
         }
-        if dirty {
+        loop_timing.mark();
+        if dirty && can_output {
             if previous_arcade != ui.arcade.is_some() {
                 previous.clear();
                 clear_next = true;
@@ -2306,17 +2375,21 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
                             avatars.encode()
                         },
                     )
-                    .write(&mut io::stdout().lock())?;
+                    .write(&mut output::writer())?;
                 }
             }
             ui.emit_card_links()?;
             dirty = false;
         }
-        if ui.remote.as_ref().is_some_and(|r| r.avatar_capable) {
+        loop_timing.mark();
+        if can_output && ui.remote.as_ref().is_some_and(|r| r.avatar_capable) {
             ui.project_icons.emit(&previous_avatars)?;
         }
-        ui.image_emit()?;
-        crate::diagnostics::slow("ui-loop", loop_started);
+        if can_output {
+            ui.image_emit()?;
+        }
+        loop_timing.mark();
+        loop_timing.finish();
     }
     crate::diagnostics::record(
         "leaving",
@@ -2328,20 +2401,24 @@ fn attach_session(state: &Path, is_remote: bool) -> io::Result<()> {
         ),
     );
     ui.cancel_close();
-    ui.arcade_keyboard.stop(Instant::now());
-    ui.arcade_keyboard.flush();
+    ui.arcade_keyboard.finish();
     ui.remember_workspace();
     if ui.refresh {
+        let mut command =
+            std::process::Command::new(ui.refresh_to.take().unwrap_or(os::executable_path()?));
+        remote::refresh::prepare(
+            &mut command,
+            ui.remote.as_ref().map_or(&[], |r| r.buffer.as_slice()),
+        )?;
         ui.remote_tools = Default::default();
         ui.remote_escape();
         drop(ui.remote.take());
         drop(ui.local_graphics.take());
         drop(_display);
-        drop(_raw);
+        output.finish()?;
+        drop(raw.take());
         drop(stream);
         use std::os::unix::process::CommandExt;
-        let mut command =
-            std::process::Command::new(ui.refresh_to.take().unwrap_or(os::executable_path()?));
         command.env_remove("FLERE_UPDATE_ACK");
         if let Some(attempt) = ui.refresh_attempt.take() {
             command.env("FLERE_UPDATE_ACK", attempt);

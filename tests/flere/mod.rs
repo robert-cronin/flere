@@ -97,7 +97,7 @@ impl Drop for Ui {
     }
 }
 fn saved(f: &Fixture) -> flere::workspace::Preferences {
-    serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap()
+    serde_json::from_value(super::preferences::durable(f)).unwrap()
 }
 #[test]
 fn flere_selector_petting_throw_and_wake_preserve_live_native_tabs_and_drafts() {

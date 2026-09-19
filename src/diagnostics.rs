@@ -153,6 +153,65 @@ pub fn slow(event: &'static str, started: std::time::Instant) {
         record(event, &format!("elapsed_ms={}", elapsed.as_millis()));
     }
 }
+/// Measure a supervisor stage even when it exits through an error path.
+/// Only the static event name and elapsed time can reach the diagnostic log.
+pub(crate) struct Timing {
+    event: &'static str,
+    started: std::time::Instant,
+}
+pub(crate) fn measure(event: &'static str) -> Timing {
+    Timing {
+        event,
+        started: std::time::Instant::now(),
+    }
+}
+impl Drop for Timing {
+    fn drop(&mut self) {
+        slow(self.event, self.started);
+    }
+}
+
+/// Fixed-size stage accounting. Fast loops allocate nothing; slow-loop records
+/// contain static stage names and durations only, never input or terminal data.
+pub(crate) struct Stages<const N: usize> {
+    event: &'static str,
+    names: [&'static str; N],
+    times: [std::time::Duration; N],
+    started: std::time::Instant,
+    previous: std::time::Instant,
+    next: usize,
+}
+impl<const N: usize> Stages<N> {
+    pub(crate) fn new(event: &'static str, names: [&'static str; N]) -> Self {
+        let started = std::time::Instant::now();
+        Self {
+            event,
+            names,
+            times: [std::time::Duration::ZERO; N],
+            started,
+            previous: started,
+            next: 0,
+        }
+    }
+    pub(crate) fn mark(&mut self) {
+        let now = std::time::Instant::now();
+        self.times[self.next] = now.saturating_duration_since(self.previous);
+        self.previous = now;
+        self.next += 1;
+    }
+    pub(crate) fn finish(self) {
+        let elapsed = self.started.elapsed();
+        if elapsed >= std::time::Duration::from_millis(250) {
+            use std::fmt::Write;
+            let mut detail = format!("elapsed_ms={}", elapsed.as_millis());
+            for (name, time) in self.names.iter().zip(&self.times).take(self.next) {
+                let _ = write!(detail, " {name}_ms={}", time.as_millis());
+            }
+            record(self.event, &detail);
+        }
+    }
+}
+
 pub fn path() -> Option<PathBuf> {
     LOG.get()?.lock().ok().map(|l| l.path.clone())
 }

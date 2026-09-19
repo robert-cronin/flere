@@ -229,6 +229,7 @@ pub(super) fn replace(
     // restored supervisor reuses this epoch and loads coordination from disk.
     // This also preserves permission/activity guards with older refresh readers.
     // A failed flush must leave the current supervisor and its sessions intact.
+    s.preferences.flush(&s.state)?;
     s.persist()?;
     let token = os::nonce()?;
     let mut workspaces = Vec::new();
@@ -468,6 +469,6 @@ mod hyperlink_refresh_tests {
         assert_eq!(range["current"], VERSION);
         assert_eq!(range["read_min"], 1);
         assert_eq!(range["read_max"], VERSION);
-        assert_eq!(build["compatibility"]["saved_state"]["current"], 10);
+        assert_eq!(build["compatibility"]["saved_state"]["current"], 11);
     }
 }

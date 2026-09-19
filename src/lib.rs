@@ -40,3 +40,6 @@ pub mod pet;
 pub mod sixel;
 
 pub mod browser_links;
+
+#[doc(hidden)]
+pub mod record_store;

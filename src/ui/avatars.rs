@@ -135,7 +135,7 @@ impl Projects {
                 0,
                 crate::avatar::chunk(key, bytes.len(), i * p::CHUNK, bytes_part),
             )
-            .write(&mut io::stdout().lock())?;
+            .write(&mut output::writer())?;
         }
         self.sent.insert(key.clone());
         Ok(())

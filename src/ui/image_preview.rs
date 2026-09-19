@@ -259,8 +259,10 @@ impl Ui {
         if let Some(preview) = preview {
             self.image_loader.request(preview);
         }
-        if let Some(id) = self.remote.as_mut().and_then(|r| r.preview_clear.take()) {
-            Packet::new(protocol::PREVIEW_CLEAR, id, Vec::new()).write(&mut io::stdout().lock())?;
+        if let Some(id) = self.remote.as_ref().and_then(|r| r.preview_clear) {
+            Packet::new(protocol::PREVIEW_CLEAR, id, Vec::new()).write(&mut output::writer())?;
+            // Retain the owned ID for destructor cleanup if admission fails.
+            self.remote.as_mut().unwrap().preview_clear = None;
             return Ok(true);
         }
         let cleared = self
@@ -345,7 +347,7 @@ impl Ui {
         if p.finished {
             return Ok(());
         }
-        let mut out = io::stdout().lock();
+        let mut out = output::writer();
         if !p.started {
             Packet::new(
                 protocol::PREVIEW_BEGIN,

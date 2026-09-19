@@ -101,9 +101,7 @@ impl Snapshot {
             e.string(&w.cwd);
             // Recency is supervisor-owned saved state. Keep legacy frontend metadata
             // compatible; explicit resume asks the supervisor for its current choice.
-            let mut meta = w.meta.clone();
-            meta.last_conversation = None;
-            e.string(&serde_json::to_string(&meta).expect("serializable metadata"));
+            e.json(&w.meta.snapshot_metadata());
             e.u64(w.tabs.len() as u64);
             for t in &w.tabs {
                 e.u64(t.id);
@@ -128,9 +126,12 @@ impl Snapshot {
         e.0
     }
     pub fn encode_panes(&self) -> Vec<u8> {
-        let mut bytes = self.encode();
-        bytes[0] = 5;
-        let mut e = Encoder(bytes);
+        let mut e = Encoder(self.encode());
+        self.append_panes(&mut e);
+        e.0
+    }
+    fn append_panes(&self, e: &mut Encoder) {
+        e.0[0] = 5;
         e.u8(u8::from(self.split.is_some()));
         if let Some(split) = &self.split {
             e.u8(match split.axis {
@@ -155,20 +156,44 @@ impl Snapshot {
             e.u8(u8::from(b.cursor));
             e.u8(u8::from(b.bracketed_paste));
             e.u8(u8::from(b.app_cursor));
-            encode_cells(&mut e, &b.cells);
+            encode_cells(e, &b.cells);
         }
-        e.0
     }
     /// Opt-in hyperlink snapshot. Legacy v4/v5 projections retain their exact layout.
     pub fn encode_links(&self) -> Vec<u8> {
-        let mut bytes = self.encode_panes();
-        bytes[0] = 6;
-        let mut e = Encoder(bytes);
-        hyperlinks::encode_links(&mut e, &self.cells);
-        if let Some(split) = &self.split {
-            hyperlinks::encode_links(&mut e, &split.other.cells);
-        }
+        let mut e = Encoder(self.encode_panes());
+        self.append_links(&mut e);
         e.0
+    }
+    fn append_links(&self, e: &mut Encoder) {
+        e.0[0] = 6;
+        hyperlinks::encode_links(e, &self.cells);
+        if let Some(split) = &self.split {
+            hyperlinks::encode_links(e, &split.other.cells);
+        }
+    }
+    /// Frame requested projections from one common metadata/grid encoding.
+    /// Legacy bytes are copied before appending the negotiated extensions.
+    pub(crate) fn watch_frames(&self, requested: [bool; 3]) -> [Option<Vec<u8>>; 3] {
+        let mut frames = [None, None, None];
+        if requested == [false; 3] {
+            return frames;
+        }
+        let mut e = Encoder(self.encode());
+        if requested[0] {
+            frames[0] = Some(crate::wire::frame(&e.0));
+        }
+        if requested[1] || requested[2] {
+            self.append_panes(&mut e);
+        }
+        if requested[1] {
+            frames[1] = Some(crate::wire::frame(&e.0));
+        }
+        if requested[2] {
+            self.append_links(&mut e);
+            frames[2] = Some(crate::wire::frame(&e.0));
+        }
+        frames
     }
     pub fn decode(b: &[u8]) -> io::Result<Self> {
         let mut d = Decoder(b);
@@ -524,6 +549,43 @@ mod pane_tests {
         }
     }
     #[test]
+    fn shared_watch_prefix_matches_every_negotiated_projection() {
+        let mut original = snapshot();
+        original.workspaces[0].meta.notes = "synthetic notes 界 ".repeat(100);
+        original.cells[0].link = hyperlinks::Hyperlink::new("https://example.com/first");
+        original.split.as_mut().unwrap().other.cells[3].link =
+            hyperlinks::Hyperlink::new("https://example.com/second");
+        for split in [true, false] {
+            if !split {
+                original.split = None;
+            }
+            let expected = [
+                original.encode(),
+                original.encode_panes(),
+                original.encode_links(),
+            ];
+            for mask in 0..8 {
+                let requested = std::array::from_fn(|n| mask & (1 << n) != 0);
+                let frames = original.watch_frames(requested);
+                for n in 0..3 {
+                    if requested[n] {
+                        let bytes =
+                            crate::wire::read_frame(&mut frames[n].as_ref().unwrap().as_slice())
+                                .unwrap();
+                        assert_eq!(bytes, expected[n]);
+                        assert_eq!(
+                            Snapshot::decode(&bytes).unwrap().workspaces[0].meta.notes,
+                            original.workspaces[0].meta.notes
+                        );
+                    } else {
+                        assert!(frames[n].is_none());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn negotiated_snapshot_preserves_both_buffers_and_legacy_projection() {
         let original = snapshot();
         let legacy = Snapshot::decode(&original.encode()).unwrap();
@@ -607,6 +669,67 @@ mod pane_tests {
         trailing.push(0);
         assert!(ScrollbackPage::decode(&trailing).is_err());
     }
+    #[test]
+    fn snapshot_metadata_bytes_match_the_legacy_writer_for_every_projection() {
+        use crate::workspace::{CardMeta, Workflow};
+        let conversation = crate::native::Conversation {
+            harness: "codex".into(),
+            uuid: "11111111-1234-5678-9012-123456789012".into(),
+            cwd: "/fixture/雪".into(),
+        };
+        let mut original = snapshot();
+        for (index, status) in Workflow::ALL.into_iter().enumerate() {
+            original.workspaces[0].meta = CardMeta {
+                status,
+                pinned: index % 2 == 0,
+                legacy_lead: index % 2 == 1,
+                archived: index % 2 == 0,
+                project: "project-雪".into(),
+                issue: "https://example.invalid/issues/1".into(),
+                pr: "https://example.invalid/pull/2".into(),
+                notes: format!("revision {index}\nquoted \"text\" \\ path\t雪\u{1b}").repeat(100),
+                branch: "fixture-branch".into(),
+                conversations: vec![conversation.clone()],
+                last_conversation: (index % 2 == 0).then(|| conversation.clone()),
+                operation: "fixture operation".into(),
+                base_sha: "a".repeat(40),
+            };
+            original.workspaces[0].meta.validate().unwrap();
+            let before = serde_json::to_string(&original.workspaces[0].meta).unwrap();
+            // Independent existing writer contract: a full CardMeta with only
+            // recency omitted, retaining the original field order and escapes.
+            let mut legacy = original.workspaces[0].meta.clone();
+            legacy.last_conversation = None;
+            let expected = serde_json::to_string(&legacy).unwrap();
+            for (version, bytes) in [
+                (4, original.encode()),
+                (5, original.encode_panes()),
+                (6, original.encode_links()),
+            ] {
+                let mut d = Decoder(&bytes);
+                assert_eq!(d.u8().unwrap(), version);
+                assert_eq!(d.string().unwrap(), original.epoch);
+                for value in [original.generation, original.active, original.tab, 1] {
+                    assert_eq!(d.u64().unwrap(), value);
+                }
+                assert_eq!(d.u64().unwrap(), 1);
+                assert_eq!(d.string().unwrap(), "panes");
+                assert_eq!(d.string().unwrap(), "/fixture");
+                assert_eq!(d.string().unwrap(), expected);
+                assert_eq!(d.u64().unwrap(), 2, "JSON length must end at the tab count");
+                let decoded = Snapshot::decode(&bytes).unwrap();
+                assert_eq!(
+                    serde_json::to_string(&decoded.workspaces[0].meta).unwrap(),
+                    expected
+                );
+            }
+            assert_eq!(
+                serde_json::to_string(&original.workspaces[0].meta).unwrap(),
+                before
+            );
+        }
+    }
+
     #[test]
     fn snapshot_metadata_keeps_the_baseline_writer_contract_for_legacy_bridges() {
         let metadata: serde_json::Value = serde_json::from_str(crate::build_info::json()).unwrap();

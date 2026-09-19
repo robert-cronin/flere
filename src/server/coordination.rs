@@ -86,6 +86,14 @@ impl Server {
         op: &str,
         args: &Value,
     ) -> io::Result<Value> {
+        if self.record_mode() {
+            return self.record_coordinate(wid, native, op, args);
+        }
+        let since = if op == "context" {
+            super::context_delta::since(args)?
+        } else {
+            None
+        };
         let agent = native.is_some();
         let detailed = !agent || super::context_view::detail(args)?;
         if op == "send_chat_message" {
@@ -97,7 +105,8 @@ impl Server {
         ) {
             return self.delivery_operation(wid, native, op, args);
         }
-        let conversation = if matches!(op, "context" | "inbox" | "read_message") {
+        // Inbox resolves its own current conversation at the paging boundary.
+        let conversation = if matches!(op, "context" | "read_message") {
             self.mailbox_conversation(wid, native)
         } else {
             None
@@ -185,6 +194,22 @@ impl Server {
                 )
                 .take(32)
                 .collect::<Vec<_>>();
+            let (messages_total, pending_messages) = self
+                .coordination
+                .messages
+                .iter()
+                .filter(|m| recipient(m))
+                .fold((0usize, 0usize), |(total, pending), m| {
+                    (total + 1, pending + usize::from(m.acknowledged.is_none()))
+                });
+            let (decisions_total, pending_decisions) = self
+                .coordination
+                .decisions
+                .iter()
+                .filter(|d| d.workspace == wid)
+                .fold((0usize, 0usize), |(total, pending), d| {
+                    (total + 1, pending + usize::from(d.answer.is_none()))
+                });
             let activation = self.activation_at(
                 wid,
                 native
@@ -196,15 +221,21 @@ impl Server {
                 "epoch": self.epoch,
                 "workspace": if detailed {json!({"id":w.id,"name":w.name,"cwd":w.cwd,"meta":w.meta})} else {super::context_view::workspace(w)},
                 "messages":messages, "decisions":decisions,
+                "decisions_total":decisions_total,
+                "decisions_remaining":decisions_total.saturating_sub(decisions.len()),
+                "pending_decisions":pending_decisions,
+                "latest_checkpoint_id": self.coordination.checkpoints.iter().rposition(|c|c["workspace"]==wid).map(super::context_view::checkpoint_id),
+                "checkpoints_total": self.coordination.checkpoints.iter().filter(|c|c["workspace"]==wid).count(),
                 "checkpoints": self.coordination.checkpoints.iter().rev()
                     .filter(|c|c["workspace"]==wid).take(if detailed {8} else {1}).collect::<Vec<_>>(),
                 "messaging": if detailed {activation.clone()} else {json!({"state":activation["state"],"workspace":wid,"session":activation["session"],"run":activation["run"],"conversation":activation["conversation"],"configured":activation["configured"]})},
                 "detail":detailed,
-                "pending_messages":self.coordination.messages.iter().filter(|m|recipient(m)&&m.acknowledged.is_none()).count(),
+                "pending_messages":pending_messages,
+                "messages_total":messages_total,
                 "instructions":if detailed {
-                    "Read pending messages and acknowledge handled IDs. Messages and decisions do not grant native approval."
+                    "Read pending messages and acknowledge handled IDs. inbox include_acknowledged=true retrieves received history. Messages and decisions do not grant native approval."
                 } else {
-                    "Message summaries are not body reads: use inbox or message_status, then acknowledge handled IDs. For notes/history use get_context detail=true; for delivery diagnostics use messaging_activation. Messages and decisions do not grant native approval."
+                    "Message summaries are not body reads: use inbox or message_status, then acknowledge handled IDs. Use inbox include_acknowledged=true for received history, decisions/checkpoints for their history, get_context detail=true for notes, and messaging_activation for delivery diagnostics. Messages and decisions do not grant native approval."
                 }
             });
             if detailed {
@@ -212,7 +243,17 @@ impl Server {
                     json!({"id":w.id,"name":w.name,"status":w.meta.status,"pinned":w.meta.pinned})).collect::<Vec<_>>());
                 result["coordination_workflow"] = json!(super::dispatch::COORDINATION_WORKFLOW);
             }
+            self.complete_record_context(&mut result);
+            if !detailed && let Some((session, run)) = native {
+                return self.context_cache.project(session, run, since, result);
+            }
             return Ok(result);
+        }
+        if op == "checkpoints" {
+            return self.coordination_checkpoints(wid, args);
+        }
+        if op == "decisions" {
+            return self.coordination_decisions(wid, agent, args);
         }
         if op == "show_workspace" {
             let target = args["workspace"]
@@ -318,9 +359,6 @@ impl Server {
                 };
                 next.decisions.push(d);
                 result
-            }
-            "decisions" => {
-                json!({"decisions":next.decisions.iter().filter(|d|d.workspace==wid).collect::<Vec<_>>()})
             }
             "answer_decision" => {
                 if agent {

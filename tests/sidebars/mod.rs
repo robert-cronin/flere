@@ -132,7 +132,7 @@ fn find_side(screen: &Terminal, width: usize, text: &str) -> Option<(usize, usiz
     })
 }
 fn preferences(f: &Fixture) -> Value {
-    serde_json::from_slice(&fs::read(f.state.join("ui.json")).unwrap()).unwrap()
+    super::preferences::durable(f)
 }
 fn metadata(f: &Fixture, wid: u64, project: &str, status: Workflow, pinned: bool) {
     let mut meta = f
