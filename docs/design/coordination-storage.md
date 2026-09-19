@@ -4,7 +4,7 @@ The indexed backend is implemented in `src/record_store` and integrated with the
 supervisor. Small stores retain the legacy JSON format. The first save that would
 exceed its 8 MiB bound activates a private SQLite store; coordination history no
 longer shares that combined-file limit with card updates or acknowledgements.
-This describes the local implementation, not a completed live deployment.
+Existing installations adopt this behavior only after updating.
 
 ## Durable records and bounded working context
 
