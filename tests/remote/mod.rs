@@ -12,6 +12,7 @@ mod handshake;
 mod hyperlinks;
 #[path = "../image_gallery/mod.rs"]
 mod image_gallery;
+mod scrolling;
 mod tools;
 mod update;
 struct Bridge {

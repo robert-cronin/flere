@@ -39,6 +39,7 @@ impl Ui {
             (true, "scrollback") => "scrollback-links",
             (true, "command-jump") => "command-jump-links",
             (true, "wheel") => "wheel-links",
+            (true, "scroll-key") => "scroll-key-links",
             _ => operation,
         }
     }

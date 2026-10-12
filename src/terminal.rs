@@ -148,6 +148,10 @@ pub struct Terminal {
     pub app_cursor: bool,
     #[serde(default)]
     alternate_scroll: bool,
+    #[serde(default)]
+    mouse_tracking: u16,
+    #[serde(default)]
+    sgr_mouse: bool,
     autowrap: bool,
     origin: bool,
     pub history: History,
@@ -180,6 +184,10 @@ struct SavedTerminal {
     pub app_cursor: bool,
     #[serde(default)]
     alternate_scroll: bool,
+    #[serde(default)]
+    mouse_tracking: u16,
+    #[serde(default)]
+    sgr_mouse: bool,
     autowrap: bool,
     origin: bool,
     pub history: History,
@@ -252,6 +260,7 @@ impl Terminal {
                 Parse::Csi(data) => data.len() <= 256,
                 _ => true,
             }
+            && matches!(self.mouse_tracking, 0 | 1000 | 1002 | 1003)
             && self.links_valid()
             && self.utf8.len() <= 4
             && self.history.valid()
@@ -281,6 +290,8 @@ impl Terminal {
             bracketed_paste: false,
             app_cursor: false,
             alternate_scroll: false,
+            mouse_tracking: 0,
+            sgr_mouse: false,
             autowrap: true,
             origin: false,
             history: History::default(),
@@ -803,6 +814,14 @@ impl Terminal {
                         7 => self.autowrap = yes,
                         25 => self.cursor = yes,
                         2004 => self.bracketed_paste = yes,
+                        1000 | 1002 | 1003 => {
+                            if yes {
+                                self.mouse_tracking = mode as u16;
+                            } else if self.mouse_tracking == mode as u16 {
+                                self.mouse_tracking = 0;
+                            }
+                        }
+                        1006 => self.sgr_mouse = yes,
                         1007 => self.alternate_scroll = yes,
                         47 | 1047 | 1049 => {
                             if yes && self.primary.is_none() {
@@ -944,11 +963,39 @@ impl Terminal {
             i += 1
         }
     }
-    /// DEC 1007 explicitly opts an alternate-screen app into wheel-to-arrow
-    /// translation. Never synthesize prompt keys on the primary screen.
     pub fn is_alternate(&self) -> bool {
         self.primary.is_some()
     }
+    /// Mouse capture takes precedence over DEC 1007. Coordinates are zero-based
+    /// within this terminal, never the containing UI. Missing coordinates from
+    /// older frontends must not turn a mouse report into a composer arrow key.
+    pub fn wheel_input(&self, delta: i64, position: Option<(usize, usize)>) -> Vec<u8> {
+        if let Some((x, y)) = position
+            && (x >= self.grid.cols || y >= self.grid.rows)
+        {
+            return Vec::new();
+        }
+        if self.mouse_tracking == 0 {
+            return self.alternate_scroll_input(delta);
+        }
+        let Some((x, y)) = position else {
+            return Vec::new();
+        };
+        let button = if delta < 0 { 64 } else { 65 };
+        let report = if self.sgr_mouse {
+            format!("\x1b[<{button};{};{}M", x + 1, y + 1).into_bytes()
+        } else if x < 223 && y < 223 {
+            vec![0x1b, b'[', b'M', button + 32, x as u8 + 33, y as u8 + 33]
+        } else {
+            // Legacy reports cannot represent these coordinates without wrapping.
+            return Vec::new();
+        };
+        // The UI expresses each wheel notch as three local scrollback rows.
+        // Native applications apply their own speed to each report.
+        report.repeat(delta.unsigned_abs().min(500).div_ceil(3) as usize)
+    }
+    /// DEC 1007 explicitly opts an alternate-screen app into wheel-to-arrow
+    /// translation. Never synthesize prompt keys on the primary screen.
     pub fn alternate_scroll_input(&self, delta: i64) -> Vec<u8> {
         if self.primary.is_none() || !self.alternate_scroll {
             return Vec::new();
@@ -1047,6 +1094,68 @@ mod tests {
         t.feed(b"\x1b[?1049l");
         assert!(t.alternate_scroll_input(-3).is_empty());
     }
+    #[test]
+    fn mouse_wheel_modes_encoding_and_refresh_preserve_native_ownership() {
+        let mut t = Terminal::new(240, 40);
+        for i in 0..50 {
+            t.feed(format!("line-{i}\r\n").as_bytes());
+        }
+        assert!(t.wheel_input(-3, Some((4, 6))).is_empty());
+        // Capture also works on the primary screen, with legacy byte coordinates.
+        t.feed(b"\x1b[?1000h");
+        assert_eq!(t.wheel_input(-3, Some((4, 6))), b"\x1b[M`%'");
+        assert!(t.wheel_input(-3, Some((223, 0))).is_empty());
+        t.feed(b"\x1b[?1006h\x1b[?1049h\x1b[?1007l");
+        assert_eq!(t.wheel_input(-3, Some((239, 39))), b"\x1b[<64;240;40M");
+        assert_eq!(
+            t.wheel_input(6, Some((1, 2))),
+            b"\x1b[<65;2;3M\x1b[<65;2;3M"
+        );
+        assert!(t.wheel_input(0, Some((1, 2))).is_empty());
+        assert!(t.wheel_input(-3, Some((240, 0))).is_empty());
+        assert!(t.wheel_input(-3, Some((0, 40))).is_empty());
+        assert!(t.wheel_input(-3, None).is_empty());
+        assert_eq!(
+            t.wheel_input(i64::MIN, Some((1, 2))).len(),
+            167 * b"\x1b[<64;2;3M".len()
+        );
+        for mode in [1000, 1002, 1003] {
+            t.feed(format!("\x1b[?{mode}h").as_bytes());
+            t = serde_json::from_slice(&serde_json::to_vec(&t).unwrap()).unwrap();
+            assert!(t.valid_state());
+            assert_eq!(t.wheel_input(-3, Some((1, 2))), b"\x1b[<64;2;3M");
+            t.feed(format!("\x1b[?{mode}l").as_bytes());
+            assert!(t.wheel_input(-3, Some((1, 2))).is_empty());
+        }
+        // Capture wins even if the application leaves DEC1007 enabled.
+        t.feed(b"\x1b[?1007h\x1b[?1003h");
+        assert_eq!(t.wheel_input(-3, Some((1, 2))), b"\x1b[<64;2;3M");
+        assert!(t.wheel_input(-3, None).is_empty());
+        t.feed(b"\x1b[?1003l");
+        assert_eq!(t.wheel_input(-3, Some((1, 2))), b"\x1b[A\x1b[A\x1b[A");
+        t.feed(b"\x1b[?1003h\x1bc");
+        assert!(t.wheel_input(-3, Some((1, 2))).is_empty());
+        assert!(!t.is_alternate());
+    }
+
+    #[test]
+    fn older_terminal_refresh_defaults_mouse_capture_off() {
+        let mut t = Terminal::new(10, 4);
+        t.feed(b"\x1b[?1049h\x1b[?1007h");
+        let mut saved = serde_json::to_value(&t).unwrap();
+        saved.as_object_mut().unwrap().remove("mouse_tracking");
+        saved.as_object_mut().unwrap().remove("sgr_mouse");
+        let t: Terminal = serde_json::from_value(saved.clone()).unwrap();
+        assert!(t.valid_state());
+        assert_eq!(t.wheel_input(-1, None), b"\x1b[A");
+        saved["mouse_tracking"] = serde_json::json!(999);
+        assert!(
+            !serde_json::from_value::<Terminal>(saved)
+                .unwrap()
+                .valid_state()
+        );
+    }
+
     #[test]
     fn styled_scrollback_anchors_survive_output_eviction_refresh_and_resize() {
         use crate::model::ScrollbackPage;

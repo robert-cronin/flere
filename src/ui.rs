@@ -1024,11 +1024,11 @@ impl Ui {
                     return;
                 }
                 b"\x1b[5;2~" => {
-                    self.scroll_terminal(-(self.terminal_layout().rows as i64 - 1));
+                    self.page_terminal(-(self.terminal_layout().rows as i64 - 1));
                     return;
                 }
                 b"\x1b[6;2~" => {
-                    self.scroll_terminal(self.terminal_layout().rows as i64 - 1);
+                    self.page_terminal(self.terminal_layout().rows as i64 - 1);
                     return;
                 }
                 b"\x1b[5~" if self.scrollback.is_some() => {

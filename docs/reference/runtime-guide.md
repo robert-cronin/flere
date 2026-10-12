@@ -398,7 +398,7 @@ appearance details come from the book and which are visual interpretations.
 | Navigation | c | Page into terminal scrollback and leave navigation |
 | Navigation | m / I / D | Send message / read messages / review decisions |
 | Navigation | q | Detach, preserving processes |
-| Terminal | Wheel, Shift+Page Up/Down | Browse retained terminal history |
+| Terminal | Wheel, Shift+Page Up/Down | Scroll terminal history or the full-screen app |
 | Terminal / scrollback | Shift+Home / Home | Jump to the oldest retained output |
 | Scrollback | Wheel, Page Up/Down, arrows | Scroll without sending keys to the chat |
 | Scrollback | Esc, End, Enter | Return to live output without sending that key |
@@ -424,10 +424,9 @@ and Page Up/Down retains a page with one-row overlap. Home jumps to the oldest
 retained output and End returns live. Navigation stays active at either end.
 **Enter**, Escape or Ctrl+Space leaves NAV and returns live, consuming that exit
 key and cancelling pending motion. These bindings apply with Terminal focused;
-Directional keys first switch between split panes; at an outer edge they access the sidebars or tab bar. Outside NAV the child's
-own keys remain unchanged. NAV scrolling stays local in native alternate screens.
+Directional keys first switch between split panes; at an outer edge they access the sidebars or tab bar. Outside NAV ordinary typing and control keys go to the child; Shift+Page Up/Down follows the scrolling rules below. NAV scrolling stays local in native alternate screens.
 
-The wheel over the terminal and Shift+Page Up also enter scrollback. Outside
+On the primary terminal screen, wheel and Shift+Page Up also enter local scrollback. Outside
 navigation, Page Up/Down and arrows move while browsing; wheel down to the bottom,
 or press Escape, End or Enter to return live. Ordinary typing/pasting outside
 navigation returns live and goes to the same native session. New output keeps
@@ -447,19 +446,24 @@ workspace or sending input to a chat. Keyboard card selection reveals the select
 card again. Files, Git and Details keep their own wheel handling. Files and Git retain their visible range when reversing direction: moving up from the bottom moves the selected row up inside that range before scrolling it. Extra wheel events at either end do not accumulate.
 
 A resumed Codex conversation can have older messages that it has not written to
-the terminal at all. **Ctrl+T, then Home** opens Codex's own transcript and loads
-its beginning with the default Codex keymap. Wheel/Page Up there loads earlier
-messages too. This is separate from Flere's retained terminal output, and does
-not require restarting or resuming the agent again. Increasing terminal retention
-cannot reconstruct never-emitted or already-discarded rows.
+the terminal at all. In Codex's full-screen view, use the wheel over the transcript
+or Page Up/Down to browse its own history. Flere also forwards Shift+Page Up/Down
+as plain Page Up/Down while a full-screen app is active; the app decides what those
+keys do. NAV scrolling remains local. Older Codex inline views expose their full
+transcript with Ctrl+T. Increasing Flere's retention cannot reconstruct history
+the native app has never emitted.
 
-Codex's full-screen transcript explicitly enables DEC alternate-scroll mode.
-While that alternate screen and mode are both active, unmodified wheel events
-become its requested up/down keys, checked against the exact current tab, run
-and viewport. Shift-wheel stays local. A normal prompt never receives synthesized
-arrow keys. This does not implement general application mouse reporting.
+An app that requests mouse tracking receives unmodified wheel events with
+coordinates relative to its terminal pane, using its requested SGR or legacy
+encoding. Without mouse tracking, an alternate-screen app can explicitly request
+wheel-to-arrow translation with DEC 1007. Both routes check the exact selected
+tab, run and viewport; a primary prompt never receives synthesized arrow keys.
+Modified wheel stays local, and clicks/dragging remain Flere selection gestures.
+Mouse modes survive supervisor refresh once observed. A supervisor upgraded from
+a version that discarded those modes needs the app to re-enter its native screen
+before mouse reporting can resume.
 
-Mouse clicks select cards, tabs, files and board cards; pane borders drag. **Click and drag inside the terminal or its scrollback preview to select text; release to copy automatically.** Flere highlights the selection and uses OSC 52 to send text to the outer terminal's clipboard over SSH. A plain click leaves the clipboard alone. Escape clears the selection without reaching the native chat; typing clears it and continues normally. Text stays stable while you drag, while the process continues running. Resizing or changing the exact workspace/session cancels the pending selection. Copies are bounded to 64 KiB and use visible line breaks; dragging at or beyond the top/bottom edge auto-scrolls through bounded, frozen history after a short dwell. Joining soft-wrapped lines in copied text is not yet supported. The outer terminal must allow OSC 52 clipboard writes; Flere reports sending the selection but cannot confirm the OS clipboard accepted it. Holding the outer terminal's text-selection modifier (usually Shift) still uses its own selection behavior. Native child mouse protocols are not forwarded yet. Ctrl+Space is reserved; outer tmux/terminal bindings may consume it before Flere sees it.
+Mouse clicks select cards, tabs, files and board cards; pane borders drag. **Click and drag inside the terminal or its scrollback preview to select text; release to copy automatically.** Flere highlights the selection and uses OSC 52 to send text to the outer terminal's clipboard over SSH. A plain click leaves the clipboard alone. Escape clears the selection without reaching the native chat; typing clears it and continues normally. Text stays stable while you drag, while the process continues running. Resizing or changing the exact workspace/session cancels the pending selection. Copies are bounded to 64 KiB and use visible line breaks; dragging at or beyond the top/bottom edge auto-scrolls through bounded, frozen history after a short dwell. Joining soft-wrapped lines in copied text is not yet supported. The outer terminal must allow OSC 52 clipboard writes; Flere reports sending the selection but cannot confirm the OS clipboard accepted it. Holding the outer terminal's text-selection modifier (usually Shift) still uses its own selection behavior. Native wheel reports are supported; child click, motion and drag reports are not forwarded. Ctrl+Space is reserved; outer tmux/terminal bindings may consume it before Flere sees it.
 
 ## Search, Tasks and remote actions
 

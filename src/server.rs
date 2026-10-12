@@ -1431,15 +1431,37 @@ impl Server {
                 }
                 Ok(b"hangup-sent".to_vec())
             }
-            "wheel" | "wheel-links" => {
+            "wheel" | "wheel-links" | "scroll-key" | "scroll-key-links" => {
+                let page_key = matches!(p[0], "scroll-key" | "scroll-key-links");
+                if (page_key && p.len() != 6) || (!page_key && !matches!(p.len(), 6 | 8)) {
+                    return Err(invalid("invalid terminal scroll arguments"));
+                }
                 let id = num(1)?;
                 let run = arg(2)?;
                 let cols = num(3)?;
                 let rows = num(4)?;
-                let delta = arg(5)?
-                    .parse::<i64>()
-                    .map_err(|_| invalid("invalid wheel delta"))?
-                    .clamp(-500, 500);
+                let delta = if page_key {
+                    let page = rows.saturating_sub(1).clamp(1, 100) as i64;
+                    match arg(5)? {
+                        "up" => -page,
+                        "down" => page,
+                        _ => return Err(invalid("invalid scroll key")),
+                    }
+                } else {
+                    arg(5)?
+                        .parse::<i64>()
+                        .map_err(|_| invalid("invalid wheel delta"))?
+                        .clamp(-500, 500)
+                };
+                let position = if p.len() == 8 {
+                    let (x, y) = (num(6)?, num(7)?);
+                    if x >= cols || y >= rows {
+                        return Err(invalid("wheel position outside terminal"));
+                    }
+                    Some((x as usize, y as usize))
+                } else {
+                    None
+                };
                 let actual = self.session(id, run)?;
                 if cols != actual.term.grid.cols as u64
                     || rows != actual.term.grid.rows as u64
@@ -1448,19 +1470,41 @@ impl Server {
                         .iter()
                         .any(|w| w.id == self.active && w.selected == id)
                 {
-                    return Err(invalid("stale wheel viewport or selected terminal"));
+                    return Err(invalid("stale scroll viewport or selected terminal"));
                 }
                 let s = self.session(id, run)?;
-                let bytes = s.term.alternate_scroll_input(delta);
-                if !bytes.is_empty() {
-                    if !s.alive || s.ended || s.input.len() + bytes.len() > 131072 {
-                        return Err(invalid("wheel target exited or input queue full"));
+                let bytes = if page_key {
+                    if s.term.is_alternate() {
+                        if delta < 0 { b"\x1b[5~" } else { b"\x1b[6~" }.to_vec()
+                    } else {
+                        Vec::new()
                     }
-                    self.audit("alternate-wheel", id, &format!("run={run};delta={delta}"))?;
+                } else {
+                    s.term.wheel_input(delta, position)
+                };
+                let delivered = !bytes.is_empty();
+                if delivered {
+                    if !s.alive || s.ended || s.input.len() + bytes.len() > 131072 {
+                        return Err(invalid("scroll target exited or input queue full"));
+                    }
+                    self.audit(
+                        if page_key {
+                            "native-scroll-key"
+                        } else {
+                            "alternate-wheel"
+                        },
+                        id,
+                        &format!("run={run};delta={delta}"),
+                    )?;
                     self.session(id, run)?.input.extend(bytes);
                 }
-                let page = self.session(id, run)?.term.scrollback(None, delta);
-                Ok(if p[0] == "wheel-links" {
+                // A mouse-capturing primary-screen app owns this event too.
+                // Do not simultaneously move the frontend into local scrollback.
+                let page = self
+                    .session(id, run)?
+                    .term
+                    .scrollback(None, if delivered { 0 } else { delta });
+                Ok(if p[0].ends_with("-links") {
                     page.encode_links()
                 } else {
                     page.encode()

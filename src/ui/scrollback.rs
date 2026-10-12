@@ -1,6 +1,11 @@
-//! Per-attachment scroll position; never modifies the child's screen or input.
+//! Per-attachment history, with explicit native wheel/page routing at the live view.
 use super::*;
 use crate::model::ScrollbackPage;
+
+enum NativeScroll {
+    Wheel { x: usize, y: usize },
+    Page,
+}
 
 pub(super) struct Scrollback {
     location: (String, u64, u64, String),
@@ -163,7 +168,7 @@ impl Ui {
         }
         self.smooth_scroll = None;
         let before = self.scrollback.as_ref().map(|s| s.page.position);
-        self.scroll_page(delta.signum(), false);
+        self.scroll_page(delta.signum(), None);
         if let Some(view) = &self.scrollback
             && Some(view.page.position) != before
         {
@@ -207,7 +212,7 @@ impl Ui {
                 * ((motion.remaining.abs() + motion.frames - 1) / motion.frames)
         };
         let before = self.scrollback.as_ref().map(|s| s.page.position);
-        self.scroll_page(step, false);
+        self.scroll_page(step, None);
         motion.remaining -= step;
         motion.frames = (motion.frames - 1).max(1);
         motion.checked = Instant::now();
@@ -223,9 +228,13 @@ impl Ui {
     }
     pub(super) fn scroll_terminal(&mut self, delta: i64) {
         self.smooth_scroll = None;
-        self.scroll_page(delta, false);
+        self.scroll_page(delta, None);
     }
-    fn scroll_page(&mut self, delta: i64, native_wheel: bool) {
+    pub(super) fn page_terminal(&mut self, delta: i64) {
+        self.smooth_scroll = None;
+        self.scroll_page(delta, Some(NativeScroll::Page));
+    }
+    fn scroll_page(&mut self, delta: i64, native: Option<NativeScroll>) {
         if self.selection.as_ref().is_some_and(|s| s.dragging) {
             return;
         }
@@ -233,7 +242,7 @@ impl Ui {
             return;
         };
         // Down at the live bottom is inert; no request and no native key synthesis.
-        if self.scrollback.is_none() && delta >= 0 && !native_wheel {
+        if self.scrollback.is_none() && delta >= 0 && native.is_none() {
             return;
         }
         let oldest = delta == i64::MIN;
@@ -246,21 +255,7 @@ impl Ui {
                 .unwrap_or_else(|| "live".into())
         };
         let delta = if oldest { 0 } else { delta };
-        let result = if native_wheel && self.scrollback.is_none() {
-            self.flush_input();
-            let t = self.snapshot.session().unwrap();
-            wire::request(
-                &self.state,
-                &[
-                    self.page_command("wheel"),
-                    &t.id.to_string(),
-                    &t.run,
-                    &self.snapshot.cols.to_string(),
-                    &self.snapshot.rows.to_string(),
-                    &delta.to_string(),
-                ],
-            )
-        } else {
+        let local = || {
             wire::request(
                 &self.state,
                 &[
@@ -271,6 +266,53 @@ impl Ui {
                     &delta.to_string(),
                 ],
             )
+        };
+        let result = if let Some(native) = native.filter(|_| self.scrollback.is_none()) {
+            self.flush_input();
+            let t = self.snapshot.session().unwrap();
+            let operation = match native {
+                NativeScroll::Wheel { .. } => "wheel",
+                NativeScroll::Page => "scroll-key",
+            };
+            let mut fields = vec![
+                self.page_command(operation).to_owned(),
+                t.id.to_string(),
+                t.run.clone(),
+                self.snapshot.cols.to_string(),
+                self.snapshot.rows.to_string(),
+                match native {
+                    NativeScroll::Wheel { .. } => delta.to_string(),
+                    NativeScroll::Page => if delta < 0 { "up" } else { "down" }.into(),
+                },
+            ];
+            if let NativeScroll::Wheel { x, y } = native {
+                fields.extend([x.to_string(), y.to_string()]);
+            }
+            let result = wire::request(
+                &self.state,
+                &fields.iter().map(String::as_str).collect::<Vec<_>>(),
+            );
+            if result
+                .as_ref()
+                .is_err_and(|e| e.to_string() == "unknown command")
+            {
+                // An older supervisor can still provide local history; never
+                // bypass its native-mode/viewport check with a raw input retry.
+                wire::request(
+                    &self.state,
+                    &[
+                        self.page_command("scrollback"),
+                        &t.id.to_string(),
+                        &t.run,
+                        &anchor,
+                        &delta.to_string(),
+                    ],
+                )
+            } else {
+                result
+            }
+        } else {
+            local()
         }
         .and_then(|b| ScrollbackPage::decode(&b));
         self.selection = None;
@@ -340,7 +382,13 @@ impl Ui {
             p.offset = p.offset.saturating_add_signed(delta as isize).min(last);
         } else {
             self.smooth_scroll = None;
-            self.scroll_page(delta, !local);
+            self.scroll_page(
+                delta,
+                (!local).then_some(NativeScroll::Wheel {
+                    x: x - l.terminal_x,
+                    y: y - l.terminal_y,
+                }),
+            );
         }
     }
 }
