@@ -12,9 +12,13 @@ fn setup(f: &Fixture) {
     fs::write(&script, r#"import json, os, sys, subprocess
 from pathlib import Path
 root = Path(os.environ['HOME'])
+def write_json(path, value):
+    temporary = path.with_name(path.name + '.' + str(os.getpid()) + '.tmp')
+    temporary.write_text(json.dumps(value))
+    temporary.replace(path)
 args = sys.argv[1:]
 if '--version' in args or (args and args[0] == 'exec'):
-    (root / 'passthrough.json').write_text(json.dumps({'args': args, 'run': os.environ.get('FLERE_RUN')}))
+    write_json(root / 'passthrough.json', {'args': args, 'run': os.environ.get('FLERE_RUN')})
     print('FAKE_VERSION', flush=True)
     sys.exit(7)
 for i, arg in enumerate(args):
@@ -26,7 +30,7 @@ command = next(a.split('=',1)[1] for a in args if a.startswith('mcp_servers.fler
 result = subprocess.run([json.loads(command), '--state', os.environ['FLERE_STATE'], 'agent-call', 'get_context'], capture_output=True, text=True)
 record['context_status'] = result.returncode
 record['context'] = json.loads(result.stdout) if result.returncode == 0 else result.stderr
-(root / ('launch-' + run + '.json')).write_text(json.dumps(record))
+write_json(root / ('launch-' + run + '.json'), record)
 uuid = '11111111-2222-3333-4444-555555555555'
 rollout = root / ('rollout-' + run + '.jsonl')
 f = rollout.open('w+')

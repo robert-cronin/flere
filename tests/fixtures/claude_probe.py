@@ -8,9 +8,16 @@ import subprocess
 import sys
 
 root = Path(os.environ['HOME'])
+
+# The test parent polls while this child runs; never expose partial JSON.
+def write_json(path, value):
+    temporary = path.with_name(path.name + '.' + str(os.getpid()) + '.tmp')
+    temporary.write_text(json.dumps(value))
+    temporary.replace(path)
+
 args = sys.argv[1:]
 if any(a in args for a in ['--version', '--print', '-p', 'mcp', 'doctor']):
-    (root / 'passthrough.json').write_text(json.dumps({'args': args}))
+    write_json(root / 'passthrough.json', {'args': args})
     print('CLAUDE_PASSTHROUGH', flush=True)
     sys.exit(7)
 settings_path = Path(args[max(i for i, a in enumerate(args) if a == '--settings') + 1])
@@ -43,7 +50,7 @@ def mcp_call(name, arguments=None):
 
 receipt = {'args': args, 'settings': settings, 'mcp_servers': servers, 'settings_path': str(settings_path),
            'start': hook('SessionStart'), 'context': mcp_call('get_context')}
-(root / ('launch-' + run + '.json')).write_text(json.dumps(receipt))
+write_json(root / ('launch-' + run + '.json'), receipt)
 print('CLAUDE_READY', flush=True)
 for line in sys.stdin:
     request = json.loads(line)
@@ -56,5 +63,5 @@ for line in sys.stdin:
         response = mcp_call(request['mcp'], request.get('arguments'))
     else:
         response = hook(request['event'], request.get('extra'))
-    (root / ('reply-' + str(request['id']) + '.json')).write_text(json.dumps(response))
+    write_json(root / ('reply-' + str(request['id']) + '.json'), response)
     print('CLAUDE_REPLY_' + str(request['id']), flush=True)
