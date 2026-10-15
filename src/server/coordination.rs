@@ -143,6 +143,8 @@ impl Server {
             "list_workspaces"
                 | "add_project"
                 | "update_workspace"
+                | "archive_workspace"
+                | "restore_workspace"
                 | "prepare_workspace"
                 | "prepare_worker"
                 | "start_worker"

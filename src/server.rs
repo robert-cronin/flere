@@ -111,6 +111,18 @@ struct Workspace {
     meta: CardMeta,
     split: Option<crate::panes::PaneLayout>,
 }
+impl Workspace {
+    fn ensure_archivable(&self) -> io::Result<()> {
+        // A reaped child can still have a descendant holding its PTY open.
+        // Match the UI lifecycle rule: both child exit and PTY EOF are required.
+        if self.tabs.iter().any(|t| t.alive || !t.ended) {
+            return Err(invalid(
+                "close live terminals before archiving this workspace",
+            ));
+        }
+        Ok(())
+    }
+}
 struct Client {
     stream: UnixStream,
     input: Vec<u8>,
@@ -1242,15 +1254,8 @@ impl Server {
                     .iter()
                     .position(|w| w.id == wid)
                     .ok_or_else(|| invalid("unknown workspace"))?;
-                if meta.archived
-                    && self.workspaces[index]
-                        .tabs
-                        .iter()
-                        .any(|t| t.alive || !t.ended)
-                {
-                    return Err(invalid(
-                        "close live terminals before archiving this workspace",
-                    ));
+                if meta.archived {
+                    self.workspaces[index].ensure_archivable()?;
                 }
                 meta.last_conversation = self.workspaces[index].meta.last_conversation.clone();
                 meta.conversations = self.workspaces[index].meta.conversations.clone();

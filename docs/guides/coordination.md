@@ -280,7 +280,7 @@ builds the exact expectation, then submits a waiting status and next-action note
 Change the target ID and note to the intended, authorized decision:
 
 ```sh
-update=$(flere --state "$FLERE_STATE" agent-call list_workspaces |
+update=$(flere --state "$FLERE_STATE" agent-call list_workspaces '{"workspace":43,"detail":true}' |
   python3 -c 'import json,sys
 listing = json.load(sys.stdin)
 card = next(w for w in listing["workspaces"] if w["id"] == int(sys.argv[1]))
@@ -295,3 +295,46 @@ complete `meta`) for readback. The same operation is available to a human throug
 `coordinate WORKSPACE_ID update_workspace JSON`; an agent must keep using its
 own `agent-call` identity. `coordinate` is not a fallback for a rejected native
 request. Supervisors before 0.2.13 reject the new fields explicitly.
+
+### Archive and restore
+
+Any live agent can archive a stopped card with `archive_workspace`, or unhide it
+with `restore_workspace`. Both require the target `workspace`, `expected_epoch`,
+and exact `expected: {"name": CARD_NAME, "meta": COMPLETE_CARD_META}` from a fresh
+`list_workspaces({"workspace": ID, "detail": true})` response. Archived cards
+remain in that inventory, so the same read works before restoring.
+
+Archiving hides the card from the board. It preserves the directory, worktree,
+metadata, workflow status, saved native conversations, and saved tab order and
+selection. All terminals must already be stopped: the supervisor checks both
+PTY closure and child exit when handling the request. It never closes terminals
+for you. Restoring starts no program. Neither operation changes focus or marks
+work Done/accepted.
+
+A changed name or metadata, incomplete expectation, or old supervisor epoch
+rejects the request. Re-read and reconcile the intended action after a conflict;
+do not blindly retry with a new expectation. After a lost reply, inspect the
+card's `meta.archived` value. A fresh request for its current state succeeds with
+`changed: false`. Successful changes persist atomically with rollback on save
+failure. The compact receipt contains `epoch`, `workspace: {id, archived}` and
+`changed`.
+
+For example, after reading the target's detailed inventory, call:
+
+```json
+{
+  "workspace": 43,
+  "expected_epoch": "EPOCH_FROM_LIST",
+  "expected": {
+    "name": "EXACT_CARD_NAME",
+    "meta": {"...": "COPY_THE_COMPLETE_META_OBJECT"}
+  }
+}
+```
+
+Supply those arguments to `archive_workspace` or `restore_workspace` through
+MCP, or use the live agent's own scoped CLI with
+`flere --state "$FLERE_STATE" agent-call archive_workspace 'JSON_ARGUMENTS'`.
+Existing chats can use the CLI once the updated supervisor is active; acquiring
+the new MCP names may require the harness's supported catalog reload. These
+commands have the same availability for every agent.

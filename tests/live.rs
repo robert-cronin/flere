@@ -1,4 +1,6 @@
 //! Real supervisor, Unix sockets and kernel PTYs. No tmux or paid harnesses.
+#[path = "archive/mod.rs"]
+mod archive;
 #[path = "chat_messages/mod.rs"]
 mod chat_messages;
 #[path = "context_budget/mod.rs"]

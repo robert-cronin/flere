@@ -81,6 +81,25 @@ struct ExpectedWorkspace {
     // a partial expectation must never accidentally match current defaults.
     meta: Value,
 }
+impl ExpectedWorkspace {
+    fn check(&self, workspace: &Workspace) -> io::Result<()> {
+        if self.name != workspace.name
+            || self.meta != serde_json::to_value(&workspace.meta).map_err(io::Error::other)?
+        {
+            return Err(invalid(
+                "stale workspace metadata or incomplete expectation; read list_workspaces with workspace=<id>, detail=true and reconcile again",
+            ));
+        }
+        Ok(())
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceArchive {
+    workspace: u64,
+    expected_epoch: String,
+    expected: ExpectedWorkspace,
+}
 impl Dispatch {
     fn prompt(&self) -> String {
         format!(
@@ -307,13 +326,8 @@ impl Server {
                 .position(|w| w.id == update.workspace && !w.meta.archived)
                 .ok_or_else(|| invalid("unknown or archived workspace"))?;
             let w = &self.workspaces[index];
-            if let Some(expected) = update.expected
-                && (expected.name != w.name
-                    || expected.meta != serde_json::to_value(&w.meta).map_err(io::Error::other)?)
-            {
-                return Err(invalid(
-                    "stale workspace metadata or incomplete expectation; read list_workspaces with workspace=<id>, detail=true and reconcile again",
-                ));
+            if let Some(expected) = update.expected {
+                expected.check(w)?;
             }
             let name = update.name.unwrap_or_else(|| w.name.clone());
             if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
@@ -355,6 +369,36 @@ impl Server {
             let w = &self.workspaces[index];
             return Ok(json!({"epoch":self.epoch,
                 "workspace":{"id":w.id,"name":w.name,"cwd":w.cwd,"meta":w.meta}}));
+        }
+        if matches!(op, "archive_workspace" | "restore_workspace") {
+            let change: WorkspaceArchive =
+                serde_json::from_value(args.clone()).map_err(io::Error::other)?;
+            if change.expected_epoch != self.epoch {
+                return Err(invalid("stale workspace epoch; read list_workspaces again"));
+            }
+            let index = self
+                .workspaces
+                .iter()
+                .position(|w| w.id == change.workspace)
+                .ok_or_else(|| invalid("unknown workspace"))?;
+            let w = &self.workspaces[index];
+            change.expected.check(w)?;
+            let archived = op == "archive_workspace";
+            if archived {
+                w.ensure_archivable()?;
+            }
+            let changed = w.meta.archived != archived;
+            if changed {
+                self.audit(op, change.workspace, "card visibility change")?;
+                self.workspaces[index].meta.archived = archived;
+                if let Err(e) = self.persist() {
+                    self.workspaces[index].meta.archived = !archived;
+                    return Err(e);
+                }
+                self.changed();
+            }
+            return Ok(json!({"epoch":self.epoch,
+                "workspace":{"id":change.workspace,"archived":archived},"changed":changed}));
         }
         if op == "prepare_workspace" {
             let name = text(args, "name", 256)?;
