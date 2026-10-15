@@ -11,6 +11,14 @@ function! s:reply(value) abort
   call writefile([json_encode(a:value)], s:dir . '/reply')
   call setfperm(s:dir . '/reply', 'rw-------')
 endfunction
+function! s:disposable_ui_buffer(buffer) abort
+  let b = a:buffer.bufnr
+  if getbufvar(b, '&buftype') !=# 'nofile' || a:buffer.listed | return 0 | endif
+  if !getbufvar(b, '&modifiable') | return 1 | endif
+  " Plugins also leave empty, editable placeholders hidden. Native editors do
+  " not mark nofile modified, so nonempty editable scratch stays guarded.
+  return a:buffer.hidden && a:buffer.loaded && a:buffer.linecount == 1 && getbufline(b, 1) ==# ['']
+endfunction
 function! s:jump() abort
   if !filereadable(s:dir . '/jump.json') | return | endif
   try
@@ -48,7 +56,7 @@ function! s:tick(timer) abort
     else
       for buffer in getbufinfo()
         let kind = getbufvar(buffer.bufnr, '&buftype')
-        if index(['', 'help', 'quickfix'], kind) < 0
+        if index(['', 'help', 'quickfix'], kind) < 0 && !s:disposable_ui_buffer(buffer)
           let reason = 'The editor has a terminal or special buffer'
           break
         endif

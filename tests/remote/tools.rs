@@ -218,9 +218,6 @@ fn file_tokens_reject_changed_pane_origin_source_and_symlink_targets() {
 fn bridge_key(bridge: &mut Bridge, bytes: &[u8]) {
     bridge.send(protocol::KEYS, 0, bytes);
 }
-fn click_bytes(x: usize, y: usize) -> Vec<u8> {
-    format!("\x1b[<0;{};{}M\x1b[<0;{};{}m", x + 1, y + 1, x + 1, y + 1).into_bytes()
-}
 fn file_row(screen: &Terminal, label: &str) -> (usize, usize) {
     find_file_row(screen, label)
         .unwrap_or_else(|| panic!("file {label} missing: {}", screen.capture(100)))
@@ -250,8 +247,11 @@ fn remote_file_packets_are_owned_and_never_become_native_input() {
     bridge.send(protocol::CAPABILITIES, 0, service::CAPABILITY);
     bridge_key(&mut bridge, b"\0l");
     bridge.wait_screen("aaa-upload-folder");
-    let (x, y) = file_row(&bridge.screen, "aaa-upload-folder");
-    bridge_key(&mut bridge, &click_bytes(x, y));
+    // A click enters the directory; select this transfer target without opening.
+    let (_, y) = file_row(&bridge.screen, "aaa-upload-folder");
+    let mut select = b"\x1b[H".to_vec();
+    select.extend(vec![b'j'; y - 5]);
+    bridge_key(&mut bridge, &select);
     bridge_key(&mut bridge, b"\0 6");
     let request = bridge.until(|p, _| p.tag == service::REQUEST);
     assert_eq!(
@@ -338,14 +338,18 @@ impl CompanionUi {
         wait_current_ui(&mut self.master, &mut self.screen, |s| {
             find_file_row(s, name).is_some()
         });
+        let (_, y) = file_row(&self.screen, name);
+        // Selecting an upload/download target must not open it. A click opens;
+        // Home plus j keeps the transfer tests on the keyboard selection path.
+        self.key(b"\x1b[H");
+        self.key(&vec![b'j'; y - 5]);
         let (x, y) = file_row(&self.screen, name);
-        self.key(&click_bytes(x, y));
         assert!(
             self.screen.grid.cells[y * self.screen.grid.cols + x]
                 .style
                 .bg
                 == flere::terminal::Color::Rgb(14, 42, 55),
-            "click {x},{y} must select exact file {name}: {}",
+            "keyboard must select exact file {name}: {}",
             self.screen.capture(100)
         );
     }

@@ -217,7 +217,8 @@ An optional `harnesses.json` in Flere's private state directory can set a Claude
       "ANTHROPIC_BASE_URL": "http://127.0.0.1:PORT",
       "ANTHROPIC_AUTH_TOKEN": "YOUR_GATEWAY_TOKEN",
       "ANTHROPIC_API_KEY": "",
-      "ANTHROPIC_MODEL": "YOUR_PUBLIC_MODEL_ID"
+      "ANTHROPIC_DEFAULT_OPUS_MODEL": "YOUR_PUBLIC_OPUS_MODEL_ID",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL": "YOUR_PUBLIC_SONNET_MODEL_ID"
     }
   }
 ]
@@ -227,5 +228,17 @@ Use the proxy root, without an extra `/v1`, and a model advertised by that gatew
 
 Map each family alias to its intended gateway model. Mapping the Opus alias to a
 Sonnet ID selects Sonnet even if the native picker labels that slot "Custom Opus".
+Leave `ANTHROPIC_MODEL` unset to honor Claude's saved `/model` preference for new
+sessions; setting it intentionally overrides that preference.
+
+Claude's auto-mode permission checker makes separate model requests. Its fast
+check can require `thinking: disabled`, even when the main chat uses adaptive
+thinking. A gateway model that rejects disabled thinking returns an API error and
+the native checker holds back tools. Use a compatible advertised Sonnet family
+alias for the checker while retaining the desired Opus alias for the main chat;
+do not disable the checker to work around an API mismatch.
+After correcting a private profile, exit the affected native tab normally and
+resume its recorded conversation to load the new launch settings. Changing the
+profile does not restart existing chats or rewrite their live settings.
 
 Use an up-to-date Claude Code when routing newer models through Vekil: older clients may send an incompatible thinking format. The gateway must support the client's Messages API. Flere configures the client but does not start, upgrade or implement the gateway. Full-screen Claude uses the same pane-relative native wheel and page-key routing as Codex; inline Claude uses Flere's local scrollback.

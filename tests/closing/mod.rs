@@ -414,6 +414,52 @@ fn expired_cancelled_and_interrupted_shell_checks_never_replay_at_the_next_promp
 }
 
 #[test]
+fn disposable_plugin_buffers_close_but_scratch_content_and_write_buffers_stay() {
+    for editor in editors() {
+        for (kind, modifiable, empty, dirty, confirm) in [
+            ("nofile", false, false, false, false),
+            ("nofile", true, true, false, false),
+            ("nofile", true, false, false, true),
+            ("nofile", true, false, true, true),
+            ("acwrite", false, true, false, true),
+            ("", true, false, true, true),
+        ] {
+            let f = Fixture::with_editor(editor);
+            let t = open_editor(&f);
+            f.send(
+                &t,
+                format!(
+                    ":enew\r:let scratch = bufnr('%')\r:setlocal buftype={kind} nobuflisted bufhidden=hide\r:call setline(1, '{}')\r:setlocal nomodified {}modifiable\r:buffer#\r:call setbufvar(scratch, '&modified', {})\r:echo 'SCRATCH_READY'\r",
+                    if empty { "" } else { "PLUGIN_UI" },
+                    if modifiable { "" } else { "no" },
+                    u8::from(dirty),
+                )
+                .as_bytes(),
+            );
+            f.wait_text(&t, "SCRATCH_READY");
+            let screen = f.capture(&t);
+            let result = close(&f, &t);
+            assert_eq!(
+                result["status"],
+                if confirm { "confirm" } else { "closed" },
+                "{editor}, {kind}, modifiable={modifiable}, empty={empty}, dirty={dirty}: {result}: {}",
+                screen
+            );
+            if dirty && kind.is_empty() {
+                assert!(result["reason"].as_str().unwrap().contains("unsaved"));
+            }
+            assert_eq!(
+                fs::read_to_string(f.root.join("clean.txt")).unwrap(),
+                "ORIGINAL_FILE\n"
+            );
+            if confirm {
+                assert!(f.snapshot().session().unwrap().alive);
+            }
+        }
+    }
+}
+
+#[test]
 fn editor_terminals_and_special_buffers_require_confirmation() {
     if !flere::editor::executable("nvim") {
         return;

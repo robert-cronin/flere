@@ -6998,10 +6998,9 @@ fn actual_ui_inspector_tabs_paging_and_context_preserve_native_draft() {
         } else {
             layout.width - layout.right
         };
-        // The top visible file after paging is f00, rather than the parent entry.
-        master
-            .write_all(format!("\x1b[<0;{};6M", pane + 6).as_bytes())
-            .unwrap();
+        // Select without opening so this navigation test retains the shell draft.
+        // Exact clicked-row opening is covered by the viewport regression.
+        master.write_all(b"\x1b[Hj").unwrap();
         wait_current_ui(&mut master, &mut screen, |s| {
             s.grid.line(context).contains("f00.rs")
         });

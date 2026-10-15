@@ -481,6 +481,55 @@ fn context_menus_cancel_on_removed_exact_target_origin_change_and_resize() {
 }
 
 #[test]
+fn single_click_opens_files_and_directories_without_replaying_input() {
+    for width in [160, 60] {
+        let f = Fixture::new();
+        let scene = scene(&f);
+        let mut ui = Ui::attach(&f, &scene, width, 40);
+        let audit = input_audit(&f);
+        let name = scene.file.file_name().unwrap().to_str().unwrap();
+        let narrow = ui.layout.right == 0;
+        if narrow {
+            ui.key(b"\0l");
+        }
+        ui.wait(|s| s.capture(100).contains(name));
+        let inspector_left = if narrow {
+            0
+        } else {
+            width as usize - ui.layout.right
+        };
+        let file = find(&ui.screen, inspector_left, width as usize, 5, 38, name).unwrap();
+        let output = ui.click(file.0, file.1);
+        assert!(
+            osc52(&output).is_empty(),
+            "opening a file must not copy terminal text"
+        );
+        ui.wait(|s| s.capture(100).contains("EXACT_EDITOR_FILE"));
+        let editor = current(&f);
+        assert_eq!(input_audit(&f), audit);
+        assert_eq!(
+            f.snapshot().session().unwrap().path,
+            scene.file.to_str().unwrap()
+        );
+        // A subsequent keystroke must reach the editor even on a narrow screen.
+        ui.key(b"iCLICK_EDIT\x1b");
+        ui.wait(|s| s.capture(100).contains("CLICK_EDIT"));
+        assert!(f.capture(&scene.source).contains("SOURCE_DRAFT"));
+        ui.key(b"\0l");
+        ui.wait(|s| s.capture(100).contains("folder"));
+        let folder = find(&ui.screen, inspector_left, width as usize, 5, 38, "folder").unwrap();
+        ui.click(folder.0, folder.1);
+        ui.wait(|s| s.capture(100).contains("nested.txt"));
+        assert_eq!(current(&f), editor);
+        assert_eq!(
+            fs::read_to_string(&scene.file).unwrap(),
+            "EXACT_EDITOR_FILE\n"
+        );
+        ui.finish();
+    }
+}
+
+#[test]
 fn file_context_actions_copy_and_open_the_clicked_path_and_directory() {
     for width in [160, 60] {
         let f = Fixture::new();

@@ -5,6 +5,15 @@ local function write(name, text)
   vim.fn.writefile({text}, dir .. '/' .. name)
   vim.fn.setfperm(dir .. '/' .. name, 'rw-------')
 end
+local function disposable_ui_buffer(b)
+  if vim.bo[b].buftype ~= 'nofile' or vim.bo[b].buflisted then return false end
+  if not vim.bo[b].modifiable then return true end
+  -- Plugins also leave empty, editable placeholders hidden. Native editors do
+  -- not mark nofile buffers modified, so nonempty editable scratch stays guarded.
+  return vim.api.nvim_buf_is_loaded(b) and #vim.fn.win_findbuf(b) == 0
+    and vim.api.nvim_buf_line_count(b) == 1
+    and vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] == ''
+end
 local function state()
   local dirty, reason, processes, services = 0, '', {}, {}
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
@@ -15,7 +24,8 @@ local function state()
         if vim.fn.jobwait({vim.bo[b].channel}, 0)[1] == -1 then
           reason = 'An editor terminal is still running'
         end
-      elseif kind ~= '' and kind ~= 'help' and kind ~= 'quickfix' then
+      elseif kind ~= '' and kind ~= 'help' and kind ~= 'quickfix'
+          and not disposable_ui_buffer(b) then
         reason = 'The editor has a special buffer with unknown state'
       end
     end

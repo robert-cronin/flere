@@ -143,12 +143,6 @@ fn files_reversal_retains_top_and_click_context_use_the_visible_row() {
         flere::terminal::Color::Rgb(14, 42, 55)
     );
     let clicked = ui.find("file-57.txt");
-    ui.click(clicked, 0);
-    assert_eq!(ui.top(), top);
-    assert_eq!(
-        ui.screen.grid.cells[clicked.1 * 160 + clicked.0].style.bg,
-        flere::terminal::Color::Rgb(14, 42, 55)
-    );
     assert_eq!(
         ui.copy_context(clicked, "Copy path"),
         directory.join("file-57.txt").to_str().unwrap().as_bytes()
@@ -159,12 +153,18 @@ fn files_reversal_retains_top_and_click_context_use_the_visible_row() {
             .unwrap()
             .contains("\tinput\t")
     );
-    ui.key(b"\r");
+    ui.click(clicked, 0);
+    assert_eq!(ui.top(), top);
     wait_current_ui(&mut ui.master, &mut ui.screen, |_| {
         f.snapshot()
             .session()
             .is_some_and(|t| t.kind == "editor" && t.path.ends_with("file-57.txt"))
     });
+    assert!(
+        !fs::read_to_string(f.state.join("actions.log"))
+            .unwrap()
+            .contains("\tinput\t")
+    );
     ui.wait("EXACT_FILE_57");
     ui.finish();
 }

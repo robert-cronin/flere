@@ -606,7 +606,7 @@ impl Ui {
                 }
                 self.previews
                     .remove(&(self.snapshot.active, self.snapshot.tab));
-                self.focus = Focus::Files;
+                self.focus = Focus::Terminal;
                 self.nav = false;
             }
         }
@@ -789,9 +789,14 @@ impl Ui {
                 return;
             }
             self.selection = None;
+            // A full-screen inspector can disappear when opening an editor.
+            // The same press/release must not select the newly revealed terminal.
+            let inspector_click = (self.layout.right == 0 && self.focus == Focus::Files)
+                || (self.layout.right > 0 && x >= self.layout.width - self.layout.right);
             self.mouse(x, y);
             let l = self.terminal_layout();
             if !self.board
+                && !inspector_click
                 && self.focus == Focus::Terminal
                 && self.confirm.is_none()
                 && x >= l.terminal_x
@@ -1181,13 +1186,21 @@ impl Ui {
             }
             if self.prefs.inspector == Inspector::Files && y >= 5 && y < 5 + self.file_rows() {
                 let rows = self.file_rows();
-                if let Some(e) = self.explorers.get_mut(&self.snapshot.active) {
-                    let offset = e.start(rows);
-                    let index = offset + y - 5;
-                    if index < e.entries.len() {
-                        e.selected = index;
-                        self.show_mouse_hint("j/k select · Enter open · - parent");
-                    }
+                let selected = self
+                    .explorers
+                    .get_mut(&self.snapshot.active)
+                    .is_some_and(|e| {
+                        let offset = e.start(rows);
+                        let index = offset + y - 5;
+                        if index < e.entries.len() {
+                            e.selected = index;
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                if selected {
+                    self.file_enter();
                 }
             }
         } else {
