@@ -1,4 +1,4 @@
-//! Card-local command resolution. No user shell files or global Codex config are edited.
+//! Card-local command resolution. User shell files and global native config stay intact.
 use super::*;
 use std::{io::IsTerminal, os::unix::fs::PermissionsExt};
 
@@ -10,15 +10,17 @@ pub(crate) fn prepare(state: &Path, shell_run: &str) -> io::Result<PathBuf> {
     let dir = directory(state, shell_run);
     crate::close::private_directory(&dir)?;
     let quote = |s: &Path| format!("'{}'", s.to_string_lossy().replace('\'', "'\\''"));
-    let script = format!(
-        "#!/bin/sh\nexec {} --state {} _shell-codex '{}' \"$@\"\n",
-        quote(&crate::os::executable_path()?),
-        quote(state),
-        shell_run
-    );
-    let path = dir.join("codex");
-    crate::workspace::atomic_write(&path, script.as_bytes())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    for harness in ["codex", "claude"] {
+        let script = format!(
+            "#!/bin/sh\nexec {} --state {} _shell-{harness} '{}' \"$@\"\n",
+            quote(&crate::os::executable_path()?),
+            quote(state),
+            shell_run
+        );
+        let path = dir.join(harness);
+        crate::workspace::atomic_write(&path, script.as_bytes())?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
     Ok(dir)
 }
 
@@ -54,6 +56,75 @@ fn interactive(args: &[String]) -> bool {
             | "cloud" | "features" | "help" => return false,
             _ if arg.starts_with('-') => return false,
             _ => return true, // Positional initial prompt.
+        }
+        i += 1;
+    }
+    true
+}
+pub(super) fn claude_value_option(name: &str) -> bool {
+    matches!(
+        name,
+        "--model"
+            | "--effort"
+            | "--agent"
+            | "--agents"
+            | "--settings"
+            | "--setting-sources"
+            | "--permission-mode"
+            | "--append-system-prompt"
+            | "--system-prompt"
+            | "--session-id"
+            | "--debug-file"
+            | "--input-format"
+            | "--output-format"
+            | "--fallback-model"
+            | "--max-turns"
+            | "--max-budget-usd"
+            | "--json-schema"
+            | "--environment"
+            | "--system-prompt-snapshot"
+            | "--system-prompt-file"
+            | "--append-system-prompt-file"
+            | "--autocompact"
+    )
+}
+fn claude_interactive(args: &[String]) -> bool {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        let name = arg.split('=').next().unwrap_or(arg);
+        match name {
+            "--help" | "-h" | "--version" | "-v" | "--print" | "-p" => return false,
+            "auth" | "mcp" | "plugin" | "plugins" | "doctor" | "update" | "upgrade" | "install"
+            | "setup-token" | "remote-control" | "agents" | "attach" | "logs" | "stop" | "kill"
+            | "rm" | "purge" | "respawn" | "gateway" | "import" | "auto-mode" | "ultrareview"
+            | "--bg" | "--background" | "--cloud" | "--desktop" => return false,
+            name if claude_value_option(name) => {
+                if name == arg {
+                    i += 1;
+                }
+            }
+            "--mcp-config" | "--allowedTools" | "--disallowedTools" | "--tools" | "--add-dir"
+            | "--plugin-dir" => {
+                if name == arg {
+                    i += 1;
+                }
+                while args.get(i + 1).is_some_and(|a| !a.starts_with('-')) {
+                    i += 1;
+                }
+            }
+            "--resume"
+            | "-r"
+            | "--continue"
+            | "-c"
+            | "--fork-session"
+            | "--strict-mcp-config"
+            | "--verbose"
+            | "--disable-slash-commands"
+            | "--ide" => {}
+            "--" => return true,
+            _ if arg.starts_with('-') => return false,
+            _ => {}
         }
         i += 1;
     }
@@ -100,7 +171,10 @@ pub(crate) fn working_directory(args: &[String], base: &Path) -> io::Result<Path
     directory.canonicalize()
 }
 
-pub fn run(state: &Path, shell_run: &str, args: &[String]) -> io::Result<()> {
+pub fn run(state: &Path, shell_run: &str, args: &[String], harness: &str) -> io::Result<()> {
+    if !matches!(harness, "codex" | "claude") {
+        return Err(crate::wire::invalid("invalid shell harness"));
+    }
     if shell_run.len() != 32 || !shell_run.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(crate::wire::invalid("invalid shell launcher identity"));
     }
@@ -112,19 +186,24 @@ pub fn run(state: &Path, shell_run: &str, args: &[String]) -> io::Result<()> {
         .collect();
     let executable = search
         .iter()
-        .map(|p| p.join("codex"))
+        .map(|p| p.join(harness))
         .find(|p| p.is_file() && fs::metadata(p).is_ok_and(|m| m.permissions().mode() & 0o111 != 0))
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                "codex executable not found on PATH",
+                format!("{harness} executable not found on PATH"),
             )
         })?;
     let executable = std::path::absolute(executable)?;
     let path = std::env::join_paths(search).map_err(io::Error::other)?;
     let mut command = Command::new(&executable);
     command.env("PATH", &path);
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() || !interactive(args) {
+    let interactive = if harness == "claude" {
+        claude_interactive(args)
+    } else {
+        interactive(args)
+    };
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() || !interactive {
         command.args(args);
         return Err(command.exec());
     }
@@ -138,25 +217,32 @@ pub fn run(state: &Path, shell_run: &str, args: &[String]) -> io::Result<()> {
     let argv: Vec<_> = std::iter::once(executable.to_string_lossy().into_owned())
         .chain(args.iter().cloned())
         .collect();
+    let mut fields = vec![
+        "shell-native".to_string(),
+        scope["epoch"]
+            .as_str()
+            .ok_or_else(|| crate::wire::invalid("missing shell epoch"))?
+            .to_string(),
+        scope["session"]
+            .as_u64()
+            .ok_or_else(|| crate::wire::invalid("missing shell session"))?
+            .to_string(),
+        scope["run"]
+            .as_str()
+            .ok_or_else(|| crate::wire::invalid("missing shell run"))?
+            .to_string(),
+        shell_run.to_string(),
+        pid.to_string(),
+        start.clone(),
+        crate::wire::hex(&serde_json::to_vec(&argv).map_err(io::Error::other)?),
+    ];
+    // Preserve the old Codex request shape for mixed-version supervisors.
+    if harness != "codex" {
+        fields.push(harness.into());
+    }
     let spec: HostSpec = serde_json::from_slice(&crate::wire::request(
         state,
-        &[
-            "shell-native",
-            scope["epoch"]
-                .as_str()
-                .ok_or_else(|| crate::wire::invalid("missing shell epoch"))?,
-            &scope["session"]
-                .as_u64()
-                .ok_or_else(|| crate::wire::invalid("missing shell session"))?
-                .to_string(),
-            scope["run"]
-                .as_str()
-                .ok_or_else(|| crate::wire::invalid("missing shell run"))?,
-            shell_run,
-            &pid.to_string(),
-            &start,
-            &crate::wire::hex(&serde_json::to_vec(&argv).map_err(io::Error::other)?),
-        ],
+        &fields.iter().map(String::as_str).collect::<Vec<_>>(),
     )?)
     .map_err(io::Error::other)?;
     command.args(&spec.argv[1..]);
@@ -167,6 +253,7 @@ pub fn run(state: &Path, shell_run: &str, args: &[String]) -> io::Result<()> {
         .env("FLERE_RUN", &spec.run);
     crate::os::host_signals();
     let result = command.spawn().and_then(|mut child| child.wait());
+    super::claude::cleanup(state, &spec);
     let _ = crate::wire::request(state, &["native-ended", &spec.id.to_string(), &spec.run]);
     match result {
         Ok(status) => {
@@ -206,6 +293,34 @@ mod tests {
             vec!["login", "status"],
         ] {
             assert!(!interactive(
+                &args.into_iter().map(String::from).collect::<Vec<_>>()
+            ));
+        }
+    }
+    #[test]
+    fn claude_cli_management_and_ambiguous_options_pass_through() {
+        for args in [
+            vec![],
+            vec!["--resume"],
+            vec!["--resume", "11111111-2222-3333-4444-555555555555"],
+            vec!["--model", "example", "--continue"],
+            vec!["--", "mcp"],
+        ] {
+            assert!(claude_interactive(
+                &args.into_iter().map(String::from).collect::<Vec<_>>()
+            ));
+        }
+        for args in [
+            vec!["--version"],
+            vec!["-p", "hi"],
+            vec!["--print=hi"],
+            vec!["--resume", "--help"],
+            vec!["--model", "example", "mcp", "list"],
+            vec!["auth", "status"],
+            vec!["--unknown"],
+            vec!["remote-control"],
+        ] {
+            assert!(!claude_interactive(
                 &args.into_iter().map(String::from).collect::<Vec<_>>()
             ));
         }

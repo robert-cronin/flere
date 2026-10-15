@@ -24,17 +24,17 @@ The optional CLI UUID is an advanced integration interface; omit it for a fresh 
 
 Flere saves every open tab, its order, the selected tab and the selected workspace. Opening the UI after a supervisor or machine restart reopens those tabs: agents use their own recorded harness and exact conversation ID; shells start in their last saved directory; editor tabs reopen their file. Three open chats remain three separate tabs. Supervisor-only startup launches nothing. Reattaching to live tabs reuses them.
 
-**S** opens a harness selector: use Up/Down, j/k or Tab/Shift+Tab to choose Codex, Claude Code or GitHub Copilot, then Enter; a click also starts the selected harness. Escape cancels. Flere has no conversation-ID field or saved-conversation chooser. Switch conversations inside the harness. Codex discovers the current ID from a unique rollout descriptor in its owned child tree, including after a conversation switch. Automatic ID discovery for Claude and Copilot is not yet implemented: recorded IDs resume exactly; an unknown ID opens that harness's native resume picker. Flere never guesses the globally latest chat or adds approval-bypass flags.
+**S** opens a harness selector: use Up/Down, j/k or Tab/Shift+Tab to choose Codex, Claude Code or GitHub Copilot, then Enter; a click also starts the selected harness. Escape cancels. Flere has no conversation-ID field or saved-conversation chooser. Switch conversations inside the harness. Codex discovers the current ID from a unique rollout descriptor in its owned child tree, including after a conversation switch. Claude records the exact session ID from a verified live SessionStart hook, including native conversation changes. Copilot ID discovery remains unimplemented. Recorded IDs resume exactly; an unknown ID opens that harness's native resume picker. Flere never guesses the globally latest chat or adds approval-bypass flags.
 
-Inside newly opened Flere terminals, plain `codex` and `codex resume` automatically
+Inside newly opened Flere terminals, plain `codex`, `codex resume`, `claude` and `claude --resume` automatically
 connect the interactive chat to the same card, including Flere MCP tools and
 native paste support. A private executable on that terminal's PATH forwards your
-arguments to the real Codex. Each launch gets a fresh run identity; exiting
+arguments to the real native executable. Each launch gets a fresh run identity; exiting
 returns to the existing shell, preserving its variables and jobs. Recognized
 management commands such as `codex --version`, `codex exec` and `codex mcp list`
-pass through without registering a chat. Your global shell and Codex settings
+and Claude management/print commands pass through without registering a chat. Your global shell and native settings
 are unchanged. User aliases are preserved; aliases or commands that name an
-absolute Codex executable can bypass this integration. Nested shells inherit
+absolute native executable can bypass this integration. Nested shells inherit
 the launcher unless their startup configuration replaces PATH.
 
 After a supervisor restart, opening Flere restores only the visible card’s saved
@@ -51,7 +51,7 @@ precedence. Failed starts retain the card's conversation history for retry.
 
 The launcher becomes available in new terminals, including the shell opened
 after a newly launched native chat exits. Refresh preserves existing processes;
-it cannot change an already-running shell's PATH or add flags to a running Codex.
+it cannot change an already-running shell's PATH or add flags to a running native chat.
 Saved-state and refresh handoff version 9 retain the native run and shell's
 separate lifecycle identity. Older binaries reject this state instead of
 silently dropping its recovery information.
@@ -199,3 +199,30 @@ and refresh handoffs use version 8 so older binaries cannot silently discard the
 conversation binding during downgrade. The acceptance tests exercise harmless
 native stand-ins; actual native-model handling remains a separate human-run
 acceptance check.
+
+## Claude Code and gateways
+
+Flere adds its stdio MCP server and command hooks to Claude through `--mcp-config` and a private per-launch `--settings` overlay. Existing user and project settings remain in place. Explicit CLI settings are merged into that overlay, retaining their hooks, environment and permissions; existing CLI MCP sources are kept. Flere adds no permission or repository-trust overrides. Supported hooks are SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Stop, PreCompact and SessionEnd. Subagent events do not update the card's main conversation. SessionStart records the exact native ID after verifying the live hook caller and its owned process ancestry.
+
+Unread message IDs can appear at SessionStart, UserPromptSubmit and PostToolUse. A Stop hook can return one interrupt-intent notice unless Claude reports that a stop hook is already active. DND defers notices. A returned notice is not acknowledgement, tool permission or user approval. Claude has no native idle queue; messages sent after it stops wait for its next native boundary or Flere tool reply.
+
+An optional `harnesses.json` in Flere's private state directory can set a Claude command and environment, including an Anthropic-compatible gateway such as Vekil:
+
+```json
+[
+  {
+    "name": "claude",
+    "command": ["claude"],
+    "env": {
+      "ANTHROPIC_BASE_URL": "http://127.0.0.1:PORT",
+      "ANTHROPIC_AUTH_TOKEN": "YOUR_GATEWAY_TOKEN",
+      "ANTHROPIC_API_KEY": "",
+      "ANTHROPIC_MODEL": "YOUR_PUBLIC_MODEL_ID"
+    }
+  }
+]
+```
+
+Use the proxy root, without an extra `/v1`, and a model advertised by that gateway. Keep credentials in private state, never in a project checkout. The environment is copied into the owner-only settings file rather than exposed in command arguments. Flere identity, HOME, PATH and Claude's config-directory variables cannot be overridden by this profile. Other harness profiles are preserved. New launches use the profile; existing chats are untouched. Default Haiku/Sonnet/Opus model aliases can also be set through the corresponding `ANTHROPIC_DEFAULT_*_MODEL` variables.
+
+Use an up-to-date Claude Code when routing newer models through Vekil: older clients may send an incompatible thinking format. The gateway must support the client's Messages API. Flere configures the client but does not start, upgrade or implement the gateway. Full-screen Claude uses the same pane-relative native wheel and page-key routing as Codex; inline Claude uses Flere's local scrollback.

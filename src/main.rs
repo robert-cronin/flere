@@ -151,11 +151,23 @@ fn run() -> io::Result<()> {
         state = env::current_dir()?.join(state)
     }
     let action = args.first().map_or("open", String::as_str);
-    if action == "_shell-codex" {
+    if matches!(action, "_shell-codex" | "_shell-claude") {
         let run = args
             .get(1)
             .ok_or_else(|| wire::invalid("missing shell identity"))?;
-        return flere::native::launcher::run(&state, run, &args[2..]);
+        return flere::native::launcher::run(
+            &state,
+            run,
+            &args[2..],
+            if action == "_shell-claude" {
+                "claude"
+            } else {
+                "codex"
+            },
+        );
+    }
+    if action == "_claude-inbox-hook" {
+        return flere::inbox_hook::run_claude(&state, io::stdin().lock(), io::stdout().lock());
     }
     if matches!(
         action,

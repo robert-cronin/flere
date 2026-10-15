@@ -968,7 +968,7 @@ impl Server {
                     id: self.next,
                     run: os::nonce()?,
                     harness: harness.into(),
-                    argv: crate::native::resume_arguments(&self.state, harness, uuid)?,
+                    argv: crate::native::resume_arguments(&self.state, harness, uuid, &cwd)?,
                     cwd,
                     shell: os::shell(),
                     conversation: uuid.into(),
@@ -1007,7 +1007,7 @@ impl Server {
                         "this native conversation/profile already has a hosted terminal; focus it instead",
                     ));
                 }
-                let argv = crate::native::arguments(&self.state, harness, uuid)?;
+                let argv = crate::native::arguments(&self.state, harness, uuid, &cwd)?;
                 let run = os::nonce()?;
                 let id = self.next;
                 self.next += 1;

@@ -99,6 +99,11 @@ impl Server {
                 }
                 continue;
             }
+            // Claude's verified native hooks own its display activity. Do not
+            // replace that signal with Codex-specific screen/process discovery.
+            if s.native.as_ref().is_some_and(|n| n.harness == "claude") {
+                continue;
+            }
             // This fresh result belongs only to this tab's current inspection.
             // Coordination operations continue to prove their own identities.
             let observed = crate::native::working_screen(&s.term).then(|| {

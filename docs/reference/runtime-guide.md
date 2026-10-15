@@ -171,7 +171,7 @@ memory and cannot reach the clipboard. Detaching before rendering completes
 drops the pending copy. Clipboard availability still depends on the local
 system's graphical session; rendering does not.
 
-Cards have independent workflow status, project colors, issue/PR symbols and ordinary pinning. The board uses the same project filter and status colors. Native completion requests Needs me review; it does not accept the work. Working-card animation requires both a matching owned Codex process and observed working/composer text. It is a display heuristic, never a basis for sending input or acknowledging messages. Needs me itself does not continuously animate. A blue Working badge and moving border highlight mark busy cards; background chats count even when a shell or another card is selected. Tabs and the board use the same observation. Actions → Shift+M toggles reduced motion, keeping a static badge.
+Cards have independent workflow status, project colors, issue/PR symbols and ordinary pinning. The board uses the same project filter and status colors. Native completion requests Needs me review; it does not accept the work. Codex working-card animation requires both a matching owned process and observed working/composer text. Claude activity follows verified native prompt/tool hooks; Stop, PermissionRequest and SessionEnd clear it. It is a display heuristic, never a basis for sending input or acknowledging messages. Needs me itself does not continuously animate. A blue Working badge and moving border highlight mark busy cards; background chats count even when a shell or another card is selected. Tabs and the board use the same observation. Actions → Shift+M toggles reduced motion, keeping a static badge.
 
 ### Git history
 
@@ -525,17 +525,17 @@ The optional CLI UUID is an advanced integration interface; omit it for a fresh 
 
 Flere saves every open tab, its order, the selected tab and the selected workspace. Opening the UI after a supervisor or machine restart reopens those tabs: agents use their own recorded harness and exact conversation ID; shells start in their last saved directory; editor tabs reopen their file. Three open chats remain three separate tabs. Supervisor-only startup launches nothing. Reattaching to live tabs reuses them.
 
-**S** opens a harness selector: use Up/Down, j/k or Tab/Shift+Tab to choose Codex, Claude Code or GitHub Copilot, then Enter; a click also starts the selected harness. Escape cancels. Flere has no conversation-ID field or saved-conversation chooser. Switch conversations inside the harness. Codex discovers the current ID from a unique rollout descriptor in its owned child tree, including after a conversation switch. Automatic ID discovery for Claude and Copilot is not yet implemented: recorded IDs resume exactly; an unknown ID opens that harness's native resume picker. Flere never guesses the globally latest chat or adds approval-bypass flags.
+**S** opens a harness selector: use Up/Down, j/k or Tab/Shift+Tab to choose Codex, Claude Code or GitHub Copilot, then Enter; a click also starts the selected harness. Escape cancels. Flere has no conversation-ID field or saved-conversation chooser. Switch conversations inside the harness. Codex discovers the current ID from a unique rollout descriptor in its owned child tree, including after a conversation switch. Claude records the exact session ID from a verified live SessionStart hook, including native conversation changes. Copilot ID discovery remains unimplemented. Recorded IDs resume exactly; an unknown ID opens that harness's native resume picker. Flere never guesses the globally latest chat or adds approval-bypass flags.
 
-Inside newly opened Flere terminals, plain `codex` and `codex resume` automatically
+Inside newly opened Flere terminals, plain `codex`, `codex resume`, `claude` and `claude --resume` automatically
 connect the interactive chat to the same card, including Flere MCP tools and
 native paste support. A private executable on that terminal's PATH forwards your
-arguments to the real Codex. Each launch gets a fresh run identity; exiting
+arguments to the real native executable. Each launch gets a fresh run identity; exiting
 returns to the existing shell, preserving its variables and jobs. Recognized
 management commands such as `codex --version`, `codex exec` and `codex mcp list`
-pass through without registering a chat. Your global shell and Codex settings
+and Claude management/print commands pass through without registering a chat. Your global shell and native settings
 are unchanged. User aliases are preserved; aliases or commands that name an
-absolute Codex executable can bypass this integration. Nested shells inherit
+absolute native executable can bypass this integration. Nested shells inherit
 the launcher unless their startup configuration replaces PATH.
 
 When every tab on an existing card has been closed, **Enter** or explicit card
@@ -547,7 +547,7 @@ precedence. Failed starts retain the card's conversation history for retry.
 
 The launcher becomes available in new terminals, including the shell opened
 after a newly launched native chat exits. Refresh preserves existing processes;
-it cannot change an already-running shell's PATH or add flags to a running Codex.
+it cannot change an already-running shell's PATH or add flags to a running native chat.
 Saved-state and refresh handoff version 9 retain the native run and shell's
 separate lifecycle identity. Older binaries reject this state instead of
 silently dropping its recovery information.
@@ -563,7 +563,7 @@ After a native process exits, its host execs your default interactive shell in t
 
 New supported Codex launches register a task-scoped Flere stdio MCP server through ordinary native configuration. It exposes context, inbox, message, checkpoint, decision request, result submission, workflow status, bounded own-terminal reads and explicitly user-requested focus. Existing chats do not acquire a new MCP catalog just by refreshing the UI. Native repository and MCP trust remain yours to review.
 
-Messages have separate saved, surfaced and acknowledged timestamps. Opening a human message reader or reading the native inbox surfaces returned messages; handling requires explicit acknowledgement. Pending messages/decisions come before old retired records. Agents cannot answer human decisions or set Done; result submission requests review. Codex delivery now uses optional native hooks and an idle queue, with separate transport receipts. Human previews do not count as delivery to an agent. See activation below. MCP registration and automatic delivery for Claude/Copilot remain pending.
+Messages have separate saved, surfaced and acknowledged timestamps. Opening a human message reader or reading the native inbox surfaces returned messages; handling requires explicit acknowledgement. Pending messages/decisions come before old retired records. Agents cannot answer human decisions or set Done; result submission requests review. Codex delivery now uses optional native hooks and an idle queue, with separate transport receipts. Human previews do not count as delivery to an agent. See activation below. Claude receives scoped MCP registration and native hook notices at launch. It has no idle queue: an idle chat waits for its next prompt, supported hook, or Flere tool reply. Copilot registration and automatic delivery remain pending.
 
 The private Unix socket supports bounded live inspection while attached or detached:
 

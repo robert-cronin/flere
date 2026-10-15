@@ -261,8 +261,12 @@ impl Server {
         }
         let id = self.next;
         if tab.kind == "agent" {
-            let argv =
-                crate::native::resume_arguments(&self.state, &tab.harness, &tab.conversation)?;
+            let argv = crate::native::resume_arguments(
+                &self.state,
+                &tab.harness,
+                &tab.conversation,
+                &tab.cwd,
+            )?;
             let run = os::nonce()?;
             let spec = crate::native::HostSpec {
                 launcher: None,

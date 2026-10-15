@@ -22,6 +22,8 @@ pub struct Input {
     pub stop_hook_active: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_notice: Option<QueueNotice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller: Option<(u32, String)>,
 }
 /// Only a complete Flere-generated queue notice crosses the hook socket. Ordinary
 /// user prompts and message bodies are neither forwarded nor saved here.
@@ -116,13 +118,24 @@ pub fn flags(binary: &Path, state: &Path) -> Vec<String> {
         .collect()
 }
 pub fn run(state: &Path, input: impl Read, mut output: impl Write) -> io::Result<()> {
+    run_adapter(state, input, &mut output, false)
+}
+pub fn run_claude(state: &Path, input: impl Read, mut output: impl Write) -> io::Result<()> {
+    run_adapter(state, input, &mut output, true)
+}
+fn run_adapter(
+    state: &Path,
+    input: impl Read,
+    mut output: impl Write,
+    claude: bool,
+) -> io::Result<()> {
     let mut data = Vec::new();
     input.take(1024 * 1024 + 1).read_to_end(&mut data)?;
     if data.len() > 1024 * 1024 {
         return Err(crate::wire::invalid("hook input exceeds bound"));
     }
     let mut value: Value = serde_json::from_slice(&data).map_err(io::Error::other)?;
-    let submitted = if value["hook_event_name"] == "UserPromptSubmit" {
+    let submitted = if !claude && value["hook_event_name"] == "UserPromptSubmit" {
         value["prompt"].as_str().and_then(QueueNotice::parse)
     } else {
         None
@@ -131,14 +144,24 @@ pub fn run(state: &Path, input: impl Read, mut output: impl Write) -> io::Result
     if let Some(object) = value.as_object_mut() {
         object.remove("queue_notice");
         object.remove("prompt");
+        object.remove("caller");
     }
     let mut event: Input = serde_json::from_value(value).map_err(io::Error::other)?;
     event.queue_notice = submitted;
-    if !EVENTS.contains(&event.hook_event_name.as_str()) {
+    let supported = if claude {
+        crate::native::claude::EVENTS
+    } else {
+        EVENTS
+    };
+    if !supported.contains(&event.hook_event_name.as_str()) {
         return Err(crate::wire::invalid("unsupported hook event"));
     }
     if !event.agent_id.is_empty() {
         return writeln!(output, "{{}}");
+    }
+    if claude {
+        let pid = std::process::id();
+        event.caller = Some((pid, crate::os::child_identity(pid)?.1));
     }
     let session = std::env::var("FLERE_SESSION").map_err(io::Error::other)?;
     let run = std::env::var("FLERE_RUN").map_err(io::Error::other)?;

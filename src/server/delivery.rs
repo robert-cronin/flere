@@ -127,6 +127,14 @@ impl Server {
     pub(super) fn proof(&self, session: u64, run: &str) -> io::Result<Target> {
         let (_, s, _) = self.native_scope(session, run)?;
         let spec = s.native.as_ref().unwrap();
+        if spec.harness == "claude" {
+            let target = &self
+                .observation(session, run)
+                .ok_or_else(|| invalid("Claude session hook has not been observed"))?
+                .target;
+            crate::native::claude::verify(s.child.id(), spec, target)?;
+            return Ok(target.clone());
+        }
         if spec.harness != "codex" {
             return Err(invalid("automatic delivery currently requires Codex"));
         }
@@ -171,6 +179,9 @@ impl Server {
             .ok()
             .and_then(|(_, s, _)| s.native.as_ref())
             .is_some_and(|s| {
+                if s.harness == "claude" {
+                    return crate::native::claude::configured(s);
+                }
                 crate::inbox_hook::EVENTS.iter().all(|event| {
                     s.argv
                         .iter()
@@ -185,11 +196,14 @@ impl Server {
         let proof = self.proof(session, &run).ok();
         let configured = self.hooks_configured(session, &run);
         let observed = self.observation(session, &run);
+        let claude = self
+            .native_scope(session, &run)
+            .is_ok_and(|(_, s, _)| s.native.as_ref().is_some_and(|n| n.harness == "claude"));
         json!({"state":if observed.is_some(){"observed"}else if configured{"unobserved"}else{"activation-required"},
             "workspace":wid,"session":session,"run":run,"configured":configured,
             "conversation":proof.as_ref().map(|p|&p.uuid),"observation":observed,"focus":self.focus(session,&run),
             "chat_messages":{"operation":"send_chat_message","address":"workspace and verified native conversation","retry":"reuse request_id","cli_fallback":"flere --state \"$FLERE_STATE\" agent-call send_chat_message '<JSON arguments>'"},
-            "instructions":"Configured hooks may not run until the first turn. A verified empty idle composer can receive its first notice through the native queue before any hook is observed. Later delivery respects observed activity and permission events. If hooks are absent, explicitly resume this exact UUID with the current launcher. Review native trust prompts yourself; configuration does not prove trust. Flere tool replies can surface pending notices. Messaging never restarts stopped chats."})
+            "instructions":if claude {"Claude notices surface at SessionStart, UserPromptSubmit, PostToolUse and eligible Stop hooks, or through Flere tool replies. Claude has no idle queue; idle chats wait for the next native boundary. Review native trust prompts yourself. Messaging never restarts stopped chats."} else {"Configured hooks may not run until the first turn. A verified empty idle composer can receive its first notice through the native queue before any hook is observed. Later delivery respects observed activity and permission events. If hooks are absent, explicitly resume this exact UUID with the current launcher. Review native trust prompts yourself; configuration does not prove trust. Flere tool replies can surface pending notices. Messaging never restarts stopped chats."}})
     }
     pub(super) fn delivery_operation(
         &mut self,
@@ -312,6 +326,15 @@ impl Server {
     ) -> io::Result<Value> {
         if !event.agent_id.is_empty() {
             return Ok(json!({"output":{}}));
+        }
+        if self
+            .native_scope(session, run)?
+            .1
+            .native
+            .as_ref()
+            .is_some_and(|n| n.harness == "claude")
+        {
+            return self.observe_claude_hook(session, run, event);
         }
         if self.record_mode() {
             let (wid, _, _) = self.native_scope(session, run)?;
@@ -481,6 +504,139 @@ impl Server {
             m.delivery = Some(Receipt {
                 outcome: "hook-prepared".into(),
                 detail: "Native hook context prepared; not yet confirmed emitted.".into(),
+                epoch: self.epoch.clone(),
+                session,
+                run: run.into(),
+                conversation: event.session_id.clone(),
+                updated: now(),
+                lease: lease.clone(),
+                expires: now() + 6000,
+            });
+        }
+        self.audit(
+            "prepare-hook-notice",
+            wid,
+            &format!(
+                "session={session};run={run};lease={lease};ids={}",
+                ids.join(",")
+            ),
+        )?;
+        self.save_mailbox(next)?;
+        let text = context_notice(wid, session, run, &ids);
+        let output = if name == "Stop" {
+            json!({"decision":"block","reason":text})
+        } else {
+            json!({"hookSpecificOutput":{"hookEventName":name,"additionalContext":text}})
+        };
+        Ok(json!({"output":output,"lease":lease}))
+    }
+    fn observe_claude_hook(&mut self, session: u64, run: &str, event: Input) -> io::Result<Value> {
+        let (wid, s, _) = self.native_scope(session, run)?;
+        let spec = s.native.as_ref().unwrap();
+        let target = crate::native::claude::inspect(s.child.id(), spec, &event)?;
+        let name = event.hook_event_name.as_str();
+        if spec.conversation != event.session_id {
+            if name != "SessionStart" {
+                return Err(invalid("Claude hook precedes its exact SessionStart"));
+            }
+            let w = self.workspaces.iter_mut().find(|w| w.id == wid).unwrap();
+            let saved = crate::native::Conversation {
+                harness: "claude".into(),
+                uuid: event.session_id.clone(),
+                cwd: target.cwd.clone(),
+            };
+            if !w.meta.conversations.contains(&saved) {
+                w.meta.conversations.push(saved.clone());
+            }
+            w.meta.last_conversation = Some(saved);
+            w.tabs
+                .iter_mut()
+                .find(|s| s.id == session && s.run == run)
+                .unwrap()
+                .native
+                .as_mut()
+                .unwrap()
+                .conversation = event.session_id.clone();
+            self.persist()?;
+            self.changed();
+        }
+        if self.record_mode() {
+            return self.record_notice_view(
+                wid,
+                (session, run),
+                name == "Stop",
+                true,
+                None,
+                |server| server.observe_claude_hook(session, run, event),
+            );
+        }
+        let working = matches!(
+            name,
+            "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PreCompact"
+        );
+        let s = self.session(session, run)?;
+        if s.working != working {
+            s.working = working;
+            self.changed();
+        }
+        // Claude 2.1.63 has no native turn_id. Its synchronous, live caller ancestry
+        // proves this boundary; never manufacture Codex turn/queue receipts.
+        self.coordination
+            .delivery
+            .hooks
+            .retain(|h| h.epoch != self.epoch || h.run != run);
+        self.coordination.delivery.hooks.push(Hook {
+            epoch: self.epoch.clone(),
+            session,
+            run: run.into(),
+            target,
+            event: name.into(),
+            turn: String::new(),
+            observed: now(),
+        });
+        self.coordination.delivery.validate()?;
+        if name == "PreCompact" {
+            self.context_cache.invalidate(session, run);
+        }
+        if self.focus(session, run).is_some()
+            || !matches!(
+                name,
+                "SessionStart" | "UserPromptSubmit" | "PostToolUse" | "Stop"
+            )
+            || (name == "Stop" && event.stop_hook_active)
+            || (name == "PostToolUse"
+                && (event.tool_name.ends_with("flere__inbox")
+                    || event.tool_name.ends_with("flere__get_context")))
+        {
+            return Ok(json!({"output":{}}));
+        }
+        let ids: Vec<_> = self
+            .coordination
+            .messages
+            .iter()
+            .filter(|m| {
+                m.to == wid
+                    && m.for_conversation(Some(&event.session_id))
+                    && m.acknowledged.is_none()
+                    && m.native_surfaced.is_none()
+                    && (pending(m)
+                        || m.delivery
+                            .as_ref()
+                            .is_some_and(|d| d.outcome == "hook-prepared" && d.expires < now()))
+                    && (name != "Stop" || m.intent == "interrupt")
+            })
+            .take(8)
+            .map(|m| m.id.clone())
+            .collect();
+        if ids.is_empty() {
+            return Ok(json!({"output":{}}));
+        }
+        let lease = os::nonce()?;
+        let mut next = self.coordination.clone();
+        for m in next.messages.iter_mut().filter(|m| ids.contains(&m.id)) {
+            m.delivery = Some(Receipt {
+                outcome: "hook-prepared".into(),
+                detail: "Claude hook context prepared; not yet confirmed emitted.".into(),
                 epoch: self.epoch.clone(),
                 session,
                 run: run.into(),
@@ -683,6 +839,32 @@ impl Server {
                 "deferred",
                 "Recipient has an active do-not-disturb interval.",
             );
+        }
+        if self
+            .native_scope(session, &run)?
+            .1
+            .native
+            .as_ref()
+            .is_some_and(|n| n.harness == "claude")
+        {
+            if !self.hooks_configured(session, &run) {
+                return self.waiting(
+                    id,
+                    "activation-required",
+                    "Claude hooks are not configured for this run. Read messaging_activation.",
+                );
+            }
+            if self
+                .observation(session, &run)
+                .is_some_and(|h| h.event == "PermissionRequest")
+            {
+                return self.waiting(
+                    id,
+                    "waiting-for-human",
+                    "Native permission prompt remains human-controlled.",
+                );
+            }
+            return self.waiting(id, "waiting-for-hook", "Claude has no idle queue; pending notices wait for the next native hook or Flere tool reply.");
         }
         let hook = self.observation(session, &run);
         if let Some(hook) = hook {

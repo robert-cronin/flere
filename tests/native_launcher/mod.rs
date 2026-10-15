@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
+mod claude;
 
 fn setup(f: &Fixture) {
     let bin = f.root.join("bin");

@@ -2308,7 +2308,25 @@ fn actual_ui_start_agent_has_no_session_id_field_and_keeps_existing_shell() {
     .unwrap();
     assert_eq!(spec["harness"], "claude");
     assert_eq!(spec["conversation"], "");
-    assert_eq!(spec["argv"].as_array().unwrap().len(), 2);
+    let argv = spec["argv"].as_array().unwrap();
+    assert_eq!(
+        &argv[..2],
+        &[serde_json::json!("/bin/sh"), serde_json::json!(script)]
+    );
+    assert!(!argv.contains(&serde_json::json!("--resume")));
+    let mcp = argv.windows(2).find(|p| p[0] == "--mcp-config").unwrap();
+    let mcp: serde_json::Value = serde_json::from_str(mcp[1].as_str().unwrap()).unwrap();
+    assert_eq!(mcp["mcpServers"]["flere"]["args"][2], "mcp");
+    let settings = argv.windows(2).find(|p| p[0] == "--settings").unwrap();
+    let settings: serde_json::Value =
+        serde_json::from_slice(&fs::read(settings[1].as_str().unwrap()).unwrap()).unwrap();
+    assert!(
+        settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("_claude-inbox-hook")
+    );
+    assert!(settings["permissions"].is_null());
     assert_eq!(f.snapshot().workspace().unwrap().tabs[1].pid, first.pid);
     finish_ui(&mut master, &mut screen, &mut child);
 }

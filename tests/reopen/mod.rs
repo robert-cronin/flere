@@ -112,9 +112,18 @@ fn ui_restores_three_exact_chats_order_selection_and_never_duplicates_on_reattac
             assert_eq!(args[2], format!("--resume={}", uuids[i]));
             assert_eq!(args.len(), 3);
         } else {
-            assert_eq!(args[2], if i == 0 { "resume" } else { "--resume" });
-            assert_eq!(args[3], uuids[i]);
-            assert_eq!(args.len(), 4);
+            let tail = &args[args.len() - 2..];
+            assert_eq!(tail[0], if i == 0 { "resume" } else { "--resume" });
+            assert_eq!(tail[1], uuids[i]);
+            if i == 0 {
+                assert_eq!(args.len(), 4);
+            } else {
+                let settings = args.windows(2).find(|p| p[0] == "--settings").unwrap();
+                let path = PathBuf::from(settings[1].as_str().unwrap());
+                assert_eq!(path.parent(), Some(f.state.join("cache/claude").as_path()));
+                assert!(path.is_file());
+                assert!(args.contains(&json!("--mcp-config")));
+            }
         }
     }
     let identities: Vec<_> = w

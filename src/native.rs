@@ -1,5 +1,6 @@
 //! Explicit native launches and exact conversation metadata. Manual resumes have no prompt;
 //! fresh agent dispatch adds only a bounded assignment reference. No permission overrides.
+pub mod claude;
 pub mod delivery;
 pub mod launcher;
 use serde::{Deserialize, Serialize};
@@ -37,6 +38,25 @@ pub struct HostSpec {
 struct Profile {
     name: String,
     command: Vec<String>,
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
+}
+fn profiles(state: &Path) -> io::Result<Vec<Profile>> {
+    let path = state.join("harnesses.json");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let mut b = Vec::new();
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?
+        .take(65537)
+        .read_to_end(&mut b)?;
+    if b.len() > 65536 {
+        return Err(crate::wire::invalid("harness config exceeds bound"));
+    }
+    serde_json::from_slice(&b).map_err(io::Error::other)
 }
 pub fn valid_uuid(s: &str) -> bool {
     s.len() == 36
@@ -48,7 +68,7 @@ pub fn valid_uuid(s: &str) -> bool {
             }
         })
 }
-pub fn arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<String>> {
+pub fn arguments(state: &Path, harness: &str, uuid: &str, cwd: &Path) -> io::Result<Vec<String>> {
     if !uuid.is_empty() && !valid_uuid(uuid) {
         return Err(crate::wire::invalid(
             "resume requires an exact conversation UUID",
@@ -60,22 +80,8 @@ pub fn arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<Stri
         "copilot" => vec!["copilot".into()],
         _ => return Err(crate::wire::invalid("choose codex, claude or copilot")),
     };
-    let path = state.join("harnesses.json");
-    if path.exists() {
-        let mut b = Vec::new();
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(&path)?
-            .take(65537)
-            .read_to_end(&mut b)?;
-        if b.len() > 65536 {
-            return Err(crate::wire::invalid("harness config exceeds bound"));
-        }
-        let profiles: Vec<Profile> = serde_json::from_slice(&b).map_err(io::Error::other)?;
-        if let Some(p) = profiles.into_iter().find(|p| p.name == harness) {
-            argv = p.command;
-        }
+    if let Some(p) = profiles(state)?.into_iter().find(|p| p.name == harness) {
+        argv = p.command;
     }
     if argv.is_empty() || argv[0].is_empty() || argv.iter().any(|s| s.contains('\0')) {
         return Err(crate::wire::invalid("invalid native argv"));
@@ -86,6 +92,9 @@ pub fn arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<Stri
             .is_some_and(|s| s == "codex")
     {
         argv.extend(codex_flags(state)?);
+    }
+    if harness == "claude" {
+        claude::configure(state, cwd, &mut argv)?;
     }
     if !uuid.is_empty() {
         match harness {
@@ -126,8 +135,13 @@ pub(crate) fn codex_flags(state: &Path) -> io::Result<Vec<String>> {
     Ok(flags)
 }
 /// With no discoverable ID, let the harness present its own resume picker.
-pub fn resume_arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<Vec<String>> {
-    let mut argv = arguments(state, harness, uuid)?;
+pub fn resume_arguments(
+    state: &Path,
+    harness: &str,
+    uuid: &str,
+    cwd: &Path,
+) -> io::Result<Vec<String>> {
+    let mut argv = arguments(state, harness, uuid, cwd)?;
     if uuid.is_empty() {
         argv.push(
             if harness == "codex" {
@@ -142,15 +156,22 @@ pub fn resume_arguments(state: &Path, harness: &str, uuid: &str) -> io::Result<V
 }
 pub fn write_spec(state: &Path, spec: &HostSpec) -> io::Result<()> {
     let _timing = crate::diagnostics::measure("native-spec-write");
-    let dir = state.join("runs");
-    if !dir.exists() {
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new().mode(0o700).create(&dir)?;
+    let result = (|| {
+        let dir = state.join("runs");
+        if !dir.exists() {
+            use std::os::unix::fs::DirBuilderExt;
+            fs::DirBuilder::new().mode(0o700).create(&dir)?;
+        }
+        let bytes = serde_json::to_vec(spec).map_err(io::Error::other)?;
+        if bytes.len() > 65536 {
+            return Err(crate::wire::invalid("host specification too large"));
+        }
+        crate::workspace::atomic_write(&dir.join(format!("{}.json", spec.run)), &bytes)
+    })();
+    if result.is_err() {
+        claude::cleanup(state, spec);
     }
-    crate::workspace::atomic_write(
-        &dir.join(format!("{}.json", spec.run)),
-        &serde_json::to_vec(spec).map_err(io::Error::other)?,
-    )
+    result
 }
 pub fn host(state: &Path, run: &str) -> io::Result<()> {
     if run.len() != 32 || !run.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -204,6 +225,7 @@ pub fn host(state: &Path, run: &str) -> io::Result<()> {
         }
         Err(e) => Err(e),
     };
+    claude::cleanup(state, &spec);
     match &result {
         Ok(status) => notify("exited", &status.to_string()),
         Err(e) => notify("failed", &e.to_string()),

@@ -17,7 +17,9 @@ impl Session {
             || os::child_identity(pid)?.1 != start
             || !os::foreground_process(self.master.as_raw_fd(), pid)?
         {
-            return Err(invalid("Codex must start in a live foreground Flere shell"));
+            return Err(invalid(
+                "Native chat must start in a live foreground Flere shell",
+            ));
         }
         let root = self.child.id();
         let mut next = pid;
@@ -57,6 +59,13 @@ impl Server {
             .map_err(io::Error::other)
     }
     pub(super) fn shell_native(&mut self, fields: &[&str]) -> io::Result<Vec<u8>> {
+        let (fields, harness) = match fields {
+            [_, _, _, _, _, _, _, _, harness] if matches!(*harness, "codex" | "claude") => {
+                (&fields[..8], *harness)
+            }
+            fields if fields.len() == 8 => (fields, "codex"),
+            _ => return Err(invalid("invalid shell launch request")),
+        };
         let [_, epoch, session, run, shell_run, pid, start, argv] = fields else {
             return Err(invalid("invalid shell launch request"));
         };
@@ -72,7 +81,7 @@ impl Server {
         }
         t.owns_launcher(pid, start)?;
         if !t.input.is_empty() {
-            return Err(invalid("shell input is still pending; retry Codex"));
+            return Err(invalid("shell input is still pending; retry native chat"));
         }
         let mut argv: Vec<String> =
             serde_json::from_str(&wire::text(argv)?).map_err(io::Error::other)?;
@@ -83,14 +92,21 @@ impl Server {
         {
             return Err(invalid("invalid shell native arguments"));
         }
-        let cwd = crate::native::launcher::working_directory(&argv[1..], &os::process_cwd(pid)?)?;
-        let flags = crate::native::codex_flags(&self.state)?;
-        argv.splice(1..1, flags);
+        let cwd = if harness == "codex" {
+            crate::native::launcher::working_directory(&argv[1..], &os::process_cwd(pid)?)?
+        } else {
+            os::process_cwd(pid)?
+        };
+        if harness == "claude" {
+            crate::native::claude::configure(&self.state, &cwd, &mut argv)?;
+        } else {
+            argv.splice(1..1, crate::native::codex_flags(&self.state)?);
+        }
         let new_run = os::nonce()?;
         let spec = crate::native::HostSpec {
             id,
             run: new_run.clone(),
-            harness: "codex".into(),
+            harness: harness.into(),
             argv,
             cwd,
             shell: os::shell(),
@@ -99,9 +115,16 @@ impl Server {
             launcher: Some((pid, start.to_string())),
         };
         crate::native::write_spec(&self.state, &spec)?;
-        self.audit("shell-native-start", id, &new_run)?;
-        // Recheck immediately before replacing the native authority for this PTY.
-        self.session(id, run)?.owns_launcher(pid, start)?;
+        let ready = self
+            .audit("shell-native-start", id, &new_run)
+            .and_then(|_| {
+                // Recheck immediately before replacing native authority for this PTY.
+                self.session(id, run)?.owns_launcher(pid, start)
+            });
+        if let Err(error) = ready {
+            crate::native::claude::cleanup(&self.state, &spec);
+            return Err(error);
+        }
         self.close_input(id, run);
         if let Some(value) = self.restoration.order.remove(*run) {
             self.restoration.order.insert(new_run.clone(), value);
@@ -116,7 +139,7 @@ impl Server {
         t.shell_run = shell_run.to_string();
         t.run = new_run;
         t.kind = "agent".into();
-        t.title = "codex".into();
+        t.title = harness.into();
         t.native = Some(spec.clone());
         t.working = false;
         let w = self

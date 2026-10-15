@@ -461,7 +461,7 @@ impl Server {
             let m = fs::metadata(&cwd)?;
             let mut d=Dispatch{id:os::nonce()?,request_id:key,coordinator:actor,workspace:target,epoch,cwd,
                 device:m.dev(),inode:m.ino(),issue:w.meta.issue.clone(),branch:w.meta.branch.clone(),base_sha:w.meta.base_sha.clone(),
-                assignment,user_request,argv:crate::native::arguments(&self.state,"codex","")?,phase:Phase::Prepared,
+                assignment,user_request,argv:crate::native::arguments(&self.state,"codex","", &w.cwd)?,phase:Phase::Prepared,
                 detail:"Prepared; no worker has been started. User request is context, not an approval credential.".into(),
                 session:0,run:String::new(),created:now(),started:None,surfaced:None,acknowledged:None};
             d.argv.push(d.prompt());
@@ -560,7 +560,7 @@ impl Server {
                 "stale worker target or existing native work; no launch performed",
             ));
         }
-        let mut argv = crate::native::arguments(&self.state, "codex", "")?;
+        let mut argv = crate::native::arguments(&self.state, "codex", "", &d.cwd)?;
         argv.push(d.prompt());
         if argv != d.argv {
             return Err(invalid(
@@ -705,48 +705,54 @@ impl Server {
         spec: crate::native::HostSpec,
         focus: bool,
     ) -> io::Result<()> {
-        self.pane_tab_capacity(wid)?;
-        self.record_workspace_pane_selection(wid);
-        let mut command = std::process::Command::new(os::executable_path()?);
-        command
-            .arg("--state")
-            .arg(&self.state)
-            .arg("_host")
-            .arg(&spec.run);
-        let (cols, rows) = self.restoration.order.get(&spec.run).map_or_else(
-            || self.pane_size(wid),
-            |order| self.restore_size(wid, *order),
-        );
-        let (master, child) = os::spawn_command_pty(&spec.cwd, &mut command, cols, rows)?;
-        let w = self
-            .workspaces
-            .iter_mut()
-            .find(|w| w.id == wid)
-            .ok_or_else(|| invalid("workspace disappeared"))?;
-        let id = spec.id;
-        w.tabs.push(Session {
-            shell_run: String::new(),
-            id,
-            run: spec.run.clone(),
-            master,
-            child,
-            term: Terminal::new(cols as usize, rows as usize),
-            input: VecDeque::new(),
-            alive: true,
-            ended: false,
-            title: spec.harness.clone(),
-            kind: "agent".into(),
-            path: String::new(),
-            native: Some(spec),
-            working: false,
-        });
-        if focus || w.selected == 0 {
-            w.selected = id;
+        let result = (|| {
+            self.pane_tab_capacity(wid)?;
+            self.record_workspace_pane_selection(wid);
+            let mut command = std::process::Command::new(os::executable_path()?);
+            command
+                .arg("--state")
+                .arg(&self.state)
+                .arg("_host")
+                .arg(&spec.run);
+            let (cols, rows) = self.restoration.order.get(&spec.run).map_or_else(
+                || self.pane_size(wid),
+                |order| self.restore_size(wid, *order),
+            );
+            let (master, child) = os::spawn_command_pty(&spec.cwd, &mut command, cols, rows)?;
+            let w = self
+                .workspaces
+                .iter_mut()
+                .find(|w| w.id == wid)
+                .ok_or_else(|| invalid("workspace disappeared"))?;
+            let id = spec.id;
+            w.tabs.push(Session {
+                shell_run: String::new(),
+                id,
+                run: spec.run.clone(),
+                master,
+                child,
+                term: Terminal::new(cols as usize, rows as usize),
+                input: VecDeque::new(),
+                alive: true,
+                ended: false,
+                title: spec.harness.clone(),
+                kind: "agent".into(),
+                path: String::new(),
+                native: Some(spec.clone()),
+                working: false,
+            });
+            if focus || w.selected == 0 {
+                w.selected = id;
+            }
+            if focus {
+                self.active = wid;
+            }
+            self.changed();
+            Ok(())
+        })();
+        if result.is_err() {
+            crate::native::claude::cleanup(&self.state, &spec);
         }
-        if focus {
-            self.active = wid;
-        }
-        self.changed();
-        Ok(())
+        result
     }
 }
