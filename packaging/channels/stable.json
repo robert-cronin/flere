@@ -22,25 +22,25 @@
       "manifests": {
         "flere-connect": {
           "bytes": 1423,
-          "sha256": "09fca0ab72bd3640860efcbc378362d9946ad664bd070a74f7b39e94cea987f5"
+          "sha256": "8615358a5a66a38f38368e91ac78be0fdd0ab8b12b31404a8252978b379a267d"
         }
       },
       "policy": "current",
-      "version": "0.3.15"
+      "version": "0.3.16"
     },
     "x86_64-unknown-linux-gnu": {
       "manifests": {
         "flere": {
           "bytes": 1901,
-          "sha256": "535819bd865df78d89979f4e22abb96b484f15f63ce6cf82c887e5c08295714e"
+          "sha256": "cd4bab36a62a2e28c0a530d757bfc43d1fc63d205d8b2861fa443ccc20966e91"
         },
         "flere-connect": {
           "bytes": 1700,
-          "sha256": "fd6d4f2bbe94f37994d57a914b7c952fb3a0a391c37f880405240d802c330713"
+          "sha256": "88c3311329fbc528bc979f70dc905edfdbde4dc4a1b91934d420830a1bd2351a"
         }
       },
       "policy": "current",
-      "version": "0.3.15"
+      "version": "0.3.16"
     }
   }
 }
