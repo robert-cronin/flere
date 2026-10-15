@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "flere-connect"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "clipboard-rs",
  "jpeg-decoder",

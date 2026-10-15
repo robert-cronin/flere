@@ -106,6 +106,15 @@ impl Drop for Ssh {
 struct Display {
     keyboard: keyboard::Output,
 }
+impl Display {
+    fn enter(out: &mut impl Write) -> io::Result<Self> {
+        // Construct the cleanup guard before the first terminal write, so a
+        // partial initialization failure still restores the physical modes.
+        let mut display = Self::default();
+        display.keyboard.enter(out)?;
+        Ok(display)
+    }
+}
 impl Drop for Display {
     fn drop(&mut self) {
         let _ = self.keyboard.reset(&mut io::stdout());
@@ -433,12 +442,8 @@ fn run() -> io::Result<()> {
         &format!("connected size={}x{}", size.0, size.1),
     );
     let _console = os::Console::enter()?;
-    let mut display = Display::default();
-    // The companion owns the physical terminal, including with older cores.
-    // Leave Shift gestures to the host before replying: remote OUTPUT may enable
-    // mouse capture as soon as the handshake completes.
-    io::stdout().write_all(b"\x1b[>0s")?;
-    io::stdout().flush()?;
+    let mut display = Display::enter(&mut io::stdout())?;
+    diagnostics::record("terminal-input-modes", "mouse and bracketed paste enabled");
     reply.write(&mut writer)?;
     let (events, rx) = mpsc::sync_channel(32);
     let output_events = events.clone();

@@ -37,6 +37,19 @@ Those states can intentionally defer automatic delivery. Read
 Refresh cannot add launch-time hooks to an existing native process; any restart or
 resume must be explicit and use the correct saved conversation.
 
+## Paste or scrolling stopped after an SSH update
+
+An older companion can hide terminal input-mode setup behind its local update
+screen. Detach with **Ctrl+Space, q** and reconnect using the same connection;
+running chats and drafts remain intact. Current companions initialize mouse
+reporting and bracketed paste before displaying update progress.
+
+If new chats scroll but a preserved older full-screen chat does not, its native
+mouse settings may have been lost by a supervisor predating mouse-mode retention.
+That application must re-emit the settings. Preserve any draft, then explicitly
+exit and resume the same recorded conversation through its harness. Refreshing
+Flere alone cannot reconstruct settings that an older supervisor discarded.
+
 ## An image does not paste or preview on my Mac
 
 The optional companion's native bitmap workflow currently targets Windows.

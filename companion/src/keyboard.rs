@@ -74,6 +74,17 @@ impl<W: Write> Write for LocalOutput<'_, W> {
     }
 }
 impl Output {
+    pub fn enter(&mut self, out: &mut impl Write) -> io::Result<()> {
+        // Own the physical terminal before a local update screen can hide the
+        // remote UI's startup OUTPUT. A later resize only repaints cells.
+        // Shift gestures remain with the host; local prompts retain bracketed
+        // paste and mouse reporting. Display's drop restores the shell modes.
+        self.write(
+            b"\x1b[?1049h\x1b[?2004h\x1b[>0s\x1b[?1003l\x1b[?1000h\x1b[?1002h\x1b[?1006h",
+            true,
+            out,
+        )
+    }
     pub fn local_output<'a, W: Write>(&'a mut self, out: &'a mut W) -> LocalOutput<'a, W> {
         LocalOutput { owner: self, out }
     }
@@ -263,6 +274,45 @@ impl Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_overlay_retains_physical_mouse_and_paste_modes() {
+        // A resumed coordinated update hides both the initial bridge startup
+        // and the refreshed bridge startup behind its local progress screen.
+        let startup = b"\x1b[?1049h\x1b[?2004h\x1b[?1000h\x1b[?1002h\x1b[?1006hhidden startup";
+        for split in 0..=startup.len() {
+            let mut output = Vec::new();
+            let mut owner = Output::default();
+            owner.enter(&mut output).unwrap();
+            let initialized = output.clone();
+            owner.modal(true, &mut output).unwrap();
+            owner.write(&startup[..split], false, &mut output).unwrap();
+            owner.write(&startup[split..], false, &mut output).unwrap();
+            owner
+                .write(
+                    b"\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?1049l",
+                    false,
+                    &mut output,
+                )
+                .unwrap();
+            owner.reset(&mut output).unwrap();
+            owner.write(startup, false, &mut output).unwrap();
+            owner.modal(false, &mut output).unwrap();
+            // A resize repaints cells, without re-emitting any input modes.
+            owner.write(b"\x1b[HWORKBENCH", true, &mut output).unwrap();
+            for mode in [ENTER, b"\x1b[?2004h", b"\x1b[?1002h", b"\x1b[?1006h"] {
+                assert!(
+                    initialized.windows(mode.len()).any(|p| p == mode),
+                    "split {split}: {mode:?}"
+                );
+            }
+            assert_eq!(
+                output,
+                [initialized.as_slice(), b"\x1b[HWORKBENCH"].concat(),
+                "split {split}"
+            );
+        }
+    }
 
     #[test]
     fn fragmented_frames_preserve_output_and_only_pop_owned_entries() {

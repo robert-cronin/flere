@@ -225,4 +225,7 @@ An optional `harnesses.json` in Flere's private state directory can set a Claude
 
 Use the proxy root, without an extra `/v1`, and a model advertised by that gateway. Keep credentials in private state, never in a project checkout. The environment is copied into the owner-only settings file rather than exposed in command arguments. Flere identity, HOME, PATH and Claude's config-directory variables cannot be overridden by this profile. Other harness profiles are preserved. New launches use the profile; existing chats are untouched. Default Haiku/Sonnet/Opus model aliases can also be set through the corresponding `ANTHROPIC_DEFAULT_*_MODEL` variables.
 
+Map each family alias to its intended gateway model. Mapping the Opus alias to a
+Sonnet ID selects Sonnet even if the native picker labels that slot "Custom Opus".
+
 Use an up-to-date Claude Code when routing newer models through Vekil: older clients may send an incompatible thinking format. The gateway must support the client's Messages API. Flere configures the client but does not start, upgrade or implement the gateway. Full-screen Claude uses the same pane-relative native wheel and page-key routing as Codex; inline Claude uses Flere's local scrollback.
