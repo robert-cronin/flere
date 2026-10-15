@@ -21,26 +21,26 @@
     "x86_64-pc-windows-msvc": {
       "manifests": {
         "flere-connect": {
-          "bytes": 1423,
-          "sha256": "8615358a5a66a38f38368e91ac78be0fdd0ab8b12b31404a8252978b379a267d"
+          "bytes": 1424,
+          "sha256": "fc139e188c5a49dea3bc53e7859b8386765a25bb824c23f07b757042d08d4ccd"
         }
       },
       "policy": "current",
-      "version": "0.3.16"
+      "version": "0.3.17"
     },
     "x86_64-unknown-linux-gnu": {
       "manifests": {
         "flere": {
           "bytes": 1901,
-          "sha256": "cd4bab36a62a2e28c0a530d757bfc43d1fc63d205d8b2861fa443ccc20966e91"
+          "sha256": "a401146e485d7d28783d180813505e48c996b12f43e4ac80f2a9391a1750d622"
         },
         "flere-connect": {
           "bytes": 1700,
-          "sha256": "88c3311329fbc528bc979f70dc905edfdbde4dc4a1b91934d420830a1bd2351a"
+          "sha256": "572ba7145bbbcbe517fdb3586fc7a7496193c9e481878bcd9cd856ba3c283d60"
         }
       },
       "policy": "current",
-      "version": "0.3.16"
+      "version": "0.3.17"
     }
   }
 }
