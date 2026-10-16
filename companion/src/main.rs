@@ -571,7 +571,7 @@ fn run() -> io::Result<()> {
             Ok(Event::Input(bytes, received)) => {
                 input_stalls.observe("input-queue", received);
                 typed = Instant::now();
-                if coordinated.discard_input(received) {
+                if coordinated.discard_input(&bytes, received) {
                     continue;
                 }
                 if coordinated.active() {

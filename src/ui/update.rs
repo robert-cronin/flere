@@ -332,7 +332,7 @@ impl Ui {
                     "Updated Flere to {}; sessions preserved and this frontend applied",
                     env!("CARGO_PKG_VERSION")
                 );
-                self.show_update_result();
+                self.update = None;
                 true
             }
             Err(e) => {

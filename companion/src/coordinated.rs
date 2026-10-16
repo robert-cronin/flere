@@ -15,6 +15,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+mod view;
 
 fn invalid(s: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, s)
@@ -124,6 +125,7 @@ struct Flow {
     request: u64,
     fields: [Vec<u8>; 2],
     advanced: bool,
+    details: bool,
     field: usize,
     phase: Phase,
     status: String,
@@ -135,6 +137,34 @@ struct Flow {
     display_pending: bool,
     waiting: Instant,
 }
+#[derive(Default)]
+struct PasteBoundary {
+    paste: bool,
+    matched: usize,
+}
+impl PasteBoundary {
+    fn pending(&self) -> bool {
+        self.paste || self.matched > 0
+    }
+    fn observe(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            let marker = if self.paste {
+                b"\x1b[201~"
+            } else {
+                b"\x1b[200~"
+            };
+            if byte == marker[self.matched] {
+                self.matched += 1;
+                if self.matched == marker.len() {
+                    self.paste = !self.paste;
+                    self.matched = 0;
+                }
+            } else {
+                self.matched = usize::from(byte == 27);
+            }
+        }
+    }
+}
 pub struct Coordinator {
     flow: Option<Flow>,
     last: u64,
@@ -144,6 +174,7 @@ pub struct Coordinator {
     reply: Option<Reply>,
     last_frame: Vec<u8>,
     released: Option<Instant>,
+    paste_boundary: PasteBoundary,
     owner_capable: bool,
     connected: bool,
     discovery: crate::release_discovery::Discovery,
@@ -160,6 +191,7 @@ impl Default for Coordinator {
             reply: None,
             last_frame: Vec::new(),
             released: None,
+            paste_boundary: PasteBoundary::default(),
             owner_capable: false,
             connected: false,
             discovery: Default::default(),
@@ -412,8 +444,13 @@ impl Coordinator {
     pub fn active(&self) -> bool {
         self.flow.is_some()
     }
-    pub fn discard_input(&self, received: Instant) -> bool {
-        self.released.is_some_and(|released| received <= released)
+    pub fn discard_input(&mut self, bytes: &[u8], received: Instant) -> bool {
+        let stale = self.released.is_some_and(|released| received <= released);
+        let draining = !self.active() && self.paste_boundary.pending();
+        if self.active() || stale || draining {
+            self.paste_boundary.observe(bytes);
+        }
+        stale || draining
     }
     fn invalidate(&mut self) {
         self.rpc.1 = self.rpc.1.saturating_add(1);
@@ -458,6 +495,7 @@ impl Coordinator {
             request: 0,
             fields: [Vec::new(), Vec::new()],
             advanced: true,
+            details: false,
             field: 0,
             phase: Phase::Applying,
             status: "Companion updated; completing remote Flere update…".into(),
@@ -517,6 +555,7 @@ impl Coordinator {
             request: packet.id,
             fields: [Vec::new(), Vec::new()],
             advanced: false,
+            details: false,
             field: 0,
             phase: Phase::Current,
             status: "Checking for updates…".into(),
@@ -560,6 +599,11 @@ impl Coordinator {
     fn cancel(&mut self, queue: &mut VecDeque<Packet>, size: (u16, u16)) {
         self.invalidate();
         if let Some(flow) = self.flow.take() {
+            // A deliberately pressed Escape is the close action, rather than
+            // the start of an unfinished bracketed paste.
+            if flow.input == b"\x1b" && !self.paste_boundary.paste {
+                self.paste_boundary.matched = 0;
+            }
             self.released = Some(Instant::now());
             queue.push_back(Packet::new(protocol::RESULT, flow.request, serde_json::to_vec(&json!({"message": if matches!(flow.phase, Phase::Failed | Phase::Current | Phase::Complete) {flow.status} else {"Update cancelled; installed components retained".into()}})).unwrap()));
             queue.push_back(Packet::new(
@@ -580,6 +624,17 @@ impl Coordinator {
         let Some(flow) = &mut self.flow else {
             return Ok(());
         };
+        if !flow.display_pending
+            && received > flow.displayed
+            && !flow.paste
+            && flow.input.is_empty()
+            && flow.phase != Phase::Form
+            && bytes == b"d"
+        {
+            flow.details = !flow.details;
+            flow.display_pending = true;
+            return Ok(());
+        }
         if !flow.display_pending
             && received > flow.displayed
             && !flow.paste
@@ -749,8 +804,8 @@ impl Coordinator {
     pub fn packet(
         &mut self,
         packet: &Packet,
-        _queue: &mut VecDeque<Packet>,
-        _size: (u16, u16),
+        queue: &mut VecDeque<Packet>,
+        size: (u16, u16),
     ) -> io::Result<bool> {
         if packet.tag == crate::protocol::CAPABILITIES
             && packet.id == 0
@@ -795,10 +850,9 @@ impl Coordinator {
             save(plan)?;
             flow.phase = Phase::Complete;
             flow.status = "Updated Flere and this companion; terminal sessions preserved".into();
-            // Keep the verified result visible until a new local key dismisses it.
-            // Buffered input from applying or reconnecting cannot close this screen.
-            flow.input.clear();
-            flow.display_pending = true;
+            // The exact frontend acknowledgement is the completion boundary.
+            // Release the modal and repaint Flere without replaying queued keys.
+            self.cancel(queue, size);
             return Ok(true);
         }
         if !matches!(packet.tag, protocol::BEGIN | protocol::DATA | protocol::END) {
@@ -988,108 +1042,7 @@ impl Coordinator {
         let Some(flow) = &self.flow else {
             return Ok(());
         };
-        let width = usize::from(size.0).saturating_sub(4);
-        let clip = |s: &str| {
-            clean(s)
-                .chars()
-                .scan(0, |n, c| {
-                    *n += c.len_utf8();
-                    (*n <= width).then_some(c)
-                })
-                .collect::<String>()
-        };
-        let mut lines = vec!["LOCAL · Update Flere + companion".into()];
-        if let Some(plan) = &flow.plan {
-            lines.push(format!(
-                "Flere: {} → {} · {}",
-                plan.core.current.package_version,
-                plan.core.candidate.build.package_version,
-                plan.core.candidate.build.target
-            ));
-            lines.push(format!(
-                "Core build: {}",
-                plan.core.candidate.build.build_id
-            ));
-            lines.push(format!(
-                "Companion: {} · {}",
-                plan.companion.package.manifest.build.package_version,
-                plan.companion.package.manifest.build.target
-            ));
-            lines.push(format!(
-                "Companion build: {}",
-                plan.companion.package.manifest.build.build_id
-            ));
-            lines.push("SHA-256 verified · previous packages retained".into());
-            if flow.phase == Phase::Review && plan.owners.manual() {
-                lines.push("Enter also adopts the manual remote core.".into());
-            }
-            if flow.phase == Phase::Review && plan.companion_owner.manual() {
-                lines.push("Enter also adopts the manual local companion.".into());
-            }
-        } else if flow.advanced {
-            lines.push(format!(
-                "{} Remote core: {}",
-                if flow.field == 0 { ">" } else { " " },
-                String::from_utf8_lossy(&flow.fields[0])
-            ));
-            lines.push(format!(
-                "{} Local companion: {}",
-                if flow.field == 1 { ">" } else { " " },
-                String::from_utf8_lossy(&flow.fields[1])
-            ));
-            lines.push("Package path / HTTPS manifest; blank = saved source".into());
-            lines.push("Use --rollback for retained compatible packages".into());
-        } else {
-            lines.push("Published releases · versions detected automatically".into());
-            lines.push("Sessions and drafts stay open during the update.".into());
-        }
-        let height = usize::from(size.1);
-        lines.truncate(height.saturating_sub(4));
-        // Manager commands and recovery guidance remain passive text. Wrap them
-        // within the modal instead of silently cutting off a custom install root.
-        let mut status = vec![String::new()];
-        for ch in clean(&flow.status).chars() {
-            if !status.last().unwrap().is_empty()
-                && status.last().unwrap().len() + ch.len_utf8() > width.max(1)
-            {
-                status.push(String::new());
-            }
-            status.last_mut().unwrap().push(ch);
-        }
-        let room = height.saturating_sub(lines.len() + 3).max(1);
-        if status.len() <= room {
-            lines.extend(status);
-        } else {
-            lines.push("Enlarge this window to read the complete update guidance.".into());
-        }
-        lines.push(
-            match flow.phase {
-                Phase::Form => "Tab field · Enter prepare · Ctrl+U clear · Esc cancel",
-                Phase::Review
-                    if flow
-                        .plan
-                        .as_ref()
-                        .is_some_and(|p| p.owners.manual() || p.companion_owner.manual()) =>
-                {
-                    "Enter ADOPTS manual files + updates · Esc cancel"
-                }
-                Phase::Review => "Enter Update now · Esc cancel",
-                Phase::Complete => "Enter / Esc return to Flere",
-                Phase::Current | Phase::Failed => {
-                    "R check again · A advanced sources · Enter / Esc close"
-                }
-                Phase::Preparing if !flow.advanced => {
-                    "Esc cancel · A advanced sources · checking and downloading"
-                }
-                _ => "Update in progress; all input stays in this local view",
-            }
-            .into(),
-        );
-        let mut frame = b"\x1b[?2026h\x1b[0m\x1b[?25l\x1b[2J\x1b[H".to_vec();
-        for (row, line) in lines.iter().enumerate() {
-            write!(frame, "\x1b[{};3H{}", row + 2, clip(line))?;
-        }
-        frame.extend_from_slice(b"\x1b[?2026l");
+        let frame = view::render(flow, size)?;
         if frame != self.last_frame {
             out.write_all(&frame)?;
             out.flush()?;
@@ -1124,6 +1077,7 @@ mod tests {
                 request: 1,
                 fields: [Vec::new(), Vec::new()],
                 advanced: true,
+                details: false,
                 field: 0,
                 phase: Phase::Form,
                 status: "Select packages".into(),
@@ -1271,12 +1225,12 @@ mod tests {
             )
             .unwrap();
         assert!(!coordinator.active());
-        assert!(coordinator.discard_input(queued_tail));
-        assert!(!coordinator.discard_input(Instant::now()));
+        assert!(coordinator.discard_input(b"queued", queued_tail));
+        assert!(!coordinator.discard_input(b"fresh", Instant::now()));
         assert!(queue.iter().all(|p| p.tag != crate::protocol::KEYS));
     }
     #[test]
-    fn preparation_cancel_discards_late_results_and_completion_requires_fresh_input() {
+    fn preparation_cancel_discards_late_results_and_errors_require_fresh_input() {
         let mut coordinator = form();
         let (tx, rx) = mpsc::channel();
         let flow = coordinator.flow.as_mut().unwrap();
@@ -1298,7 +1252,7 @@ mod tests {
         assert!(stale.ensure_current().is_err());
         assert!(tx.send(Ok(Outcome::Current("late".into()))).is_err());
 
-        for phase in [Phase::Current, Phase::Complete, Phase::Failed] {
+        for phase in [Phase::Current, Phase::Failed] {
             let mut coordinator = form();
             let flow = coordinator.flow.as_mut().unwrap();
             flow.phase = phase;
@@ -1397,6 +1351,62 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+    #[test]
+    fn automatic_return_discards_a_paste_that_crosses_the_completion_boundary() {
+        for start_split in 1..=6 {
+            for end_split in 0..=6 {
+                let mut coordinator = form();
+                coordinator.flow.as_mut().unwrap().phase = Phase::Applying;
+                let start = b"\x1b[200~";
+                let end = b"\x1b[201~";
+                assert!(!coordinator.discard_input(&start[..start_split], Instant::now()));
+                let queued = Instant::now();
+                coordinator.flow.as_mut().unwrap().phase = Phase::Complete;
+                let mut queue = VecDeque::new();
+                coordinator.cancel(&mut queue, (80, 24));
+                assert!(coordinator.discard_input(&start[start_split..], queued));
+                assert!(coordinator.discard_input(b"never submit this\r", Instant::now()));
+                assert!(coordinator.discard_input(&end[..end_split], Instant::now()));
+                if end_split < end.len() {
+                    assert!(coordinator.discard_input(
+                        &[&end[end_split..], b"queued tail"].concat(),
+                        Instant::now()
+                    ));
+                }
+                assert!(!coordinator.discard_input(b"fresh typing", Instant::now()));
+                assert!(queue.iter().all(|p| p.tag != crate::protocol::KEYS));
+            }
+        }
+        let mut coordinator = form();
+        coordinator.paste_boundary.observe(b"\x1b");
+        coordinator.flow.as_mut().unwrap().input = b"\x1b".to_vec();
+        coordinator.cancel(&mut VecDeque::new(), (80, 24));
+        assert!(!coordinator.discard_input(b"first key after Escape", Instant::now()));
+    }
+    #[test]
+    fn details_during_installation_require_a_fresh_local_key() {
+        let mut coordinator = form();
+        coordinator.flow.as_mut().unwrap().phase = Phase::Applying;
+        let queued = Instant::now();
+        coordinator.draw((100, 24), &mut Vec::new()).unwrap();
+        let mut queue = VecDeque::new();
+        for (bytes, received) in [
+            (b"d".as_slice(), queued),
+            (b"\x1b[200~d\x1b[201~".as_slice(), Instant::now()),
+            (b"dd".as_slice(), Instant::now()),
+        ] {
+            coordinator
+                .input(bytes, received, &connection(), &mut queue, (100, 24))
+                .unwrap();
+            assert!(!coordinator.flow.as_ref().unwrap().details);
+        }
+        coordinator
+            .input(b"d", Instant::now(), &connection(), &mut queue, (100, 24))
+            .unwrap();
+        assert!(coordinator.flow.as_ref().unwrap().details);
+        assert!(coordinator.flow.as_ref().unwrap().phase == Phase::Applying);
+        assert!(queue.is_empty());
     }
     #[test]
     fn unchanged_update_overlay_emits_nothing_and_narrow_form_stays_bounded() {

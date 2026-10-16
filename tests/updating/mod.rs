@@ -4,7 +4,7 @@ use super::*;
 mod plans;
 
 #[test]
-fn ui_update_applies_the_verified_package_and_acknowledges_the_new_frontend() {
+fn ui_update_applies_the_verified_package_and_returns_to_the_preserved_session() {
     let f = Fixture::new();
     let tabs = splits::probes(&f, 2);
     splits::pane(&f, "split-right", Some("move"));
@@ -73,14 +73,14 @@ fn ui_update_applies_the_verified_package_and_acknowledges_the_new_frontend() {
     splits::unchanged(&f, &tabs);
     assert_eq!(splits::input(&f, &tabs[0]), b"KEEP_LEFT");
     assert_eq!(splits::input(&f, &tabs[1]), b"KEEP_RIGHT");
-    master.write_all(b"IGNORED_ON_RESULT").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 150);
+    wait_current_ui(&mut master, &mut screen, |s| {
+        s.capture(100).contains("PANE_READY_")
+    });
     assert_eq!(splits::input(&f, &tabs[1]), b"KEEP_RIGHT");
-    master.write_all(b"\r").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 150);
     master.write_all(b"AFTER_UPDATE").unwrap();
-    pump_ui_bytes(&mut master, &mut screen, 150);
-    assert_eq!(splits::input(&f, &tabs[1]), b"KEEP_RIGHTAFTER_UPDATE");
+    wait_current_ui(&mut master, &mut screen, |_| {
+        splits::input(&f, &tabs[1]) == b"KEEP_RIGHTAFTER_UPDATE"
+    });
     finish_ui(&mut master, &mut screen, &mut child);
 }
 

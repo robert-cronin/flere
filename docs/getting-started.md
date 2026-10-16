@@ -202,8 +202,10 @@ result. Downloads and checks run in the background while terminals keep draining
 
 Over SSH, the companion prepares the remote core and local companion together.
 Applying restarts the companion, reconnects, and refreshes the remote core and this
-window. Exact sessions and drafts stay on the supervisor. The completion screen
-stays open until **Enter** or **Esc**; other attachments are reported separately.
+window. Exact sessions and drafts stay on the supervisor. After the updated
+frontend is verified, Flere returns automatically with a completion notice.
+Failed or partial updates keep their recovery guidance open. **D** toggles build
+details in the companion's update screen; other attachments are reported separately.
 See [remote setup](guides/remote.md).
 
 Managed official-release installs check for availability shortly after opening a

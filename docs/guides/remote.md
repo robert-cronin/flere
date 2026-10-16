@@ -42,8 +42,10 @@ Screenshot export needs v5 or newer; coordinated updates and file/port tools nee
 
 With the current pair, **Ctrl+Space, Shift+K** opens the companion's local update
 screen and finds and verifies the latest compatible release for both components.
-Review the versions, then **Enter** applies or **Esc** cancels. After reconnecting,
-the result stays visible until dismissed. **A** opens custom package sources.
+Review the versions, then **Enter** applies or **Esc** cancels. **D** toggles build
+details. After the updated frontend is verified, Flere returns automatically with
+a completion notice. Failed or partial updates keep their recovery guidance open.
+**A** opens custom package sources.
 This requires the guarded Flere update endpoint; an unrecognized peer is left unchanged. Old Railhand peers require a fresh Flere installation.
 See [setup and updates](../getting-started.md#update-from-flere).
 

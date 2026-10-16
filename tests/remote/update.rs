@@ -161,7 +161,7 @@ fn coordinated_update_reexecs_companion_and_core_with_exact_session_and_frontend
         let mut ui = Ui::attach(&f, &ssh, width, height);
         let companion_pid = ui.child.id();
         ui.key(b"\0K");
-        ui.wait("LOCAL · Update Flere + companion");
+        ui.wait("Update Flere");
         ui.key(b"a");
         ui.wait("Custom package sources");
         ui.artifact(&format!("sources-{width}"));
@@ -173,6 +173,14 @@ fn coordinated_update_reexecs_companion_and_core_with_exact_session_and_frontend
         ui.key(fields.as_bytes());
         ui.wait("Packages verified.");
         ui.artifact(&format!("review-{width}"));
+        assert!(!ui.screen.capture(110).contains("Core build:"));
+        if width >= 100 {
+            ui.key(b"d");
+            ui.wait("Core build:");
+            ui.artifact(&format!("details-{width}"));
+            ui.key(b"d");
+            assert!(!ui.screen.capture(110).contains("Core build:"));
+        }
         assert_eq!(
             fs::read(bin.join("flere")).unwrap(),
             fs::read(env!("CARGO_BIN_EXE_flere")).unwrap()
@@ -276,10 +284,9 @@ fn coordinated_update_reexecs_companion_and_core_with_exact_session_and_frontend
         unchanged(&f, &tabs);
         assert_eq!(probe_input(&f, &tabs[0]), b"UPDATE_LEFT_DRAFT");
         assert_eq!(probe_input(&f, &tabs[1]), b"UPDATE_RIGHT_DRAFT");
-        ui.key(b"IGNORED_ON_RESULT");
-        assert_eq!(probe_input(&f, &tabs[1]), b"UPDATE_RIGHT_DRAFT");
-        ui.key(b"\r");
         ui.wait("PANE_READY_");
+        assert!(!ui.screen.capture(110).contains("Returning automatically"));
+        assert_eq!(probe_input(&f, &tabs[1]), b"UPDATE_RIGHT_DRAFT");
         ui.key(b"AFTER_UPDATE");
         wait_current_ui(&mut ui.master, &mut ui.screen, |_| {
             probe_input(&f, &tabs[1]) == b"UPDATE_RIGHT_DRAFTAFTER_UPDATE"
@@ -329,7 +336,7 @@ fn coordinated_preflight_blocks_manager_and_unproven_remote_before_staging() {
         let ssh = fake_ssh(&f);
         let mut ui = Ui::attach(&f, &ssh, 100, 28);
         ui.key(b"\0K");
-        ui.wait("LOCAL · Update Flere + companion");
+        ui.wait("Update Flere");
         ui.wait(expected);
         assert!(
             !f.root.join(".local/share/flere/install").exists(),
@@ -393,7 +400,7 @@ fn same_version_older_candidates_are_rejected_before_either_install() {
         let ssh = fake_ssh(&f);
         let mut ui = Ui::attach(&f, &ssh, 100, 28);
         ui.key(b"\0K");
-        ui.wait("LOCAL · Update Flere + companion");
+        ui.wait("Update Flere");
         ui.key(b"a");
         ui.wait("Custom package sources");
         ui.key(format!("{}\t{}\r", packages[0].display(), packages[1].display()).as_bytes());
@@ -713,10 +720,9 @@ fn automatic_update(previous_core: Option<&Path>) {
             .windows(b"AUTOMATIC_UPDATE_DRAFT".len())
             .any(|w| w == b"AUTOMATIC_UPDATE_DRAFT")
     );
-    ui.wait("Enter / Esc return to Flere");
-    ui.artifact("automatic-complete");
-    ui.key(b"\r");
     ui.wait("PANE_READY_");
+    assert!(!ui.screen.capture(110).contains("Returning automatically"));
+    ui.artifact("automatic-complete");
     let requests_before = fs::read_to_string(f.root.join("release-http/requests")).unwrap();
     ui.key(b"\0K");
     ui.wait("You're up to date");
@@ -737,7 +743,7 @@ fn automatic_update(previous_core: Option<&Path>) {
 }
 
 #[test]
-fn local_automatic_update_preserves_sessions_and_keeps_its_result_open() {
+fn local_automatic_update_preserves_sessions_and_returns_without_an_extra_key() {
     let f = Fixture::new();
     let older = install_older_release(&f, None);
     let tabs = probes(&f, 1);
@@ -802,9 +808,8 @@ fn local_automatic_update_preserves_sessions_and_keeps_its_result_open() {
             .package_version,
         env!("CARGO_PKG_VERSION")
     );
-    ui.key(b"IGNORED_ON_RESULT");
+    ui.wait("PANE_READY_");
     assert_eq!(probe_input(&f, &tabs[0]), b"LOCAL_UPDATE_DRAFT");
-    ui.key(b"\r");
     ui.key(b"AFTER_LOCAL_UPDATE");
     wait_current_ui(&mut ui.master, &mut ui.screen, |_| {
         probe_input(&f, &tabs[0]) == b"LOCAL_UPDATE_DRAFTAFTER_LOCAL_UPDATE"
